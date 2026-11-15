@@ -8,6 +8,13 @@
 # Robot description to simulate (see robots/).
 robot=robots/mecanum.json
 
+# More robots on the same field (up to 4, two per alliance). A robot without its own
+# projectN / robotN uses robot 1's. Default alliances: robot 1 red, 2 blue, 3 red, 4 blue.
+#robots=2
+#project2=C:/Users/you/Documents/GitHub/OtherTeam/FtcRobotController
+#robot2=robots/tank.json
+#alliance2=blue
+
 # Web port for the browser Driver Station.
 port=8080
 

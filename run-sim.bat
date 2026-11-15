@@ -2,6 +2,7 @@
 rem Starts the FTC simulator. Arguments are passed through, for example:
 rem   .\run-sim.bat --project "C:\path\to\FtcRobotController"
 rem   .\run-sim.bat --project "C:\path\to\FtcRobotController" --robot robots\tank.json
+rem   .\run-sim.bat --project "C:\path\to\FtcRobotController" --project2 "C:\path\to\OtherFtcRobotController"
 rem Or put project=... and robot=... in sim.properties and just run .\run-sim.bat
 setlocal
 cd /d "%~dp0"

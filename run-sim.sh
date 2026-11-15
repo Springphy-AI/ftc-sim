@@ -2,6 +2,7 @@
 # Starts the FTC simulator. Arguments are passed through, for example:
 #   sh run-sim.sh --project ~/FtcRobotController
 #   sh run-sim.sh --project ~/FtcRobotController --robot robots/tank.json
+#   sh run-sim.sh --project ~/FtcRobotController --project2 ~/OtherFtcRobotController
 # Or put project=... and robot=... in sim.properties and just run sh run-sim.sh.
 cd "$(dirname "$0")" || exit 1
 

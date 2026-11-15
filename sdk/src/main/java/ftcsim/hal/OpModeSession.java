@@ -31,6 +31,7 @@ public final class OpModeSession {
 
     private final String name;
     private final OpMode opMode;
+    private final RobotContext robot;
     private final boolean linear;
     private final Listener listener;
 
@@ -43,6 +44,16 @@ public final class OpModeSession {
 
     public OpModeSession(String name, OpMode opMode, HardwareMap hardwareMap, Gamepad gamepad1, Gamepad gamepad2,
                          Telemetry telemetry, Listener listener) {
+        this(null, name, opMode, hardwareMap, gamepad1, gamepad2, telemetry, listener);
+    }
+
+    /**
+     * @param robot the simulated robot this OpMode runs on; its thread, and any thread the OpMode
+     *              starts, see that robot's blackboard, global messages and bus latency. May be null.
+     */
+    public OpModeSession(RobotContext robot, String name, OpMode opMode, HardwareMap hardwareMap, Gamepad gamepad1,
+                         Gamepad gamepad2, Telemetry telemetry, Listener listener) {
+        this.robot = robot;
         this.name = name;
         this.opMode = opMode;
         this.linear = opMode instanceof LinearOpMode;
@@ -99,6 +110,7 @@ public final class OpModeSession {
         thread = new Thread(new Runnable() {
             @Override
             public void run() {
+                if (robot != null) robot.enter();
                 runOpModeThread();
             }
         }, "OpMode " + name);

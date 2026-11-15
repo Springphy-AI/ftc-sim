@@ -78,6 +78,51 @@ select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px s
 .stop { width: 54px; height: 54px; border-radius: 10px; border: 1px solid var(--line); background: var(--card-2); color: var(--red); font-size: 20px; cursor: pointer; }
 .stop:disabled { color: var(--faint); cursor: default; }
 .status { justify-content: space-between; }
+
+/* ---- several robots: a card per robot with its controls, the selected robot's details below ---- */
+.ds.multi .single-only, .ds:not(.multi) .multi-only { display: none !important; }
+.title-hint { text-transform: none; letter-spacing: 0; }
+.robot-rows { display: flex; flex-direction: column; gap: 6px; }
+.robot-row { display: flex; flex-direction: column; gap: 7px; padding: 8px 8px 8px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--card); box-shadow: inset 3px 0 0 var(--faint); cursor: pointer; }
+.robot-row.red { box-shadow: inset 3px 0 0 var(--red); }
+.robot-row.blue { box-shadow: inset 3px 0 0 var(--blue); }
+.robot-row:hover { border-color: #3d444e; }
+.robot-row.on { background: var(--card-2); border-color: #5b6470; }
+.rr-head { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; text-align: left; }
+.rr-head b { font-weight: 650; font-size: 14px; white-space: nowrap; }
+.rr-alliance { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rr-status { margin-left: auto; color: var(--muted); font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rr-status.running { color: #7be3a8; }
+.rr-status.init { color: #a9c4ff; }
+.rr-status.low { color: var(--red); }
+.robot-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.robot-row .dot.init { background: #6f9bff; }
+.robot-row .dot.stopping { background: var(--amber); }
+.robot-row .dot.running { background: var(--green); }
+.rr-controls { display: grid; grid-template-columns: minmax(0, 1fr) 92px 36px; gap: 6px; }
+.rr-controls select { min-width: 0; width: 100%; padding: 6px 7px; }
+.rr-controls .go { height: 32px; border: 0; border-radius: 7px; font-weight: 700; font-size: 13px; letter-spacing: .5px; cursor: pointer; white-space: nowrap; }
+.go.init { background: #2b3a55; color: #cfe0ff; }
+.go.start { background: var(--green); color: #06210f; }
+.go.running { background: var(--red); color: #fff; }
+.go.stopping, .go:disabled { background: var(--card); color: var(--faint); cursor: default; }
+.rr-controls .halt { height: 32px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--red); cursor: pointer; }
+.rr-controls .halt:disabled { color: var(--faint); cursor: default; }
+.rr-msg { border-radius: 6px; padding: 7px 8px; font-size: 12px; cursor: auto; }
+.rr-msg.error { background: rgba(229, 72, 77, .14); border: 1px solid rgba(229, 72, 77, .5); }
+.rr-msg.error .text { color: #ffb4b6; font-family: var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+.rr-msg.warn { background: rgba(240, 180, 41, .12); border: 1px solid rgba(240, 180, 41, .45); color: var(--amber); }
+.rr-msg .actions { display: flex; gap: 6px; margin-top: 7px; }
+.rr-msg .fix { background: #e5484d; color: #fff; border: 0; border-radius: 6px; padding: 4px 10px; font-weight: 600; cursor: pointer; }
+.match { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.match button { flex: 1; font-weight: 600; }
+.match-opts { justify-content: space-between; }
+.secondary:disabled { color: var(--faint); cursor: default; }
+.match .start-all:not(:disabled) { background: var(--green); border-color: transparent; color: #06210f; }
+.match .stop-all:not(:disabled) { color: var(--red); }
+.gamepads > .card-title { grid-column: 1 / -1; margin-bottom: 0; }
+.tabs-robot { margin-left: auto; align-self: center; color: var(--faint); font-size: 12px; padding-right: 4px; }
 .pill { padding: 2px 8px; border-radius: 999px; background: var(--card-2); color: var(--muted); font-weight: 600; font-size: 12px; }
 .pill.init { background: rgba(62, 123, 250, .2); color: #a9c4ff; }
 .pill.running { background: rgba(47, 191, 113, .18); color: #7be3a8; }

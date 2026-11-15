@@ -85,9 +85,7 @@ public final class WebServer {
                     ctx.enableAutomaticPings(5, TimeUnit.SECONDS);
                     Client c = new Client(ctx);
                     clients.add(c);
-                    c.send(sim.helloJson());
-                    c.send(sim.buildJson());
-                    c.send(sim.dsJson());
+                    for (String m : sim.welcomeMessages()) c.send(m);
                 });
                 ws.onMessage(ctx -> sim.handle(ctx.message()));
                 ws.onClose(ctx -> {

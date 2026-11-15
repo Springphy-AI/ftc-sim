@@ -4,6 +4,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Locale;
 
+import ftcsim.hal.RobotContext;
 import ftcsim.hal.SimLog;
 
 /**
@@ -15,10 +16,15 @@ public class RobotLog {
     public static final String OPMODE_STOP_TAG = "******************** STOP - OPMODE ********************";
     public static final String TAG = "RobotCore";
 
-    private static volatile String globalErrorMessage = "";
-    private static volatile String globalWarningMessage = "";
+    /** Global messages of code running outside any simulated robot; each robot has its own. */
+    private static final RobotContext OUTSIDE = new RobotContext(-1);
 
     private RobotLog() {
+    }
+
+    private static RobotContext robot() {
+        RobotContext c = RobotContext.current();
+        return c == null ? OUTSIDE : c;
     }
 
     private static String fmt(String format, Object... args) {
@@ -91,12 +97,13 @@ public class RobotLog {
     }
 
     public static boolean setGlobalErrorMsg(String message) {
-        if (globalErrorMessage.isEmpty()) {
-            globalErrorMessage = message;
-            SimLog.globalError(message);
-            return true;
+        RobotContext r = robot();
+        synchronized (r) {
+            if (!r.globalError.isEmpty()) return false;
+            r.globalError = message;
         }
-        return false;
+        SimLog.globalError(message);
+        return true;
     }
 
     public static void setGlobalErrorMsg(String format, Object... args) {
@@ -104,8 +111,13 @@ public class RobotLog {
     }
 
     public static void addGlobalWarningMessage(String message) {
-        globalWarningMessage = globalWarningMessage.isEmpty() ? message : globalWarningMessage + "; " + message;
-        SimLog.globalWarning(globalWarningMessage);
+        RobotContext r = robot();
+        String all;
+        synchronized (r) {
+            r.globalWarning = r.globalWarning.isEmpty() ? message : r.globalWarning + "; " + message;
+            all = r.globalWarning;
+        }
+        SimLog.globalWarning(all);
     }
 
     public static void addGlobalWarningMessage(String format, Object... args) {
@@ -113,24 +125,24 @@ public class RobotLog {
     }
 
     public static String getGlobalErrorMsg() {
-        return globalErrorMessage;
+        return robot().globalError;
     }
 
     public static boolean hasGlobalErrorMsg() {
-        return !globalErrorMessage.isEmpty();
+        return !robot().globalError.isEmpty();
     }
 
     public static boolean hasGlobalWarningMsg() {
-        return !globalWarningMessage.isEmpty();
+        return !robot().globalWarning.isEmpty();
     }
 
     public static void clearGlobalErrorMsg() {
-        globalErrorMessage = "";
+        robot().globalError = "";
         SimLog.globalError("");
     }
 
     public static void clearGlobalWarningMsg() {
-        globalWarningMessage = "";
+        robot().globalWarning = "";
         SimLog.globalWarning("");
     }
 }

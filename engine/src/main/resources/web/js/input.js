@@ -1,4 +1,4 @@
-// Gamepad and keyboard input for gamepad1/gamepad2, sent to the simulator 50 times a second.
+// Gamepad and keyboard input for every robot's gamepad1/gamepad2, sent to the simulator 50 times a second.
 // Button layout follows the W3C "standard" gamepad mapping, which is also what the simulator expects:
 // 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 back, 9 start, 10 LS, 11 RS,
 // 12 up, 13 down, 14 left, 15 right, 16 guide, 17 touchpad.
@@ -11,6 +11,7 @@ const KEY_BUTTONS = {
 };
 const KEY_CAPTURE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyC',
   ...Object.keys(KEY_BUTTONS)]);
+const SLOTS = [1, 2];
 
 function kindOf(id) {
   if (/xbox|xinput|045e/i.test(id)) return 'XBOX_360';
@@ -31,16 +32,21 @@ function stick(x, y) {
   return [x * scale, y * scale];
 }
 
+const key = (robot, slot) => `${robot}:${slot}`;
+
 export class InputManager {
   constructor(send) {
     this.send = send;
     this.keys = new Set();
     this.tapped = new Set();
     this.shift = false;
-    this.sources = { 1: 'auto', 2: 'none' };
-    this.lastSent = { 1: '', 2: '' };
-    this.lastTime = { 1: 0, 2: 0 };
-    this.states = { 1: null, 2: null };
+    this.robotCount = 1;
+    this.current = 0;        // the robot whose Driver Station is on screen
+    this.locked = null;      // ?robot=N: this page only drives robot N
+    this.sources = {};       // 'robot:slot' -> 'auto' | 'keyboard' | 'pad:N' | 'none'
+    this.lastSent = {};
+    this.lastTime = {};
+    this.states = {};
     this.listeners = [];
 
     window.addEventListener('keydown', (e) => this.onKey(e, true));
@@ -54,6 +60,25 @@ export class InputManager {
   onChange(fn) { this.listeners.push(fn); }
 
   emit() { for (const fn of this.listeners) fn(); }
+
+  /** How many robots are on the field, and which one this page shows (and drives, if locked). */
+  setRobots(count, current, locked) {
+    this.robotCount = count;
+    this.current = current;
+    this.locked = locked;
+    this.emit();
+  }
+
+  setCurrent(robot) {
+    this.current = robot;
+    this.emit();
+  }
+
+  /** Robots this page sends gamepad input for. */
+  activeRobots() {
+    if (this.locked !== null) return [this.locked];
+    return Array.from({ length: this.robotCount }, (_, i) => i);
+  }
 
   typingIn(target) {
     const tag = target?.tagName;
@@ -85,34 +110,67 @@ export class InputManager {
     return opts;
   }
 
-  setSource(slot, value) {
-    this.sources[slot] = value;
+  /** The picker setting: gamepad 1 is Auto and gamepad 2 None until changed. */
+  source(robot, slot) {
+    return this.sources[key(robot, slot)] ?? (slot === 1 ? 'auto' : 'none');
+  }
+
+  setSource(robot, slot, value) {
+    this.sources[key(robot, slot)] = value;
     this.emit();
   }
 
-  /** What actually feeds a slot right now: a Gamepad, 'keyboard', or null. */
-  resolve(slot) {
-    const src = this.sources[slot];
+  /**
+   * What feeds every slot right now: a Gamepad, 'keyboard', or null. Auto slots take the controllers
+   * nobody picked explicitly, every robot's gamepad 1 first (in robot order), then gamepad 2s set to Auto.
+   * The keyboard goes to one Auto gamepad 1 still without a controller: the robot on screen if it is one
+   * of them, unless a slot picked the keyboard explicitly.
+   */
+  assignments() {
     const pads = this.pads();
-    if (src === 'none') return null;
-    if (src === 'keyboard') return 'keyboard';
-    if (src.startsWith('pad:')) return pads.find((p) => p.index === Number(src.slice(4))) || null;
-    // auto: gamepad 1 takes the first controller (or the keyboard), gamepad 2 the second controller
-    const taken = slot === 2 ? this.resolve(1) : null;
-    const free = pads.filter((p) => p !== taken && !Object.values(this.sources).includes(`pad:${p.index}`));
-    if (slot === 1) return free[0] || 'keyboard';
-    return free[0] || null;
+    const robots = this.activeRobots();
+    const out = {};
+    const explicitPads = new Set();
+    let keyboardTaken = false;
+    for (const r of robots) {
+      for (const s of SLOTS) {
+        const src = this.source(r, s);
+        if (src.startsWith('pad:')) explicitPads.add(Number(src.slice(4)));
+        if (src === 'keyboard') keyboardTaken = true;
+      }
+    }
+    const free = pads.filter((p) => !explicitPads.has(p.index));
+    const autos = [];
+    for (const s of SLOTS) for (const r of robots) if (this.source(r, s) === 'auto') autos.push([r, s]);
+    for (const r of robots) {
+      for (const s of SLOTS) {
+        const src = this.source(r, s);
+        if (src === 'none' || src === 'auto') out[key(r, s)] = null;
+        else if (src === 'keyboard') out[key(r, s)] = 'keyboard';
+        else out[key(r, s)] = pads.find((p) => p.index === Number(src.slice(4))) || null;
+      }
+    }
+    for (const [r, s] of autos) out[key(r, s)] = free.shift() || null;
+    if (!keyboardTaken) {
+      const waiting = autos.filter(([r, s]) => s === 1 && out[key(r, s)] === null).map(([r]) => r);
+      const pick = waiting.includes(this.current) ? this.current : waiting[0];
+      if (pick !== undefined) out[key(pick, 1)] = 'keyboard';
+    }
+    return out;
   }
 
-  describe(slot) {
-    const r = this.resolve(slot);
+  resolve(robot, slot) {
+    return this.assignments()[key(robot, slot)] ?? null;
+  }
+
+  describe(robot, slot) {
+    const r = this.resolve(robot, slot);
     if (r === null) return 'not assigned';
     if (r === 'keyboard') return 'keyboard';
     return shortName(r.id);
   }
 
-  read(slot) {
-    const r = this.resolve(slot);
+  read(r) {
     const buttons = new Array(N_BUTTONS).fill(false);
     let axes = [0, 0, 0, 0, 0, 0];
     let kind = 'UNKNOWN';
@@ -135,26 +193,33 @@ export class InputManager {
 
   tick() {
     const now = performance.now();
-    for (const slot of [1, 2]) {
-      const st = this.read(slot);
-      this.states[slot] = st;
-      const msg = JSON.stringify({ type: 'gamepad', gamepad: slot, kind: st.kind, axes: st.axes, buttons: st.buttons });
-      if (msg !== this.lastSent[slot] || now - this.lastTime[slot] > 250) {
-        this.send(msg);
-        this.lastSent[slot] = msg;
-        this.lastTime[slot] = now;
+    const assign = this.assignments();
+    for (const robot of this.activeRobots()) {
+      for (const slot of SLOTS) {
+        const k = key(robot, slot);
+        const st = this.read(assign[k] ?? null);
+        this.states[k] = st;
+        const msg = JSON.stringify({ type: 'gamepad', robot, gamepad: slot, kind: st.kind, axes: st.axes, buttons: st.buttons });
+        if (msg !== this.lastSent[k] || now - (this.lastTime[k] ?? 0) > 250) {
+          this.send(msg);
+          this.lastSent[k] = msg;
+          this.lastTime[k] = now;
+        }
       }
     }
     this.tapped.clear();
   }
 
-  usesKeyboard() {
-    return this.resolve(1) === 'keyboard' || this.resolve(2) === 'keyboard';
+  /** The [robot, slot] the keyboard drives, or null. */
+  keyboardSlot() {
+    const assign = this.assignments();
+    for (const robot of this.activeRobots()) for (const slot of SLOTS) if (assign[key(robot, slot)] === 'keyboard') return [robot, slot];
+    return null;
   }
 
   /** Plays a rumble effect sent by robot code (gamepad1.rumble(...)). */
-  rumble(slot, strong, weak, durations) {
-    const pad = this.resolve(slot);
+  rumble(robot, slot, strong, weak, durations) {
+    const pad = this.resolve(robot, slot);
     if (!pad || pad === 'keyboard' || !pad.vibrationActuator) return;
     let delay = 0;
     for (let i = 0; i < durations.length; i++) {

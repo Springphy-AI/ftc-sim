@@ -1,4 +1,4 @@
-// 3D view of the BIOBUZZ field and the simulated robot (Three.js, z-up, meters).
+// 3D view of the BIOBUZZ field and the simulated robots (Three.js, z-up, meters).
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 
@@ -9,6 +9,8 @@ const COLORS = {
 
 // SCORING ELEMENTS: yellow POLLEN, red and blue NECTAR.
 const BALL_COLORS = { yellow: 0xf4d23c, red: 0xd8343a, blue: 0x2f6fe0 };
+// Side plates of robots on each alliance, when there is more than one robot to tell apart.
+const ALLIANCE_PLATES = { red: '#b3261e', blue: '#1e4fb3' };
 
 const CAMERAS = {
   audience: { pos: [0, -4.5, 2.8], target: [0, -0.15, 0.25] },
@@ -46,7 +48,8 @@ export class FieldView {
 
     this.fieldGroup = new THREE.Group();
     this.scene.add(this.fieldGroup);
-    this.robot = null;
+    this.robots = [];
+    this.focus = 0;           // the robot the chase camera follows and Place robot moves
     this.ballGroup = new THREE.Group();
     this.scene.add(this.ballGroup);
     this.balls = [];
@@ -304,16 +307,48 @@ export class FieldView {
     }
   }
 
-  // ---- robot -------------------------------------------------------------------------------
+  // ---- robots ------------------------------------------------------------------------------
 
-  setRobot(cfg, wheels, wheelRadius, chassisZ) {
-    if (this.robot) this.scene.remove(this.robot.group);
+  /** One model per robot on the field (the hello message's robots). */
+  setRobots(list) {
+    for (const r of this.robots) this.scene.remove(r.group);
+    const several = list.length > 1;
+    this.robots = list.map((r) => this.buildRobot(r.robot, r.wheels, r.wheelRadius, r.chassisZ,
+      several ? { plate: ALLIANCE_PLATES[r.alliance], number: r.index + 1, alliance: r.alliance } : {}));
+    if (this.focus >= this.robots.length) this.focus = 0;
+  }
+
+  setFocus(i) {
+    this.focus = i;
+  }
+
+  /** A sprite with the robot's number, above it, in its alliance color. */
+  numberTag(n, alliance) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = alliance === 'blue' ? '#2f6fe0' : '#d23a3f';
+    ctx.beginPath(); ctx.arc(32, 32, 29, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 38px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(n), 32, 34);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    sprite.scale.set(0.13, 0.13, 1);
+    sprite.renderOrder = 10;
+    return sprite;
+  }
+
+  buildRobot(cfg, wheels, wheelRadius, chassisZ, opts) {
     const c = cfg.chassis;
     const L = c.length_m, W = c.width_m, H = c.frame_height_m;
     const group = new THREE.Group();
     const mats = {
       frame: new THREE.MeshStandardMaterial({ color: COLORS.frame, metalness: 0.4, roughness: 0.55 }),
-      plate: new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || '#b3261e'), roughness: 0.5 }),
+      plate: new THREE.MeshStandardMaterial({ color: new THREE.Color(opts.plate || c.color || '#b3261e'), roughness: 0.5 }),
       metal: new THREE.MeshStandardMaterial({ color: COLORS.aluminum, metalness: 0.6, roughness: 0.35 }),
       dark: new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.8 }),
       accent: new THREE.MeshStandardMaterial({ color: 0xf0b429, roughness: 0.4 }),
@@ -358,6 +393,7 @@ export class FieldView {
     const roleOf = (d) => d.role || '';
     const devices = cfg.devices || [];
     let armTip = null;
+    let launcherTop = top + 0.31;
     for (const d of devices) {
       switch (roleOf(d)) {
         case 'intake': {
@@ -376,12 +412,11 @@ export class FieldView {
           wheel.castShadow = true;
           group.add(wheel);
           mech[d.name] = (v) => { wheel.rotation.y = -v; };
-          this._launcherTop = top + 0.31;
           break;
         }
         case 'hood': {
           const pivot = new THREE.Group();
-          pivot.position.set(-0.13, 0, (this._launcherTop ?? top + 0.31) + 0.055);
+          pivot.position.set(-0.13, 0, launcherTop + 0.055);
           const plate = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.006), mats.accent);
           plate.position.x = 0.065;
           plate.castShadow = true;
@@ -437,8 +472,14 @@ export class FieldView {
       mech[d.name] = (v) => { pivot.rotation.z = side * (0.5 - v * 0.5); };
     }
 
+    if (opts.number) {
+      const tag = this.numberTag(opts.number, opts.alliance);
+      tag.position.set(0, 0, top + 0.55);
+      group.add(tag);
+    }
+
     this.scene.add(group);
-    this.robot = { group, wheels: wheelMeshes, mech, led, chassisZ, cfg };
+    return { group, wheels: wheelMeshes, mech, led, chassisZ, cfg };
   }
 
   stripeTexture(a, b) {
@@ -469,14 +510,15 @@ export class FieldView {
   }
 
   updateState(s) {
-    const r = this.robot;
-    if (!r) return;
-    r.group.position.set(s.p[0], s.p[1], s.p[2]);
-    r.group.quaternion.set(s.q[1], s.q[2], s.q[3], s.q[0]);
-    for (let i = 0; i < r.wheels.length && i < s.wheels.length; i++) r.wheels[i].rotation.y = s.wheels[i];
-    for (const [name, apply] of Object.entries(r.mech)) {
-      const v = s.mech?.[name];
-      if (typeof v === 'number') apply(v);
+    for (let k = 0; k < this.robots.length && k < (s.robots?.length ?? 0); k++) {
+      const r = this.robots[k], rs = s.robots[k];
+      r.group.position.set(rs.p[0], rs.p[1], rs.p[2]);
+      r.group.quaternion.set(rs.q[1], rs.q[2], rs.q[3], rs.q[0]);
+      for (let i = 0; i < r.wheels.length && i < rs.wheels.length; i++) r.wheels[i].rotation.y = rs.wheels[i];
+      for (const [name, apply] of Object.entries(r.mech)) {
+        const v = rs.mech?.[name];
+        if (typeof v === 'number') apply(v);
+      }
     }
     if (s.balls) {
       for (let i = 0; i < this.balls.length && 3 * i + 2 < s.balls.length; i++) {
@@ -487,13 +529,13 @@ export class FieldView {
     this.lastState = s;
   }
 
-  setHubLed(color) {
-    if (this.robot) this.robot.led.material.color.set(color);
+  setHubLed(i, color) {
+    if (this.robots[i]) this.robots[i].led.material.color.set(color);
   }
 
-  /** Robot pose for the HUD: field x, y (m) and heading (deg). */
-  pose() {
-    const s = this.lastState;
+  /** A robot's pose for the HUD: field x, y (m) and heading (deg). */
+  pose(i = this.focus) {
+    const s = this.lastState?.robots?.[i];
     if (!s) return null;
     const [w, x, y, z] = s.q;
     const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
@@ -521,8 +563,9 @@ export class FieldView {
     const now = performance.now();
     const dt = Math.min(0.1, (now - (this._last ?? now)) / 1000);
     this._last = now;
-    if (this.mode === 'follow' && this.robot) {
-      const g = this.robot.group;
+    const followed = this.robots[this.focus];
+    if (this.mode === 'follow' && followed) {
+      const g = followed.group;
       const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(g.quaternion);
       fwd.z = 0; fwd.normalize();
       const want = g.position.clone().addScaledVector(fwd, -1.25).add(new THREE.Vector3(0, 0, 0.75));

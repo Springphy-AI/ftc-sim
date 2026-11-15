@@ -5,7 +5,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.ode4j.math.DMatrix3;
+import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3;
 import org.ode4j.math.DVector3C;
 import org.ode4j.ode.DBody;
@@ -22,7 +22,8 @@ import org.ode4j.ode.OdeHelper;
 
 /**
  * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure's A-frames and the
- * FLOWERS, plus whatever bodies are added. Every method must be called on the physics thread.
+ * FLOWERS, plus whatever bodies are added (one or more robots, the game pieces). Every method must
+ * be called on the physics thread.
  */
 public final class PhysicsWorld {
 
@@ -34,9 +35,12 @@ public final class PhysicsWorld {
         public final String kind;           // ground, wall, chassis, wheel, ball
         /** For wheels: traction direction in the robot frame (null = isotropic). */
         public double[] wheelTractionDir;
+        /** For wheels: the chassis whose frame {@link #wheelTractionDir} is in. */
+        public DBody tractionFrame;
         public double mu = 0.5;
         public double mu2 = 0.5;
         public double bounce = 0.05;
+        /** What the geom belongs to (a robot, a ball). Geoms with the same owner never collide. */
         public Object owner;
 
         public Material(String kind) {
@@ -44,7 +48,7 @@ public final class PhysicsWorld {
         }
     }
 
-    /** A contact on the robot's chassis during the last step, in world coordinates. */
+    /** A contact on a robot's chassis during the last step, in world coordinates. */
     public record ChassisContact(double x, double y, double z) {
     }
 
@@ -59,9 +63,8 @@ public final class PhysicsWorld {
     private static final double WHEEL_SLIP = 0.002;
     private final DContactBuffer contacts = new DContactBuffer(MAX_CONTACTS);
     private final Map<DGeom, Material> materials = new IdentityHashMap<>();
-    private final List<ChassisContact> chassisContacts = new ArrayList<>();
-    private DBody chassisBody;   // for contact bookkeeping
-    private DMatrix3 robotRotation = new DMatrix3();
+    /** Contacts on each robot's chassis during the last step (for touch sensors). */
+    private final Map<DBody, List<ChassisContact>> chassisContacts = new IdentityHashMap<>();
 
     public PhysicsWorld(FieldModel field) {
         synchronized (PhysicsWorld.class) {
@@ -122,17 +125,23 @@ public final class PhysicsWorld {
         materials.remove(geom);
     }
 
-    public void setChassis(DBody chassis) {
-        this.chassisBody = chassis;
+    /** Starts recording contacts on a robot's chassis. */
+    public void addChassis(DBody chassis) {
+        chassisContacts.put(chassis, new ArrayList<>());
     }
 
-    public List<ChassisContact> chassisContacts() {
-        return chassisContacts;
+    public void removeChassis(DBody chassis) {
+        chassisContacts.remove(chassis);
+    }
+
+    /** Contacts on this chassis during the last step, with anything: the field, balls, other robots. */
+    public List<ChassisContact> chassisContacts(DBody chassis) {
+        List<ChassisContact> l = chassisContacts.get(chassis);
+        return l == null ? List.of() : l;
     }
 
     public void step(double dt) {
-        chassisContacts.clear();
-        if (chassisBody != null) robotRotation = new DMatrix3(chassisBody.getRotation());
+        for (List<ChassisContact> l : chassisContacts.values()) l.clear();
         space.collide(null, this::nearCallback);
         world.quickStep(dt);
         contactGroup.empty();
@@ -142,19 +151,23 @@ public final class PhysicsWorld {
         DBody b1 = g1.getBody(), b2 = g2.getBody();
         if (b1 == null && b2 == null) return;
         if (b1 != null && b2 != null && OdeHelper.areConnected(b1, b2)) return;
-        int n = OdeHelper.collide(g1, g2, MAX_CONTACTS, contacts.getGeomBuffer());
-        if (n == 0) return;
         Material m1 = materials.get(g1), m2 = materials.get(g2);
         if (m1 == null || m2 == null) return;
+        if (m1.owner != null && m1.owner == m2.owner) return;   // two parts of the same robot
+        int n = OdeHelper.collide(g1, g2, MAX_CONTACTS, contacts.getGeomBuffer());
+        if (n == 0) return;
+        List<ChassisContact> on1 = "chassis".equals(m1.kind) ? chassisContacts.get(b1) : null;
+        List<ChassisContact> on2 = "chassis".equals(m2.kind) ? chassisContacts.get(b2) : null;
         for (int i = 0; i < n; i++) {
             DContact c = contacts.get(i);
             configureSurface(c, g1, m1, m2);
             DContactJoint joint = OdeHelper.createContactJoint(world, contactGroup, c);
             joint.attach(b1, b2);
-            if ((b1 != null && b1 == chassisBody && "chassis".equals(m1.kind))
-                    || (b2 != null && b2 == chassisBody && "chassis".equals(m2.kind))) {
+            if (on1 != null || on2 != null) {
                 DVector3C p = c.geom.pos;
-                chassisContacts.add(new ChassisContact(p.get0(), p.get1(), p.get2()));
+                ChassisContact cc = new ChassisContact(p.get0(), p.get1(), p.get2());
+                if (on1 != null) on1.add(cc);
+                if (on2 != null) on2.add(cc);
             }
         }
     }
@@ -172,10 +185,10 @@ public final class PhysicsWorld {
             c.surface.slip1 = WHEEL_SLIP;
             c.surface.slip2 = WHEEL_SLIP;
             c.surface.mu = wheel.mu;
-            if (wheel.wheelTractionDir != null) {
+            if (wheel.wheelTractionDir != null && wheel.tractionFrame != null) {
                 // Mecanum/omni rollers: grip along the roller axis (fdir1), roll freely across it.
                 double rx = wheel.wheelTractionDir[0], ry = wheel.wheelTractionDir[1];
-                DMatrix3 r = robotRotation;
+                DMatrix3C r = wheel.tractionFrame.getRotation();
                 double wx = r.get00() * rx + r.get01() * ry;
                 double wy = r.get10() * rx + r.get11() * ry;
                 double wz = r.get20() * rx + r.get21() * ry;

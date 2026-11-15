@@ -97,9 +97,10 @@ public final class RobotBody {
         cm.mu = cm.mu2 = 0.3;
         cm.bounce = 0.05;
         cm.owner = this;
-        world.register(chassisGeom, cm, PhysicsWorld.CAT_CHASSIS,
-                PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC | PhysicsWorld.CAT_BALL);
-        world.setChassis(chassis);
+        // Other robots' chassis and wheels too; the world skips pairs that belong to the same robot.
+        world.register(chassisGeom, cm, PhysicsWorld.CAT_CHASSIS, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
+                | PhysicsWorld.CAT_BALL | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL);
+        world.addChassis(chassis);
 
         double a = d.wheelbaseM / 2, b = d.trackWidthM / 2;
         double s = Math.sqrt(0.5);
@@ -163,10 +164,12 @@ public final class RobotBody {
         w.geom.setBody(w.body);
         PhysicsWorld.Material wm = new PhysicsWorld.Material("wheel");
         wm.wheelTractionDir = tractionDir;
+        wm.tractionFrame = chassis;
         wm.mu = mu;
         wm.mu2 = tractionDir == null ? mu : mu2;
         wm.owner = this;
-        world.register(w.geom, wm, PhysicsWorld.CAT_WHEEL, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC | PhysicsWorld.CAT_BALL);
+        world.register(w.geom, wm, PhysicsWorld.CAT_WHEEL, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
+                | PhysicsWorld.CAT_BALL | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL);
         w.hinge = OdeHelper.createHingeJoint(world.world);
         w.hinge.attach(w.body, chassis);
         w.hinge.setAnchor(x, y, r);
@@ -229,6 +232,20 @@ public final class RobotBody {
             chassis.vectorToWorld(0, 1, 0, axis);
             w.hinge.setAxis(axis);
         }
+    }
+
+    /** Takes the robot out of the world (when it is swapped for another robot description). */
+    public void destroy() {
+        for (Wheel w : wheels) {
+            w.hinge.destroy();
+            world.unregister(w.geom);
+            w.geom.destroy();
+            w.body.destroy();
+        }
+        world.removeChassis(chassis);
+        world.unregister(chassisGeom);
+        chassisGeom.destroy();
+        chassis.destroy();
     }
 
     // ---- state ---------------------------------------------------------------------------------

@@ -28,6 +28,107 @@ same code to the robot as usual. Nothing in TeamCode changes.
 To avoid typing the path every time, copy `sim.properties.example` to `sim.properties` and set
 `project=`.
 
+## Several robots on one field
+
+Up to four robots can share the field, two per alliance, as in a match. Each one is a separate
+Robot Controller with its own TeamCode, OpMode, gamepads, telemetry and robot file. The robots
+collide with each other, push each other and see each other with their distance sensors.
+
+```bat
+rem two robots running the bundled examples, to try it out
+.\run-sim.bat --robots 2
+
+rem your own code on two robots, as opponents (robot 1 red, robot 2 blue)
+.\run-sim.bat --project "C:\path\to\FtcRobotController" --robots 2
+
+rem your own code on two robots on the same alliance
+.\run-sim.bat --project "C:\path\to\FtcRobotController" --robots 2 --alliance2 red
+
+rem two projects: robot 1 runs one, robot 2 the other
+.\run-sim.bat --project "C:\path\to\FtcRobotController" --project2 "C:\path\to\OtherFtcRobotController"
+
+rem a full match: two red and two blue robots
+.\run-sim.bat --project "C:\path\to\FtcRobotController" --robots 4
+```
+
+| Option | Sets |
+|---|---|
+| `--robots N` | number of robots (1–4). Robots without options of their own run robot 1's project and robot file |
+| `--project2 DIR` … `--project4 DIR` | that robot's FtcRobotController project |
+| `--robot2 FILE` … `--robot4 FILE` | that robot's description |
+| `--alliance red\|blue`, `--alliance2` … `--alliance4` | that robot's alliance. Default: robot 1 red, robot 2 blue, robot 3 red, robot 4 blue |
+
+The same keys work in `sim.properties`:
+
+```properties
+robots=2
+project2=C:/path/to/OtherFtcRobotController
+robot2=robots/tank.json
+alliance2=red
+```
+
+### Two projects
+
+Give each robot its own FtcRobotController folder with `--project2` (and `--project3`,
+`--project4`). Any FtcRobotController folder works: a teammate's repository, another team's, or a
+second clone of the official one.
+
+- **Separate builds.** The simulator compiles each folder's `TeamCode/src/main/java` (and its
+  FTC samples) on its own. Both projects can have classes with the same name, and static fields
+  in one robot's code never affect the other robot.
+- **Separate OpMode lists.** Each robot's Driver Station lists only its own project's OpModes. Its
+  *Build* tab shows which folder it compiles and which files were skipped.
+- **Separate rebuilds.** Saving a file in one project rebuilds only the robots that run it. If such
+  a robot's OpMode is running, its rebuild waits until it stops; the other robots keep going.
+- **Separate hardware.** `--robot2` gives robot 2 its own robot file. The device names in each
+  project must match its robot's file.
+- **Deploying.** The simulator never writes to either folder, so each project deploys to its own
+  real robot as usual.
+
+### Alliance partners and opponents
+
+Robots alternate between the alliances by default (robot 1 red, robot 2 blue, and so on). Put two
+robots on the same alliance with `--allianceN`, for example `--alliance2 red` to practice with an
+alliance partner. An alliance has at most two robots.
+
+- **Starting spots.** The robot file's `start` is the first spot of the red alliance. The red
+  alliance's second robot starts beside it, mirrored across the field's center line. The blue
+  spots are the red ones turned half a turn about the field center, as the field itself is. With
+  `robots/mecanum.json` the red robots start 61 in from the center by the red wall, at y = −11.8 in
+  and +11.8 in, facing the blue wall; the blue robots start at the matching spots by the blue wall.
+- **Pre-loads.** Every simulated robot starts with its 4 POLLEN. A LOADING ZONE holds the pre-loads
+  of its alliance's robots that aren't on the field: none when both of its robots are simulated.
+- **Telling them apart.** With more than one robot, each robot's side plates take its alliance
+  color and a numbered marker floats above it.
+
+### Driving several robots
+
+- **A card per robot.** The side panel starts with a card for every robot: its name and alliance,
+  its state and time (an Autonomous with the 30 s timer counts down, e.g. *Running · 0:28 left*),
+  its OpMode list, its INIT / START / STOP button and a stop button. If that robot's code throws an
+  error, the error appears in its card, with *Dismiss* (and *Use tank.json* when another robot
+  file has the missing device).
+- **Starting a match.** Below the cards, *INIT all* initializes every stopped robot's selected
+  OpMode, *START all* starts every robot in INIT at the same moment (so their 30 s timers line up),
+  and *STOP all* stops them all. Each card's own buttons still start and stop that robot alone.
+  *30 s auto timer* and *FTC samples* (also list the SDK's sample OpModes) apply to every robot.
+- **The selected robot.** Click a robot's card to show its telemetry, gamepads, devices, build and
+  log below; that card is outlined, and the section titles name the robot
+  (*Telemetry · Robot 2*). The top bar shows that robot's TeamCode folder and robot file, and
+  *Place robot* and the chase camera act on it.
+- **Reset** starts a new match: every robot back at its start and the game pieces restaged, once
+  every OpMode has stopped.
+- **Controllers.** With *Auto*, the first controller drives robot 1's gamepad 1, the second
+  controller robot 2's gamepad 1, and so on. The keyboard drives the robot on screen if it has no
+  controller. Each robot's gamepad pickers can override this. Two drivers at one computer should
+  share one browser window: browsers may send controller input only to the window in focus.
+- **One window per driver.** `http://localhost:8080/?robot=2` opens a page that shows and drives
+  only robot 2, for example on a second screen. Give each robot its own `?robot=N` page; a page
+  without `?robot` sends input for every robot.
+- **Kept apart.** Robots running the same project still get separate copies of TeamCode, so static
+  fields aren't shared. `OpMode.blackboard`, `RobotLog`'s global error, and the bus latency from
+  the robot file are also per robot.
+
 ## The edit → simulate → robot loop
 
 - Edit TeamCode in Android Studio or VS Code as you normally do. When you save, the simulator
@@ -81,7 +182,7 @@ With one controller, set **Gamepad 2 → Keyboard** to try two-driver code.
 
 ## The Driver Station panel
 
-- **OpMode list** with Autonomous and TeleOp groups. Tick *Samples* to show the FTC SDK samples,
+- **OpMode list** with Autonomous and TeleOp groups. Tick *FTC samples* to show the FTC SDK samples,
   which are `@Disabled` on a real robot.
 - **INIT / START / STOP** with the same rules as the real app. The optional **30 s auto timer** stops
   Autonomous OpModes and then preselects the TeleOp named in `preselectTeleOp`.
@@ -92,7 +193,8 @@ With one controller, set **Gamepad 2 → Keyboard** to try two-driver code.
 - **Devices**: every motor's mode, power, encoder, velocity and current; servo positions; sensor
   readings; hub LED and bulk-caching mode. **Robot log** shows `RobotLog` and `android.util.Log`.
 - **3D view**: audience, overhead, red-driver and chase cameras. *Place robot* puts the robot
-  anywhere (drag to aim it). *Reset* power-cycles it, which resets encoders and the IMU heading.
+  anywhere (drag to aim it). *Reset* power-cycles it, which resets encoders and the IMU heading,
+  puts it back at its start and restages the game pieces.
 
 ## Describing your robot
 
@@ -141,8 +243,8 @@ are wrong in the same way they would be on the robot.
   touch sensor / digital channel, and battery voltage.
 - **Game pieces**: the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
   as Competition Manual section 10.3.1 sets them up: 4 POLLEN in each FLOWER, 4 in each GARDEN and
-  4 pre-loaded in your robot; the three absent robots' pre-loads sit in the middle of their LOADING
-  ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
+  4 pre-loaded in each simulated robot; the absent robots' pre-loads sit in the middle of their
+  LOADING ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
   balls roll and bounce, slow down with air drag in flight and rolling resistance on the tiles,
   and the robot pushes them. A robot with an `intake` role picks up balls
   in front of its roller (reverse it to spit one out) and holds at most 4 (rule G407); a `feeder`
@@ -173,6 +275,10 @@ The suite includes:
   pushing, intake (4-ball limit) and launching.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
   contact, no drift at rest.
+- `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
+  spot, pre-load, blackboard and gamepads; one robot pushes the other; swapping one robot's file
+  leaves the other alone; alliance partners start side by side and an alliance takes at most two
+  robots; *INIT all* / *START all* / *STOP all* run both robots' Autonomous together.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
   Pinpoint auto to within 0.2 in, and the BIOBUZZ TeleOp's shots peak at HIVE CELL height

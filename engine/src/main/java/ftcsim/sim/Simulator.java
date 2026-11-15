@@ -6,52 +6,34 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.ode4j.math.DQuaternionC;
-import org.ode4j.math.DVector3C;
-
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.Gamepad;
-import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.RobotLog;
 
 import ftcsim.config.RobotConfig;
-import ftcsim.hal.GamepadAccess;
 import ftcsim.hal.GamepadEffects;
-import ftcsim.hal.HalSession;
-import ftcsim.hal.MotorPort;
-import ftcsim.hal.OpModeSession;
-import ftcsim.hal.ServoPort;
-import ftcsim.hal.SimHub;
 import ftcsim.hal.SimLog;
-import ftcsim.hal.SimTelemetry;
 import ftcsim.physics.FieldModel;
-import ftcsim.physics.Mechanism;
 import ftcsim.physics.PhysicsWorld;
-import ftcsim.physics.RobotBody;
-import ftcsim.physics.ServoUnit;
-import ftcsim.runner.OpModeInfo;
 import ftcsim.runner.TeamCodeCompiler;
 
 /**
- * The simulated Robot Controller: physics at 1 kHz in real time, the OpMode lifecycle as the
- * Driver Station drives it, and the state stream for the browser.
+ * The simulated field: physics at 1 kHz in real time for one or more robots and the game pieces,
+ * routing of Driver Station messages to each robot ({@link SimRobot}), and the state stream for
+ * the browser.
  */
 public final class Simulator {
 
@@ -64,15 +46,28 @@ public final class Simulator {
 
     public enum DsState {IDLE, INIT, RUNNING, STOPPING}
 
-    private static final double DT = 0.001;
-    private static final double AUTO_PERIOD_S = 30.0;
+    /**
+     * One robot to put on the field.
+     *
+     * @param alliance "red" or "blue"; null alternates, starting with the field's home alliance
+     */
+    public record RobotSpec(Path robotFile, TeamCodeCompiler compiler, String projectLabel, String alliance) {
+    }
 
-    private final Gson gson = new GsonBuilder().serializeSpecialFloatingPointValues().create();
-    private final FieldModel field;
-    private final Path robotsDir;
-    private final TeamCodeCompiler compiler;
-    private final String projectLabel;
-    private Output output = new Output() {
+    /** FTC: two robots per alliance. */
+    public static final int MAX_ROBOTS = 4;
+
+    static final double DT = 0.001;
+    static final double AUTO_PERIOD_S = 30.0;
+    static final Gson GSON = new GsonBuilder().serializeSpecialFloatingPointValues().create();
+
+    final FieldModel field;
+    final Path robotsDir;
+    final PhysicsWorld world;
+    /** POLLEN and NECTAR, in the same physics world as the robots. */
+    final GameElements elements;
+    private final List<SimRobot> robots = new ArrayList<>();
+    private volatile Output output = new Output() {
         @Override
         public void broadcast(String json) {
         }
@@ -83,50 +78,48 @@ public final class Simulator {
     };
 
     // physics (physics thread only, except construction)
-    private volatile RobotRig rig;
-    /** POLLEN and NECTAR in the same physics world as {@link #rig}; swapped together with it. */
-    private volatile GameElements elements;
-    private volatile Path robotFile;
     private final ConcurrentLinkedQueue<Runnable> physicsTasks = new ConcurrentLinkedQueue<>();
     private volatile boolean running = false;
     private volatile double realTimeFactor = 1.0;
     private double simTime = 0;
 
-    // driver station
-    public final Gamepad gamepad1 = new Gamepad();
-    public final Gamepad gamepad2 = new Gamepad();
-    private final Object lock = new Object();
-    private DsState state = DsState.IDLE;
-    private OpModeSession session;
-    private HalSession hal;
-    private SimTelemetry telemetry;
-    private OpModeInfo active;
-    private String selected;
-    private long initNanos, startNanos;
-    private boolean autoTimerEnabled = true;
-    private String lastError;
-    /** A robot file that has the device the last error was missing; offered as a one-click switch. */
-    private String fixRobot;
-    private String globalWarning = "";
-
-    // builds
-    private final ExecutorService buildExecutor = Executors.newSingleThreadExecutor(r -> daemon(r, "teamcode-build"));
-    private volatile TeamCodeCompiler.Result build;
-    private volatile boolean building = false;
-    private volatile boolean buildPending = false;
-
     private final ConcurrentLinkedQueue<Map<String, Object>> logQueue = new ConcurrentLinkedQueue<>();
 
+    /** A field with one robot. */
     public Simulator(FieldModel field, Path robotFile, Path robotsDir, TeamCodeCompiler compiler, String projectLabel) throws IOException {
+        this(field, robotsDir, List.of(new RobotSpec(robotFile, compiler, projectLabel, null)));
+    }
+
+    /** A field with up to {@link #MAX_ROBOTS} robots, at most two per alliance. */
+    public Simulator(FieldModel field, Path robotsDir, List<RobotSpec> specs) throws IOException {
+        if (specs.isEmpty() || specs.size() > MAX_ROBOTS) {
+            throw new IllegalArgumentException("Between 1 and " + MAX_ROBOTS + " robots, not " + specs.size());
+        }
         this.field = field;
         this.robotsDir = robotsDir;
-        this.compiler = compiler;
-        this.projectLabel = projectLabel;
-        this.robotFile = robotFile;
-        this.rig = new RobotRig(RobotConfig.load(robotFile), new PhysicsWorld(field));
-        this.elements = new GameElements(field, rig);
-        GamepadAccess.get().setUser(gamepad1, 1);
-        GamepadAccess.get().setUser(gamepad2, 2);
+        this.world = new PhysicsWorld(field);
+        String home = GameElements.homeAlliance(field);
+        String other = "red".equals(home) ? "blue" : "red";
+        Map<String, Integer> perAlliance = new HashMap<>();
+        List<RobotRig> rigs = new ArrayList<>();
+        List<String> alliances = new ArrayList<>();
+        for (int i = 0; i < specs.size(); i++) {
+            RobotSpec s = specs.get(i);
+            String alliance = s.alliance() == null ? (i % 2 == 0 ? home : other) : s.alliance().toLowerCase();
+            if (!"red".equals(alliance) && !"blue".equals(alliance)) {
+                throw new IllegalArgumentException("Robot " + (i + 1) + ": alliance must be red or blue, not \"" + s.alliance() + "\"");
+            }
+            int station = perAlliance.merge(alliance, 1, Integer::sum);
+            if (station > 2) {
+                throw new IllegalArgumentException("Robot " + (i + 1) + ": the " + alliance + " alliance already has two robots");
+            }
+            SimRobot r = new SimRobot(this, i, alliance, station, s.robotFile(), RobotConfig.load(s.robotFile()),
+                    s.compiler(), s.projectLabel());
+            robots.add(r);
+            rigs.add(r.rig());
+            alliances.add(alliance);
+        }
+        this.elements = new GameElements(field, rigs, alliances);
         installListeners();
     }
 
@@ -137,11 +130,13 @@ public final class Simulator {
     private void installListeners() {
         SimLog.setListener(new SimLog.Listener() {
             @Override
-            public void onLog(char level, String tag, String message) {
-                System.out.println(level + "/" + tag + ": " + message);
+            public void onLog(int robot, char level, String tag, String message) {
+                String who = robots.size() > 1 && robot >= 0 ? "[Robot " + (robot + 1) + "] " : "";
+                System.out.println(who + level + "/" + tag + ": " + message);
                 if (level == 'V' || level == 'D') return;
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("type", "log");
+                m.put("robot", robot);
                 m.put("level", String.valueOf(level));
                 m.put("tag", tag);
                 m.put("msg", message);
@@ -149,43 +144,60 @@ public final class Simulator {
             }
 
             @Override
-            public void onGlobalError(String message) {
-                if (message != null && !message.isEmpty()) setError(message);
+            public void onGlobalError(int robot, String message) {
+                forRobot(robot, r -> r.onGlobalError(message));
             }
 
             @Override
-            public void onGlobalWarning(String message) {
-                globalWarning = message == null ? "" : message;
-                broadcastDs();
+            public void onGlobalWarning(int robot, String message) {
+                forRobot(robot, r -> r.onGlobalWarning(message));
             }
         });
         GamepadEffects.setListener(new GamepadEffects.Listener() {
             @Override
-            public void onRumble(int user, double[] strong, double[] weak, int[] durationsMs) {
+            public void onRumble(Gamepad gamepad, int user, double[] strong, double[] weak, int[] durationsMs) {
+                SimRobot r = ownerOf(gamepad);
+                if (r == null) return;
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("type", "rumble");
+                m.put("robot", r.index);
                 m.put("gamepad", user);
                 m.put("strong", strong);
                 m.put("weak", weak);
                 m.put("durations", durationsMs);
-                output.broadcast(gson.toJson(m));
+                broadcast(GSON.toJson(m));
             }
 
             @Override
-            public void onLed(int user, double r, double g, double b, int durationMs) {
+            public void onLed(Gamepad gamepad, int user, double red, double green, double blue, int durationMs) {
+                SimRobot r = ownerOf(gamepad);
+                if (r == null) return;
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("type", "led");
+                m.put("robot", r.index);
                 m.put("gamepad", user);
-                m.put("rgb", new double[]{r, g, b});
-                output.broadcast(gson.toJson(m));
+                m.put("rgb", new double[]{red, green, blue});
+                broadcast(GSON.toJson(m));
             }
         });
+    }
+
+    /** Runs {@code action} for robot {@code index}, or for every robot when the caller is outside any robot (-1). */
+    private void forRobot(int index, Consumer<SimRobot> action) {
+        if (index >= 0 && index < robots.size()) action.accept(robots.get(index));
+        else if (index < 0) robots.forEach(action);
+    }
+
+    private SimRobot ownerOf(Gamepad gamepad) {
+        for (SimRobot r : robots) if (r.gamepad1 == gamepad || r.gamepad2 == gamepad) return r;
+        return null;
     }
 
     // ---- lifecycle -------------------------------------------------------------------------------
 
     public void start() {
         running = true;
+        for (SimRobot r : robots) r.checkSources();   // remembers the sources as they are now
         Thread physics = new Thread(this::physicsLoop, "physics");
         physics.setDaemon(true);
         physics.setPriority(Thread.MAX_PRIORITY);
@@ -193,11 +205,11 @@ public final class Simulator {
         Thread watcher = new Thread(this::watchSources, "source-watcher");
         watcher.setDaemon(true);
         watcher.start();
-        requestBuild();
+        for (SimRobot r : robots) r.requestBuild();
     }
 
     public void shutdown() {
-        stopOpMode();
+        for (SimRobot r : robots) r.stopOpMode();
         running = false;
     }
 
@@ -207,6 +219,7 @@ public final class Simulator {
         long lastPublish = 0, lastDevices = 0;
         long rtfWindowStart = t0;
         long rtfSteps = 0;
+        List<RobotRig> rigs = new ArrayList<>();
         while (running) {
             Runnable task;
             while ((task = physicsTasks.poll()) != null) {
@@ -220,11 +233,13 @@ public final class Simulator {
             long due = (now - t0) / 1_000_000L;
             if (due - steps > 250) steps = due - 250;     // badly behind: let simulated time slip
             int n = 0;
-            RobotRig r = rig;
-            GameElements e = elements;
+            rigs.clear();
+            for (SimRobot r : robots) rigs.add(r.rig());
             while (steps < due && n < 100) {
-                e.beforeStep(DT);
-                r.step(DT);
+                elements.beforeStep(DT);
+                for (RobotRig rig : rigs) rig.beforeWorldStep(DT);
+                world.step(DT);
+                for (RobotRig rig : rigs) rig.afterWorldStep(DT);
                 simTime += DT;
                 steps++;
                 n++;
@@ -237,68 +252,39 @@ public final class Simulator {
             }
             if (now - lastPublish >= 20_000_000L) {
                 lastPublish = now;
-                publishState(r, e, now);
-                checkAutoTimer(now);
+                publishState(now);
+                for (SimRobot r : robots) r.checkAutoTimer(now);
             }
             if (now - lastDevices >= 100_000_000L) {
                 lastDevices = now;
-                publishDevices(r);
+                publishDevices();
             }
             LockSupport.parkNanos(400_000L);
         }
     }
 
-    // ---- builds ----------------------------------------------------------------------------------
-
-    public void requestBuild() {
-        synchronized (lock) {
-            if (state != DsState.IDLE) {
-                buildPending = true;
-                broadcastBuild();
-                return;
-            }
-            buildPending = false;
-        }
-        building = true;
-        broadcastBuild();
-        buildExecutor.submit(() -> {
-            try {
-                TeamCodeCompiler.Result r = compiler.compile();
-                build = r;
-                System.out.println("TeamCode: " + r.message());
-                for (TeamCodeCompiler.Skipped s : r.skipped()) System.out.println("  skipped " + s.file() + " - " + s.reason());
-                synchronized (lock) {
-                    if (selected == null || r.opModes().stream().noneMatch(o -> o.name().equals(selected))) {
-                        selected = r.opModes().stream().filter(o -> !o.disabled()).map(OpModeInfo::name).findFirst().orElse(null);
-                    }
-                }
-            } catch (Throwable t) {
-                build = new TeamCodeCompiler.Result(false, "Build crashed: " + t, null, List.of(), List.of(), 0, 0);
-            } finally {
-                building = false;
-                broadcastBuild();
-                broadcastDs();
-            }
-        });
-    }
-
     private void watchSources() {
-        String last = compiler.fingerprint();
         while (running) {
             LockSupport.parkNanos(1_000_000_000L);
-            String now = compiler.fingerprint();
-            if (!now.equals(last)) {
-                LockSupport.parkNanos(400_000_000L);    // let the editor finish writing
-                last = compiler.fingerprint();
-                RobotLog.ii("Simulator", "TeamCode changed; rebuilding");
-                requestBuild();
-            }
+            for (SimRobot r : robots) r.checkSources();
         }
+    }
+
+    /** Runs a task on the physics thread, without waiting. */
+    void post(Runnable task) {
+        physicsTasks.add(task);
+    }
+
+    void broadcast(String json) {
+        output.broadcast(json);
     }
 
     // ---- driver station commands ------------------------------------------------------------------
 
-    /** Handles one message from a browser Driver Station. */
+    /**
+     * Handles one message from a browser Driver Station. {@code "robot"} is the robot it is for
+     * (0-based, default 0).
+     */
     public void handle(String text) {
         JsonObject msg;
         try {
@@ -308,296 +294,51 @@ public final class Simulator {
         }
         String type = msg.has("type") ? msg.get("type").getAsString() : "";
         switch (type) {
-            case "gamepad" -> applyGamepad(msg);
-            case "select" -> select(msg.get("opmode").getAsString());
-            case "init" -> initOpMode(msg.has("opmode") ? msg.get("opmode").getAsString() : selected);
-            case "start" -> startOpMode();
-            case "stop" -> stopOpMode();
-            case "build" -> requestBuild();
-            case "timer" -> {
-                synchronized (lock) {
-                    autoTimerEnabled = msg.get("enabled").getAsBoolean();
-                }
-                broadcastDs();
+            // Every robot at once, like drivers pressing their buttons when the match starts.
+            case "initAll" -> {
+                for (SimRobot r : robots) r.initSelected();
+                return;
             }
-            case "place" -> {
-                double x = msg.get("x").getAsDouble(), y = msg.get("y").getAsDouble(), h = Math.toRadians(msg.get("h").getAsDouble());
-                physicsTasks.add(() -> rig.place(clamp(x, field.half - 0.23), clamp(y, field.half - 0.23), h));
+            case "startAll" -> {
+                for (SimRobot r : robots) r.start();
+                return;
             }
-            case "reset" -> resetRobot();
-            case "robot" -> switchRobot(msg.get("file").getAsString());
-            case "clearError" -> {
-                synchronized (lock) {
-                    lastError = null;
-                    fixRobot = null;
-                }
-                RobotLog.clearGlobalErrorMsg();
-                broadcastDs();
+            case "stopAll" -> {
+                for (SimRobot r : robots) r.stopOpMode();
+                return;
             }
             default -> {
             }
         }
-    }
-
-    private static double clamp(double v, double max) {
-        return Math.max(-max, Math.min(max, v));
-    }
-
-    private void applyGamepad(JsonObject msg) {
-        int slot = msg.get("gamepad").getAsInt();
-        Gamepad gp = slot == 2 ? gamepad2 : gamepad1;
-        JsonArray axes = msg.getAsJsonArray("axes");
-        JsonArray buttons = msg.getAsJsonArray("buttons");
-        boolean[] b = new boolean[18];
-        for (int i = 0; i < b.length && i < buttons.size(); i++) b[i] = buttons.get(i).getAsBoolean();
-        Gamepad.Type t;
+        int index = 0;
         try {
-            t = Gamepad.Type.valueOf(msg.has("kind") ? msg.get("kind").getAsString() : "UNKNOWN");
-        } catch (IllegalArgumentException e) {
-            t = Gamepad.Type.UNKNOWN;
-        }
-        GamepadAccess.get().update(gp, t, axes.get(0).getAsFloat(), axes.get(1).getAsFloat(),
-                axes.get(2).getAsFloat(), axes.get(3).getAsFloat(), axes.get(4).getAsFloat(), axes.get(5).getAsFloat(), b);
-    }
-
-    /** All Driver Stations disconnected: like losing the DS on a real robot, stop the OpMode. */
-    public void onAllClientsDisconnected() {
-        boolean[] none = new boolean[18];
-        GamepadAccess.get().update(gamepad1, gamepad1.type, 0, 0, 0, 0, 0, 0, none);
-        GamepadAccess.get().update(gamepad2, gamepad2.type, 0, 0, 0, 0, 0, 0, none);
-        stopOpMode();
-    }
-
-    private void select(String name) {
-        synchronized (lock) {
-            if (state == DsState.IDLE) selected = name;
-        }
-        broadcastDs();
-    }
-
-    private void initOpMode(String name) {
-        synchronized (lock) {
-            if (state != DsState.IDLE || name == null) return;
-            TeamCodeCompiler.Result b = build;
-            OpModeInfo info = b == null ? null : b.opModes().stream().filter(o -> o.name().equals(name)).findFirst().orElse(null);
-            if (info == null) {
-                lastError = "OpMode \"" + name + "\" is not available. Check the build output.";
-                broadcastDsLocked();
-                return;
-            }
-            OpMode opMode;
-            try {
-                opMode = (OpMode) info.type().getDeclaredConstructor().newInstance();
-            } catch (Throwable t) {
-                Throwable cause = t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null ? t.getCause() : t;
-                lastError = "Could not create " + info.className() + ": " + describe(cause);
-                RobotLog.ee("Simulator", cause, "OpMode construction failed");
-                broadcastDsLocked();
-                return;
-            }
-            RobotRig r = rig;
-            r.resetForOpMode();
-            hal = new HalSession();
-            HardwareMap hw = r.createHardwareMap(hal);
-            telemetry = new SimTelemetry();
-            gamepad1.resetEdgeDetection();
-            gamepad2.resetEdgeDetection();
-            active = info;
-            selected = info.name();
-            lastError = null;
-            fixRobot = null;
-            RobotLog.clearGlobalErrorMsg();
-            state = DsState.INIT;
-            initNanos = System.nanoTime();
-            final OpModeSession s = new OpModeSession(info.name(), opMode, hw, gamepad1, gamepad2, telemetry, sessionListener);
-            session = s;
-            RobotLog.i(RobotLog.OPMODE_START_TAG);
-            RobotLog.ii("Simulator", "INIT " + info.name() + " (" + info.className() + ")");
-            s.init();
-            broadcastDsLocked();
-        }
-    }
-
-    private void startOpMode() {
-        synchronized (lock) {
-            if (state != DsState.INIT || session == null) return;
-            state = DsState.RUNNING;
-            startNanos = System.nanoTime();
-            RobotLog.ii("Simulator", "START " + active.name());
-            session.start();
-            broadcastDsLocked();
-        }
-    }
-
-    public void stopOpMode() {
-        final OpModeSession s;
-        synchronized (lock) {
-            if ((state != DsState.INIT && state != DsState.RUNNING) || session == null) return;
-            state = DsState.STOPPING;
-            s = session;
-            RobotLog.ii("Simulator", "STOP " + active.name());
-            broadcastDsLocked();
-        }
-        Thread t = new Thread(() -> {
-            boolean ended = s.stop(1000);
-            if (!ended) {
-                setError("The OpMode \"" + s.getName() + "\" did not stop within a second (stuck in a loop that ignores "
-                        + "isStopRequested()/opModeIsActive()?). On a robot the app would restart; here its thread "
-                        + "is abandoned and disconnected from the hardware.");
-            }
-            finishSession(s);
-        }, "opmode-stopper");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private final OpModeSession.Listener sessionListener = new OpModeSession.Listener() {
-        @Override
-        public void onStateChanged(OpModeSession s, OpModeSession.State st) {
-            if (st == OpModeSession.State.STOPPED) finishSession(s);
-        }
-
-        @Override
-        public void onStopRequestedByOpMode(OpModeSession s) {
-            Thread t = new Thread(Simulator.this::stopOpMode, "opmode-stopper");
-            t.setDaemon(true);
-            t.start();
-        }
-
-        @Override
-        public void onError(OpModeSession s, Throwable error) {
-            String msg = "User code threw an uncaught exception: " + describe(error);
-            RobotLog.ee("Simulator", error, msg);
-            DeviceHint hint = missingDeviceHint(error);
-            if (hint != null) System.err.println(hint.text());
-            synchronized (lock) {
-                lastError = hint == null ? msg : msg + "\n\n" + hint.text();
-                fixRobot = hint == null ? null : hint.robot();
-                broadcastDsLocked();
-            }
-        }
-    };
-
-    /** Advice for a missing hardware device; robot is a robot file that has it, or null. */
-    record DeviceHint(String text, String robot) {
-    }
-
-    private static final java.util.regex.Pattern MISSING_DEVICE =
-            java.util.regex.Pattern.compile("Unable to find a hardware device with name \"(.*)\" and type");
-
-    /**
-     * Simulator-only advice after the Driver Station's own message, when code asks for a device the
-     * simulated robot doesn't have: which robot file does have it, or where to add it.
-     */
-    DeviceHint missingDeviceHint(Throwable error) {
-        if (!(error instanceof IllegalArgumentException) || error.getMessage() == null) return null;
-        java.util.regex.Matcher m = MISSING_DEVICE.matcher(error.getMessage());
-        if (!m.find()) return null;
-        String device = m.group(1);
-        String current = robotFile.getFileName().toString();
-        List<String> others = new ArrayList<>();
-        for (String f : robotFiles()) {
-            if (f.equals(current)) continue;
-            try {
-                if (RobotConfig.load(robotsDir.resolve(f)).deviceNames().contains(device)) others.add(f);
-            } catch (Exception ignored) {
-                // a broken robot file is reported when it is selected
-            }
-        }
-        String start = "Simulator: the simulated robot (" + current + ") has no device named \"" + device + "\"";
-        if (!others.isEmpty()) {
-            return new DeviceHint(start + ", but " + String.join(" and ", others) + (others.size() == 1 ? " does" : " do")
-                    + ". Switch to it with the button below or the Robot menu in the top bar (not the OpMode list),"
-                    + " then INIT again.", others.get(0));
-        }
-        return new DeviceHint(start + ". Add it to robots/" + current
-                + " with the same name as in your Driver Station configuration.", null);
-    }
-
-    private void finishSession(OpModeSession s) {
-        boolean rebuild;
-        synchronized (lock) {
-            if (s != session) return;
-            if (hal != null) hal.close();
-            rig.failsafe();
-            SimTelemetry.Frame f = telemetry == null ? null : telemetry.flush();
-            if (f != null) output.broadcast(telemetryJson(f));
-            String preselect = active != null && active.kind() == OpModeInfo.Kind.AUTONOMOUS ? active.preselectTeleOp() : "";
-            if (preselect != null && !preselect.isEmpty() && build != null
-                    && build.opModes().stream().anyMatch(o -> o.name().equals(preselect))) {
-                selected = preselect;
-            }
-            RobotLog.i(RobotLog.OPMODE_STOP_TAG);
-            session = null;
-            hal = null;
-            active = null;
-            state = DsState.IDLE;
-            rebuild = buildPending;
-            broadcastDsLocked();
-        }
-        if (rebuild) requestBuild();
-    }
-
-    private void checkAutoTimer(long now) {
-        boolean stop;
-        synchronized (lock) {
-            stop = state == DsState.RUNNING && active != null && active.kind() == OpModeInfo.Kind.AUTONOMOUS
-                    && autoTimerEnabled && (now - startNanos) / 1e9 >= AUTO_PERIOD_S;
-        }
-        if (stop) stopOpMode();
-    }
-
-    private void resetRobot() {
-        synchronized (lock) {
-            if (state != DsState.IDLE) return;
-        }
-        physicsTasks.add(() -> {
-            RobotConfig c = rig.config;
-            rig.powerCycle();
-            rig.place(c.start[0], c.start[1], Math.toRadians(c.start[2]));
-            elements.restage();
-        });
-    }
-
-    private void switchRobot(String fileName) {
-        boolean idle;
-        synchronized (lock) {
-            idle = state == DsState.IDLE;
-        }
-        Path file = robotsDir.resolve(fileName).normalize();
-        if (!idle || !file.startsWith(robotsDir.normalize()) || !Files.isRegularFile(file)) {
-            output.broadcast(helloJson());   // puts the page's Robot menu back on the robot in use
-            if (!idle) setError("Stop the OpMode before changing the robot.");
+            if (msg.has("robot") && !msg.get("robot").isJsonNull()) index = msg.get("robot").getAsInt();
+        } catch (RuntimeException e) {
             return;
         }
-        physicsTasks.add(() -> {
-            try {
-                RobotConfig cfg = RobotConfig.load(file);
-                RobotRig next = new RobotRig(cfg, new PhysicsWorld(field));
-                elements = new GameElements(field, next);
-                rig = next;
-                robotFile = file;
-                output.broadcast(helloJson());
-                synchronized (lock) {
-                    if (fixRobot != null) {   // the error was about the previous robot's devices
-                        lastError = null;
-                        fixRobot = null;
-                    }
-                    broadcastDsLocked();
-                }
-            } catch (Exception e) {
-                output.broadcast(helloJson());
-                setError("Could not load robot " + fileName + ": " + e.getMessage());
-            }
-        });
+        if (index < 0 || index >= robots.size()) return;
+        if ("reset".equals(type)) resetField(robots.get(index));
+        else robots.get(index).handle(type, msg);
     }
 
-    private void setError(String message) {
-        synchronized (lock) {
-            lastError = message;
-            fixRobot = null;
-            broadcastDsLocked();
+    /** All Driver Stations disconnected: like losing the DS on a real robot, every OpMode stops. */
+    public void onAllClientsDisconnected() {
+        for (SimRobot r : robots) r.releaseGamepadsAndStop();
+    }
+
+    /** Every robot power-cycled and back at its start, game pieces staged for a new MATCH. */
+    private void resetField(SimRobot requester) {
+        List<String> busy = robots.stream().filter(r -> !r.isIdle()).map(SimRobot::label).collect(Collectors.toList());
+        if (!busy.isEmpty()) {
+            requester.setError(robots.size() == 1 ? "Stop the OpMode before resetting the robot."
+                    : "Stop every robot's OpMode before resetting the field (" + String.join(" and ", busy)
+                    + (busy.size() == 1 ? " is" : " are") + " still running).");
+            return;
         }
+        post(() -> {
+            for (SimRobot r : robots) r.resetOnPhysicsThread();
+            elements.restage();
+        });
     }
 
     static String describe(Throwable t) {
@@ -616,23 +357,29 @@ public final class Simulator {
 
     // ---- outgoing messages ----------------------------------------------------------------------
 
+    /** The field, the robot files to choose from, the game pieces and every robot on the field. */
     public String helloJson() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "hello");
         m.put("field", field.json);
-        RobotRig r = rig;
-        m.put("robot", JsonParser.parseString(RobotConfig.gson().toJson(r.config)));
-        m.put("robotFile", robotFile.getFileName().toString());
-        m.put("robots", robotFiles());
-        m.put("project", projectLabel);
-        m.put("wheels", r.body.wheels.stream().map(w -> Map.of("key", w.key, "x", w.x, "y", w.y)).collect(Collectors.toList()));
-        m.put("wheelRadius", r.body.wheelRadius);
-        m.put("chassisZ", r.body.chassisRestZ());
+        m.put("robotFiles", robotFiles());
         m.put("balls", elements.describe());
-        return gson.toJson(m);
+        m.put("robots", robots.stream().map(SimRobot::describe).collect(Collectors.toList()));
+        return GSON.toJson(m);
     }
 
-    private List<String> robotFiles() {
+    /** Everything a newly connected browser needs, in order. */
+    public List<String> welcomeMessages() {
+        List<String> out = new ArrayList<>();
+        out.add(helloJson());
+        for (SimRobot r : robots) {
+            out.add(r.dsJson());     // before the OpMode list, so the page knows which OpMode is selected
+            out.add(r.buildJson());
+        }
+        return out;
+    }
+
+    List<String> robotFiles() {
         try (Stream<Path> s = Files.list(robotsDir)) {
             return s.filter(p -> p.toString().endsWith(".json")).map(p -> p.getFileName().toString()).sorted().collect(Collectors.toList());
         } catch (IOException e) {
@@ -640,183 +387,69 @@ public final class Simulator {
         }
     }
 
+    /** The first robot's build status. */
     public String buildJson() {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("type", "build");
-        m.put("building", building);
-        m.put("pending", buildPending);
-        TeamCodeCompiler.Result b = build;
-        if (b != null) {
-            m.put("ok", b.ok());
-            m.put("message", b.message());
-            m.put("skipped", b.skipped());
-            m.put("opmodes", b.opModes().stream().map(OpModeInfo::toJson).collect(Collectors.toList()));
-        }
-        m.put("roots", compiler.roots().stream().map(r -> r.dir().toString()).collect(Collectors.toList()));
-        return gson.toJson(m);
+        return robots.get(0).buildJson();
     }
 
-    private void broadcastBuild() {
-        output.broadcast(buildJson());
-    }
-
+    /** The first robot's Driver Station status. */
     public String dsJson() {
-        synchronized (lock) {
-            return dsJsonLocked();
-        }
+        return robots.get(0).dsJson();
     }
 
-    private String dsJsonLocked() {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("type", "ds");
-        m.put("state", state.name());
-        m.put("selected", selected);
-        m.put("active", active == null ? null : active.name());
-        m.put("activeKind", active == null ? null : active.kind().name());
-        m.put("timer", autoTimerEnabled);
-        m.put("error", lastError);
-        m.put("fixRobot", fixRobot);
-        m.put("robotFile", robotFile.getFileName().toString());
-        m.put("warning", globalWarning);
-        return gson.toJson(m);
-    }
-
-    private void broadcastDs() {
-        synchronized (lock) {
-            broadcastDsLocked();
-        }
-    }
-
-    private void broadcastDsLocked() {
-        output.broadcast(dsJsonLocked());
-    }
-
-    private String telemetryJson(SimTelemetry.Frame f) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("type", "telemetry");
-        m.put("lines", f.lines);
-        m.put("log", f.log);
-        m.put("format", f.format.name());
-        return gson.toJson(m);
-    }
-
-    private void publishState(RobotRig r, GameElements e, long now) {
-        SimTelemetry t;
-        Map<String, Object> ds = new LinkedHashMap<>();
-        synchronized (lock) {
-            t = telemetry;
-            ds.put("state", state.name());
-            if (state == DsState.RUNNING) {
-                double elapsed = (now - startNanos) / 1e9;
-                ds.put("elapsed", elapsed);
-                if (active != null && active.kind() == OpModeInfo.Kind.AUTONOMOUS && autoTimerEnabled) {
-                    ds.put("remaining", Math.max(0, AUTO_PERIOD_S - elapsed));
-                }
-            } else if (state == DsState.INIT) {
-                ds.put("elapsed", (now - initNanos) / 1e9);
-            }
-        }
-        if (t != null) {
-            SimTelemetry.Frame f = t.takeFrameIfDue(now);
-            if (f != null) output.broadcast(telemetryJson(f));
-        }
+    private void publishState(long now) {
+        List<Map<String, Object>> rs = new ArrayList<>();
+        for (SimRobot r : robots) rs.add(r.state(now));
         Map<String, Object> log;
         int n = 0;
-        while (n++ < 40 && (log = logQueue.poll()) != null) output.broadcast(gson.toJson(log));
-
-        RobotBody body = r.body;
-        DVector3C p = body.position();
-        DQuaternionC q = body.chassis.getQuaternion();
-        double[] wheels = new double[body.wheels.size()];
-        for (int i = 0; i < wheels.length; i++) wheels[i] = body.wheels.get(i).angle();
-        Map<String, Object> mech = new LinkedHashMap<>();
-        for (Mechanism m : r.mechanisms) mech.put(m.device.name, m.position());
-        for (ServoUnit s : r.servos) mech.put(s.device.name, Math.toRadians(s.angleDeg()));
+        while (n++ < 40 && (log = logQueue.poll()) != null) broadcast(GSON.toJson(log));
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "state");
         m.put("t", simTime);
         m.put("rtf", realTimeFactor);
-        m.put("p", new double[]{p.get0(), p.get1(), p.get2()});
-        m.put("q", new double[]{q.get0(), q.get1(), q.get2(), q.get3()});
-        m.put("wheels", wheels);
-        m.put("mech", mech);
-        m.put("ds", ds);
-        m.put("battery", r.batteryVolts());
-        m.put("balls", e.positions());
-        m.put("held", e.heldCount());
-        output.broadcastState(gson.toJson(m));
+        m.put("robots", rs);
+        m.put("balls", elements.positions());
+        output.broadcastState(GSON.toJson(m));
     }
 
-    private void publishDevices(RobotRig r) {
-        List<Map<String, Object>> motors = new ArrayList<>();
-        List<Map<String, Object>> servos = new ArrayList<>();
-        List<Map<String, Object>> hubs = new ArrayList<>();
-        for (SimHub h : r.hubs) {
-            hubs.add(Map.of("name", h.name, "led", String.format("#%06x", h.ledColor), "cache", h.getBulkCachingMode().name()));
-            for (MotorPort mp : h.motors) {
-                if (mp == null) continue;
-                Map<String, Object> d = new LinkedHashMap<>();
-                d.put("name", mp.name);
-                d.put("hub", h.name);
-                d.put("port", mp.port);
-                d.put("mode", mp.mode.name());
-                d.put("power", mp.velocityCommand ? null : mp.power);
-                d.put("velocityTarget", mp.velocityCommand ? mp.velocityTarget : null);
-                d.put("target", mp.targetPositionSet ? mp.targetPosition : null);
-                d.put("pos", mp.encoderPosition());
-                d.put("vel", Math.round(mp.velocityTicksPerSecond));
-                d.put("amps", Math.round(mp.currentAmps * 100) / 100.0);
-                d.put("duty", Math.round(mp.appliedDuty * 1000) / 1000.0);
-                d.put("zpb", mp.zeroPowerBehavior.name());
-                motors.add(d);
-            }
-            for (ServoPort sp : h.servos) {
-                if (sp == null) continue;
-                Map<String, Object> d = new LinkedHashMap<>();
-                d.put("name", sp.name);
-                d.put("hub", h.name);
-                d.put("port", sp.port);
-                d.put("continuous", sp.continuous);
-                d.put("pos", Double.isNaN(sp.position) ? null : sp.position);
-                d.put("pwm", sp.pwmEnabled);
-                d.put("angle", Math.round(sp.angleDeg * 10) / 10.0);
-                servos.add(d);
-            }
-        }
+    private void publishDevices() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "devices");
-        m.put("hubs", hubs);
-        m.put("motors", motors);
-        m.put("servos", servos);
-        m.put("sensors", r.sensorReadings());
-        output.broadcastState(gson.toJson(m));
+        m.put("robots", robots.stream().map(SimRobot::devices).collect(Collectors.toList()));
+        output.broadcastState(GSON.toJson(m));
     }
 
     // ---- read-only views (tests and tools) ---------------------------------------------------------
 
+    public List<SimRobot> robots() {
+        return robots;
+    }
+
+    public SimRobot robot(int index) {
+        return robots.get(index);
+    }
+
+    /** The first robot's Driver Station state. */
     public DsState dsState() {
-        synchronized (lock) {
-            return state;
-        }
+        return robots.get(0).dsState();
     }
 
     public String lastError() {
-        synchronized (lock) {
-            return lastError;
-        }
+        return robots.get(0).lastError();
     }
 
     public TeamCodeCompiler.Result build() {
-        return build;
+        return robots.get(0).build();
     }
 
     public boolean isBuilding() {
-        return building;
+        return robots.get(0).isBuilding();
     }
 
+    /** The first robot's hardware. */
     public RobotRig rig() {
-        return rig;
+        return robots.get(0).rig();
     }
 
     public GameElements elements() {
@@ -836,7 +469,7 @@ public final class Simulator {
         done.await();
     }
 
-    private static Thread daemon(Runnable r, String name) {
+    static Thread daemon(Runnable r, String name) {
         Thread t = new Thread(r, name);
         t.setDaemon(true);
         return t;
@@ -846,15 +479,5 @@ public final class Simulator {
         StringWriter sw = new StringWriter();
         t.printStackTrace(new PrintWriter(sw));
         return sw.toString();
-    }
-
-    @SuppressWarnings("unused")
-    private static String fmt(String f, Object... a) {
-        return String.format(Locale.US, f, a);
-    }
-
-    @SuppressWarnings("unused")
-    private static JsonElement none() {
-        return null;
     }
 }

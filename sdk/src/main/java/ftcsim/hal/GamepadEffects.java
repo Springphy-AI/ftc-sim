@@ -1,11 +1,13 @@
 package ftcsim.hal;
 
+import com.qualcomm.robotcore.hardware.Gamepad;
+
 /** Routes gamepad rumble and LED requests from robot code to the browser Driver Station. */
 public final class GamepadEffects {
     public interface Listener {
-        void onRumble(int user, double[] strong, double[] weak, int[] durationsMs);
+        void onRumble(Gamepad gamepad, int user, double[] strong, double[] weak, int[] durationsMs);
 
-        void onLed(int user, double r, double g, double b, int durationMs);
+        void onLed(Gamepad gamepad, int user, double r, double g, double b, int durationMs);
     }
 
     private static volatile Listener listener;
@@ -17,13 +19,13 @@ public final class GamepadEffects {
         listener = l;
     }
 
-    public static void rumble(int user, double[] strong, double[] weak, int[] durationsMs) {
+    public static void rumble(Gamepad gamepad, int user, double[] strong, double[] weak, int[] durationsMs) {
         Listener l = listener;
-        if (l != null) l.onRumble(user, strong, weak, durationsMs);
+        if (l != null) l.onRumble(gamepad, user, strong, weak, durationsMs);
     }
 
-    public static void led(int user, double r, double g, double b, int durationMs) {
+    public static void led(Gamepad gamepad, int user, double r, double g, double b, int durationMs) {
         Listener l = listener;
-        if (l != null) l.onLed(user, r, g, b, durationMs);
+        if (l != null) l.onLed(gamepad, user, r, g, b, durationMs);
     }
 }

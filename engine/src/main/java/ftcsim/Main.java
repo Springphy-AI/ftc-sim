@@ -11,10 +11,13 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import ftcsim.physics.FieldModel;
 import ftcsim.runner.TeamCodeCompiler;
 import ftcsim.server.WebServer;
+import ftcsim.sim.SimRobot;
 import ftcsim.sim.Simulator;
 
 /**
@@ -22,11 +25,15 @@ import ftcsim.sim.Simulator;
  *
  * <pre>
  *   ftc-sim [--project DIR] [--robot FILE] [--port N] [--no-browser]
+ *           [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
  * </pre>
  *
  * --project points at your FtcRobotController project; the simulator compiles its
  * TeamCode/src/main/java (and the SDK samples folder) and rebuilds whenever you save.
- * Defaults can be kept in sim.properties next to this program (project=..., robot=..., port=...).
+ * More robots (up to 4) share the field: --project2 / --robot2 / --alliance2 set up robot 2, and so
+ * on; a robot without its own project or robot file uses robot 1's.
+ * Defaults can be kept in sim.properties next to this program (project=..., robot=..., port=...,
+ * robots=..., project2=..., robot2=..., alliance2=...).
  */
 public final class Main {
 
@@ -39,15 +46,45 @@ public final class Main {
                 props.load(r);
             }
         }
-        String project = props.getProperty("project");
-        String robot = props.getProperty("robot", "robots/mecanum.json");
+        int max = Simulator.MAX_ROBOTS;
+        String[] project = new String[max + 1], robot = new String[max + 1], alliance = new String[max + 1];
+        project[1] = props.getProperty("project", props.getProperty("project1"));
+        robot[1] = props.getProperty("robot", props.getProperty("robot1", "robots/mecanum.json"));
+        alliance[1] = props.getProperty("alliance", props.getProperty("alliance1"));
+        int count = 1;
+        for (int k = 2; k <= max; k++) {
+            project[k] = props.getProperty("project" + k);
+            robot[k] = props.getProperty("robot" + k);
+            alliance[k] = props.getProperty("alliance" + k);
+            if (project[k] != null || robot[k] != null || alliance[k] != null) count = k;
+        }
+        int robots = Integer.parseInt(props.getProperty("robots", "1"));
         int port = Integer.parseInt(props.getProperty("port", "8080"));
         boolean openBrowser = Boolean.parseBoolean(props.getProperty("open_browser", "true"));
 
+        Pattern numbered = Pattern.compile("--(project|robot|alliance)([1-9])");
         for (int i = 0; i < args.length; i++) {
+            Matcher m = numbered.matcher(args[i]);
+            if (m.matches()) {
+                int k = Integer.parseInt(m.group(2));
+                if (k > max || i + 1 >= args.length) {
+                    System.err.println(k > max ? "At most " + max + " robots (" + args[i] + ")" : "Missing value for " + args[i]);
+                    System.exit(2);
+                }
+                String v = args[++i];
+                switch (m.group(1)) {
+                    case "project" -> project[k] = v;
+                    case "robot" -> robot[k] = v;
+                    default -> alliance[k] = v;
+                }
+                count = Math.max(count, k);
+                continue;
+            }
             switch (args[i]) {
-                case "--project", "-p" -> project = args[++i];
-                case "--robot", "-r" -> robot = args[++i];
+                case "--project", "-p" -> project[1] = args[++i];
+                case "--robot", "-r" -> robot[1] = args[++i];
+                case "--alliance" -> alliance[1] = args[++i];
+                case "--robots" -> robots = Integer.parseInt(args[++i]);
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--no-browser" -> openBrowser = false;
                 case "--help", "-h" -> {
@@ -62,42 +99,12 @@ public final class Main {
             }
         }
 
-        List<TeamCodeCompiler.SourceRoot> roots = new ArrayList<>();
-        String label;
-        if (project != null && !project.isBlank()) {
-            Path p = Paths.get(project).toAbsolutePath().normalize();
-            if (!Files.isDirectory(p)) {
-                System.err.println("Project folder not found: " + p);
-                System.err.println("Clone your team's FtcRobotController repository (or the official one,"
-                        + " https://github.com/FIRST-Tech-Challenge/FtcRobotController) and pass its folder.");
-                System.exit(2);
-            }
-            // Accept the TeamCode or FtcRobotController module folder too, not just the project root.
-            if (!Files.isDirectory(p.resolve("TeamCode")) && p.getParent() != null
-                    && Files.isDirectory(p.getParent().resolve("TeamCode/src/main/java"))) {
-                p = p.getParent();
-            }
-            Path teamCode = p.resolve("TeamCode/src/main/java");
-            if (!Files.isDirectory(teamCode)) {
-                System.err.println("Not an FtcRobotController project (no TeamCode/src/main/java): " + p);
-                System.err.println("Pass the folder that contains TeamCode and FtcRobotController.");
-                System.exit(2);
-            }
-            roots.add(new TeamCodeCompiler.SourceRoot(teamCode, false));
-            Path samples = p.resolve("FtcRobotController/src/main/java/org/firstinspires/ftc/robotcontroller/external/samples");
-            if (Files.isDirectory(samples)) roots.add(new TeamCodeCompiler.SourceRoot(samples, true));
-            label = p.toString();
-        } else {
-            roots.add(new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false));
-            roots.add(new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true));
-            label = "examples (no --project given)";
-        }
-
-        Path robotFile = home.resolve(robot).normalize();
-        if (!Files.isRegularFile(robotFile)) {
-            System.err.println("Robot file not found: " + robotFile);
+        if (robots < 1 || robots > max) {
+            System.err.println("--robots must be between 1 and " + max);
             System.exit(2);
         }
+        count = Math.max(count, robots);
+
         // Each running simulator compiles into its own folder; remove folders of simulators that have exited.
         Path workRoot = home.resolve("build/teamcode-classes");
         Files.createDirectories(workRoot);
@@ -112,8 +119,34 @@ public final class Main {
         Path work = workRoot.resolve(Long.toString(ProcessHandle.current().pid()));
         Files.createDirectories(work);
 
-        Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile, robotFile.getParent(),
-                new TeamCodeCompiler(roots, work), label);
+        // Every robot gets its own TeamCode build, so robots never share TeamCode's static fields.
+        List<Simulator.RobotSpec> specs = new ArrayList<>();
+        Path robotsDir = null;
+        for (int k = 1; k <= count; k++) {
+            Path robotFile = home.resolve(robot[k] != null ? robot[k] : robot[1]).normalize();
+            if (!Files.isRegularFile(robotFile)) {
+                System.err.println("Robot file not found: " + robotFile);
+                System.exit(2);
+            }
+            if (alliance[k] != null && !alliance[k].equalsIgnoreCase("red") && !alliance[k].equalsIgnoreCase("blue")) {
+                System.err.println("Robot " + k + ": alliance must be red or blue, not \"" + alliance[k] + "\"");
+                System.exit(2);
+            }
+            if (robotsDir == null) robotsDir = robotFile.getParent();
+            Project pr = project(project[k] != null ? project[k] : project[1], home, count > 1 ? "Robot " + k + ": " : "");
+            Path robotWork = count == 1 ? work : work.resolve("robot" + k);
+            Files.createDirectories(robotWork);
+            specs.add(new Simulator.RobotSpec(robotFile, new TeamCodeCompiler(pr.roots(), robotWork), pr.label(), alliance[k]));
+        }
+
+        Simulator sim;
+        try {
+            sim = new Simulator(FieldModel.loadBiobuzz(), robotsDir, specs);
+        } catch (IllegalArgumentException e) {
+            System.err.println(e.getMessage());
+            System.exit(2);
+            return;
+        }
         WebServer server = new WebServer(sim);
         int bound = -1;
         for (int attempt = 0; attempt < 10 && bound < 0; attempt++) {
@@ -127,8 +160,16 @@ public final class Main {
         String url = "http://localhost:" + bound + "/";
         System.out.println();
         System.out.println("FTC simulator running at " + url);
-        System.out.println("  TeamCode: " + label);
-        System.out.println("  Robot:    " + robotFile.getFileName());
+        if (sim.robots().size() == 1) {
+            System.out.println("  TeamCode: " + specs.get(0).projectLabel());
+            System.out.println("  Robot:    " + specs.get(0).robotFile().getFileName());
+        } else {
+            for (SimRobot r : sim.robots()) {
+                Simulator.RobotSpec s = specs.get(r.index);
+                System.out.println("  Robot " + (r.index + 1) + " (" + r.alliance + "): " + s.robotFile().getFileName()
+                        + ", TeamCode: " + s.projectLabel());
+            }
+        }
         System.out.println("Press Ctrl+C to quit.");
         if (openBrowser) open(url);
 
@@ -137,6 +178,45 @@ public final class Main {
             server.stop();
         }));
         Thread.currentThread().join();
+    }
+
+    /** The TeamCode source folders of one project (or the bundled examples), and how to describe it. */
+    private record Project(List<TeamCodeCompiler.SourceRoot> roots, String label) {
+    }
+
+    /** @param who "" with one robot, else "Robot K: ", to say whose folder is wrong */
+    private static Project project(String project, Path home, String who) {
+        List<TeamCodeCompiler.SourceRoot> roots = new ArrayList<>();
+        String label;
+        if (project != null && !project.isBlank()) {
+            Path p = Paths.get(project).toAbsolutePath().normalize();
+            if (!Files.isDirectory(p)) {
+                System.err.println(who + "Project folder not found: " + p);
+                System.err.println("Clone your team's FtcRobotController repository (or the official one,"
+                        + " https://github.com/FIRST-Tech-Challenge/FtcRobotController) and pass its folder.");
+                System.exit(2);
+            }
+            // Accept the TeamCode or FtcRobotController module folder too, not just the project root.
+            if (!Files.isDirectory(p.resolve("TeamCode")) && p.getParent() != null
+                    && Files.isDirectory(p.getParent().resolve("TeamCode/src/main/java"))) {
+                p = p.getParent();
+            }
+            Path teamCode = p.resolve("TeamCode/src/main/java");
+            if (!Files.isDirectory(teamCode)) {
+                System.err.println(who + "Not an FtcRobotController project (no TeamCode/src/main/java): " + p);
+                System.err.println("Pass the folder that contains TeamCode and FtcRobotController.");
+                System.exit(2);
+            }
+            roots.add(new TeamCodeCompiler.SourceRoot(teamCode, false));
+            Path samples = p.resolve("FtcRobotController/src/main/java/org/firstinspires/ftc/robotcontroller/external/samples");
+            if (Files.isDirectory(samples)) roots.add(new TeamCodeCompiler.SourceRoot(samples, true));
+            label = p.toString();
+        } else {
+            roots.add(new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false));
+            roots.add(new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true));
+            label = "examples (no --project given)";
+        }
+        return new Project(roots, label);
     }
 
     private static void deleteTree(Path dir) {
@@ -150,13 +230,23 @@ public final class Main {
     private static void usage() {
         System.out.println("""
                 Usage: ftc-sim [--project DIR] [--robot FILE] [--port N] [--no-browser]
+                               [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
 
-                  --project DIR   your FtcRobotController project (uses DIR/TeamCode/src/main/java)
-                  --robot FILE    robot description, default robots/mecanum.json
-                  --port N        web port, default 8080
-                  --no-browser    do not open the browser
+                  --project DIR     your FtcRobotController project (uses DIR/TeamCode/src/main/java)
+                  --robot FILE      robot description, default robots/mecanum.json
+                  --port N          web port, default 8080
+                  --no-browser      do not open the browser
 
-                Defaults can also be set in sim.properties (project=, robot=, port=, open_browser=).""");
+                More robots on the same field (up to 4, at most two per alliance):
+                  --robots N        put N robots on the field; each runs robot 1's project and robot
+                                    file unless it gets its own with the options below
+                  --projectK DIR    robot K's FtcRobotController project (K = 2, 3, 4)
+                  --robotK FILE     robot K's description
+                  --allianceK A     robot K's alliance, red or blue
+                                    (default: robot 1 red, robot 2 blue, robot 3 red, robot 4 blue)
+
+                Defaults can also be set in sim.properties (project=, robot=, port=, open_browser=,
+                robots=, project2=, robot2=, alliance2=, ...).""");
     }
 
     private static void open(String url) {

@@ -37,7 +37,6 @@ import ftcsim.config.RobotConfig;
 import ftcsim.hal.DigitalPort;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.ImuBackend;
-import ftcsim.hal.Latency;
 import ftcsim.hal.MotorPort;
 import ftcsim.hal.OtosBackend;
 import ftcsim.hal.PinpointBackend;
@@ -68,6 +67,8 @@ public final class RobotRig {
     public final RobotConfig config;
     public final PhysicsWorld world;
     public final RobotBody body;
+    /** Where Reset puts the robot: x, y (m) and heading (degrees). */
+    public final double[] start;
     public final List<SimHub> hubs = new ArrayList<>();
     public final Map<String, MotorUnit> motors = new LinkedHashMap<>();
     public final List<Mechanism> mechanisms = new ArrayList<>();
@@ -104,10 +105,14 @@ public final class RobotRig {
     }
 
     public RobotRig(RobotConfig config, PhysicsWorld world) {
+        this(config, world, config.start);
+    }
+
+    /** A robot in {@code world} (which may hold other robots too), placed at {@code start} (x, y, heading°). */
+    public RobotRig(RobotConfig config, PhysicsWorld world, double[] start) {
         this.config = config;
         this.world = world;
-        Latency.commandNanos = Math.round(config.io.commandMs * 1e6);
-        Latency.i2cNanos = Math.round(config.io.i2cMs * 1e6);
+        this.start = start.clone();
 
         Allocator alloc = new Allocator();
         // Drivetrain motors first, so they land on the Control Hub like on most robots.
@@ -171,8 +176,7 @@ public final class RobotRig {
         imu = new ImuBackend(Rotations.fromQuaternion(q.w, q.x, q.y, q.z));
 
         body = new RobotBody(world, config, motors::get);
-        double[] s = config.start;
-        place(s[0], s[1], Math.toRadians(s[2]));
+        place(this.start[0], this.start[1], Math.toRadians(this.start[2]));
     }
 
     /** Hands out hub ports in order: Control Hub first, then Expansion Hub 2. */
@@ -292,16 +296,31 @@ public final class RobotRig {
 
     // ---- stepping --------------------------------------------------------------------------------
 
-    /** One physics step. Called on the physics thread only. */
+    /** One physics step of a world that holds only this robot. Called on the physics thread only. */
     public void step(double dt) {
+        beforeWorldStep(dt);
+        world.step(dt);
+        afterWorldStep(dt);
+    }
+
+    /** Motors and servos act; call for every robot, then step the world once, then {@link #afterWorldStep}. */
+    public void beforeWorldStep(double dt) {
         for (ServoUnit s : servos) s.step(dt);
         for (Mechanism m : mechanisms) m.step(batteryVolts, dt);
         body.applyDrive(batteryVolts, dt);
-        world.step(dt);
+    }
+
+    /** Encoders, battery and sensors catch up with the world step. */
+    public void afterWorldStep(double dt) {
         body.afterStep(dt);
         updateBattery(dt);
         updateMotionSensors(dt);
         if (stepCount++ % 5 == 0) updateSlowSensors();
+    }
+
+    /** Removes the robot from the world. */
+    public void destroy() {
+        body.destroy();
     }
 
     private void updateBattery(double dt) {
@@ -373,7 +392,7 @@ public final class RobotRig {
             RobotConfig.Device d = tm.device;
             DVector3 sp = body.pointToWorld(d.xM, d.yM, d.zM);
             boolean pressed = false;
-            for (PhysicsWorld.ChassisContact c : world.chassisContacts()) {
+            for (PhysicsWorld.ChassisContact c : world.chassisContacts(body.chassis)) {
                 double dx = c.x() - sp.get0(), dy = c.y() - sp.get1();
                 if (dx * dx + dy * dy < 0.05 * 0.05) {
                     pressed = true;

@@ -16,7 +16,7 @@
     <div class="conn" id="conn" title="Connection to the simulator"><span class="dot"></span><span id="connText">Connecting…</span></div>
     <div class="project" id="project" title="TeamCode being simulated"></div>
     <div class="spacer"></div>
-    <label class="robotpick">Robot
+    <label class="robotpick"><span id="robotPickName">Robot</span>
       <select id="robotSelect" title="Robot description (robots/*.json)"></select>
     </label>
     <div class="stat" title="Battery voltage"><span class="k">Battery</span><span id="battery">–</span></div>
@@ -35,12 +35,12 @@
         </div>
         <div class="seg" role="group" aria-label="Robot">
           <button id="placeBtn" title="Click on the field to move the robot; drag to aim it">Place robot</button>
-          <button id="resetBtn" title="Power-cycle the robot and put it back at its start position">Reset</button>
+          <button id="resetBtn" title="Power-cycle the robot, put it back at its start position and restage the game pieces">Reset</button>
         </div>
       </div>
       <div class="hud bottom-left pose" id="pose"></div>
       <div class="hud bottom-right keys" id="keys" hidden>
-        <b>Keyboard → gamepad 1</b>
+        <b id="keysTitle">Keyboard → gamepad 1</b>
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> left stick · <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> right stick</div>
         <div><kbd>K</kbd> A · <kbd>L</kbd> B · <kbd>J</kbd> X · <kbd>I</kbd> Y · <kbd>Q</kbd>/<kbd>E</kbd> bumpers · <kbd>Z</kbd>/<kbd>C</kbd> triggers</div>
         <div><kbd>T</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd> d-pad · <kbd>[</kbd> back · <kbd>]</kbd> start · hold <kbd>Shift</kbd> for 40% sticks</div>
@@ -49,11 +49,31 @@
     </section>
 
     <aside class="ds" aria-label="Driver Station">
-      <div class="card opmode-card">
+      <div class="card robots-card" id="robotsCard" hidden>
+        <div class="card-title">Robots <span class="title-hint">· click one to see its telemetry and devices below</span></div>
+        <div class="robot-rows" id="robotRows"></div>
+        <div class="match">
+          <div class="row">
+            <button id="initAllBtn" class="secondary" title="INIT every stopped robot's selected OpMode" disabled>INIT all</button>
+            <button id="startAllBtn" class="secondary start-all" title="START every robot that is in INIT, at the same moment" disabled>▶ START all</button>
+            <button id="stopAllBtn" class="secondary stop-all" title="STOP every robot" disabled>■ STOP all</button>
+          </div>
+          <div class="row match-opts">
+            <label class="check" title="Stop every robot's Autonomous after 30 seconds, like the Driver Station timer">
+              <input type="checkbox" id="autoTimerAll" checked> 30 s auto timer
+            </label>
+            <label class="check" title="Also list the FTC SDK sample OpModes (they are @Disabled on a real robot)">
+              <input type="checkbox" id="showSamplesAll"> FTC samples
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card opmode-card single-only">
         <div class="row">
           <select id="opmodeSelect" aria-label="OpMode"></select>
-          <label class="check" title="List the FTC SDK sample OpModes (they are @Disabled on a real robot)">
-            <input type="checkbox" id="showSamples"> Samples
+          <label class="check" title="Also list the FTC SDK sample OpModes (they are @Disabled on a real robot)">
+            <input type="checkbox" id="showSamples"> FTC samples
           </label>
         </div>
         <div class="row controls">
@@ -69,22 +89,23 @@
         </div>
       </div>
 
-      <div class="banner error" id="errorBanner" hidden>
+      <div class="banner error single-only" id="errorBanner" hidden>
         <div class="body">
           <div class="msg" id="errorText"></div>
           <button id="errorFix" class="fix" hidden></button>
         </div>
         <button id="errorDismiss" class="ghost" aria-label="Dismiss">Dismiss</button>
       </div>
-      <div class="banner warn" id="warnBanner" hidden></div>
+      <div class="banner warn single-only" id="warnBanner" hidden></div>
 
       <div class="card telemetry-card">
-        <div class="card-title">Telemetry</div>
+        <div class="card-title">Telemetry<span class="for-robot"></span></div>
         <div class="telemetry" id="telemetry" aria-live="polite"></div>
         <div class="telemetry-log" id="telemetryLog"></div>
       </div>
 
       <div class="card gamepads">
+        <div class="card-title multi-only">Gamepads<span class="for-robot"></span></div>
         <div class="gp" id="gp1">
           <div class="gp-head"><span class="gp-name">Gamepad 1</span><select id="gp1Source" aria-label="Gamepad 1 source"></select></div>
           <div class="gp-viz"></div>
@@ -100,6 +121,7 @@
           <button role="tab" data-tab="devices" class="on">Devices</button>
           <button role="tab" data-tab="build">Build <span id="buildBadge" class="badge" hidden></span></button>
           <button role="tab" data-tab="log">Robot log</button>
+          <span class="tabs-robot robot-name multi-only"></span>
         </div>
         <div class="tab" data-tab="devices">
           <table class="devices" id="motorTable"><thead><tr><th>Motor</th><th>Mode</th><th>Power</th><th>Encoder</th><th>Vel t/s</th><th>A</th></tr></thead><tbody></tbody></table>

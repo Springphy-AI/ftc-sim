@@ -23,7 +23,7 @@ import ftcsim.physics.ServoUnit;
 
 /**
  * The BIOBUZZ SCORING ELEMENTS: 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm),
- * staged as Competition Manual section 10.3.1 describes, plus how the robot's intake, feeder and
+ * staged as Competition Manual section 10.3.1 describes, plus how each robot's intake, feeder and
  * launcher handle them. Every method must be called on the physics thread.
  *
  * <p>A ball is in one of three states:
@@ -106,37 +106,60 @@ public final class GameElements {
     private static final double LAUNCH_ANGLE_MIN_DEG = 15, LAUNCH_ANGLE_MAX_DEG = 80;
     private static final double LAUNCHER_X_M = -0.08, LAUNCHER_ABOVE_TOP_M = 0.31;
 
+    /** One robot on the field: its intake, feeder and launcher, and the balls inside it. */
+    private static final class Holder {
+        final String alliance;
+        RobotRig rig;
+        /** Balls inside the robot, in the order they will leave it (first = next to the launcher). */
+        final List<Ball> held = new ArrayList<>();
+        Mechanism intake, launcher;
+        ServoUnit feeder, hood;
+        double launcherWheelRadius;
+        double sinceIntake = 1, sinceFeed = 1;
+        int launched = 0;
+
+        Holder(RobotRig rig, String alliance) {
+            this.alliance = alliance;
+            bind(rig);
+        }
+
+        /** Finds the mechanisms by their role in the robot description. */
+        void bind(RobotRig r) {
+            rig = r;
+            intake = launcher = null;
+            feeder = hood = null;
+            for (Mechanism m : r.mechanisms) {
+                if ("intake".equals(m.device.role)) intake = m;
+                if ("launcher".equals(m.device.role)) launcher = m;
+            }
+            for (ServoUnit s : r.servos) {
+                if ("feeder".equals(s.device.role)) feeder = s;
+                if ("hood".equals(s.device.role)) hood = s;
+            }
+            launcherWheelRadius = launcher == null ? 0 : launcher.device.load.wheelDiameterM / 2;
+        }
+    }
+
     private final FieldModel field;
     private final PhysicsWorld world;
-    private final RobotRig rig;
     private final List<Ball> balls = new ArrayList<>();
-    /** Balls inside the robot, in the order they will leave it (first = next to the launcher). */
-    private final List<Ball> held = new ArrayList<>();
-    private final Mechanism intake, launcher;
-    private final ServoUnit feeder, hood;
-    private final double launcherWheelRadius;
-    private double sinceIntake = 1, sinceFeed = 1;
-    private int launched = 0;
+    private final List<Holder> robots = new ArrayList<>();
 
+    /** The alliance of a single simulated robot (the field file's {@code alliance}, red by default). */
+    public static String homeAlliance(FieldModel field) {
+        return field.json.has("alliance") ? field.json.get("alliance").getAsString() : "red";
+    }
+
+    /** Game pieces for a field with one robot, on the home alliance. */
     public GameElements(FieldModel field, RobotRig rig) {
+        this(field, List.of(rig), List.of(homeAlliance(field)));
+    }
+
+    /** Game pieces for a field with these robots (all in the same world), on these alliances ("red", "blue"). */
+    public GameElements(FieldModel field, List<RobotRig> rigs, List<String> alliances) {
         this.field = field;
-        this.world = rig.world;
-        this.rig = rig;
-        Mechanism in = null, out = null;
-        for (Mechanism m : rig.mechanisms) {
-            if ("intake".equals(m.device.role)) in = m;
-            if ("launcher".equals(m.device.role)) out = m;
-        }
-        ServoUnit f = null, h = null;
-        for (ServoUnit s : rig.servos) {
-            if ("feeder".equals(s.device.role)) f = s;
-            if ("hood".equals(s.device.role)) h = s;
-        }
-        intake = in;
-        launcher = out;
-        feeder = f;
-        hood = h;
-        launcherWheelRadius = out == null ? 0 : out.device.load.wheelDiameterM / 2;
+        this.world = rigs.get(0).world;
+        for (int i = 0; i < rigs.size(); i++) robots.add(new Holder(rigs.get(i), alliances.get(i)));
 
         JsonObject se = field.json.getAsJsonObject("scoring_elements");
         JsonObject pollen = se.getAsJsonObject("pollen");
@@ -184,16 +207,18 @@ public final class GameElements {
     /**
      * Puts every SCORING ELEMENT where it starts a MATCH:
      * <ul>
-     *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in this robot. The other three
-     *       ROBOTS are absent, so their pre-loads go in the center of their LOADING ZONE against
-     *       the perimeter wall (10.3.4).</li>
+     *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in each simulated robot. The
+     *       pre-loads of absent ROBOTS (each ALLIANCE has two) go in the center of their LOADING
+     *       ZONE against the perimeter wall (10.3.4).</li>
      *   <li>NECTAR: 3 in each upward-facing CELL of its color, 5 in each ALLIANCE AREA.</li>
      * </ul>
      */
     public void restage() {
-        held.clear();
-        launched = 0;
-        sinceIntake = sinceFeed = 1;
+        for (Holder r : robots) {
+            r.held.clear();
+            r.launched = 0;
+            r.sinceIntake = r.sinceFeed = 1;
+        }
         List<Ball> pollen = new ArrayList<>(), red = new ArrayList<>(), blue = new ArrayList<>();
         for (Ball b : balls) {
             if ("pollen".equals(b.kind)) pollen.add(b);
@@ -226,18 +251,20 @@ public final class GameElements {
                 free(b, x, y, b.radius, 0, 0, 0);
             }
         }
-        // This robot's pre-load.
-        for (int i = 0; i < PRELOAD; i++) hold(pollen.get(p++));
-        // Absent robots' pre-loads: 1 partner on this robot's alliance, 2 opponents.
-        String mine = field.json.has("alliance") ? field.json.get("alliance").getAsString() : "red";
+        // Each simulated robot's pre-load.
+        for (Holder r : robots) {
+            for (int i = 0; i < PRELOAD; i++) hold(r, pollen.get(p++));
+        }
+        // Absent robots' pre-loads: two ROBOTS per ALLIANCE, minus the ones simulated.
         JsonObject zones = field.json.getAsJsonObject("loading_zones");
         for (String alliance : zones.keySet()) {
-            int robots = alliance.equals(mine) ? 1 : 2;
+            int absent = 2 - (int) robots.stream().filter(r -> r.alliance.equals(alliance)).count();
+            if (absent <= 0) continue;
             JsonObject z = zones.getAsJsonObject(alliance);
             double x0 = z.getAsJsonArray("x_m").get(0).getAsDouble(), x1 = z.getAsJsonArray("x_m").get(1).getAsDouble();
             double yc = (z.getAsJsonArray("y_m").get(0).getAsDouble() + z.getAsJsonArray("y_m").get(1).getAsDouble()) / 2;
             double wallSign = Math.abs(x0 + field.half) < Math.abs(x1 - field.half) ? -1 : 1;
-            int n = robots * PRELOAD, rows = n / 2;
+            int n = absent * PRELOAD, rows = n / 2;
             for (int i = 0; i < n; i++) {
                 Ball b = pollen.get(p++);
                 double d = 2 * b.radius + 0.002;
@@ -289,13 +316,13 @@ public final class GameElements {
         b.geom.disable();
     }
 
-    private void hold(Ball b) {
+    private void hold(Holder r, Ball b) {
         b.state = State.HELD;
         b.body.setLinearVel(0, 0, 0);
         b.body.setAngularVel(0, 0, 0);
         b.body.disable();
         b.geom.disable();
-        held.add(b);
+        r.held.add(b);
     }
 
     private void free(Ball b, double x, double y, double z, double vx, double vy, double vz) {
@@ -307,15 +334,22 @@ public final class GameElements {
         b.body.enable();
     }
 
-    // ---- the robot's intake, feeder and launcher ----------------------------------------------
+    // ---- the robots' intakes, feeders and launchers --------------------------------------------
 
     /** Runs before each physics step: intake pick-up and eject, feeding the launcher. */
     public void beforeStep(double dt) {
-        sinceIntake += dt;
-        sinceFeed += dt;
         applyAirAndRolling();
-        if (intake != null) runIntake();
-        if (feeder != null && launcher != null) runFeeder();
+        for (Holder r : robots) {
+            r.sinceIntake += dt;
+            r.sinceFeed += dt;
+            if (r.intake != null) runIntake(r);
+            if (r.feeder != null && r.launcher != null) runFeeder(r);
+        }
+    }
+
+    /** After robot {@code index} was swapped for another description: the balls inside stay inside. */
+    public void replaceRobot(int index, RobotRig rig) {
+        robots.get(index).bind(rig);
     }
 
     /** Air drag on every moving free ball, plus rolling resistance while it is on the tiles. */
@@ -338,9 +372,11 @@ public final class GameElements {
         }
     }
 
-    private void runIntake() {
-        double omega = intake.motorOmega();
-        if (sinceIntake < INTAKE_INTERVAL_S || Math.abs(omega) < INTAKE_MIN_OMEGA) return;
+    private void runIntake(Holder r) {
+        double omega = r.intake.motorOmega();
+        if (r.sinceIntake < INTAKE_INTERVAL_S || Math.abs(omega) < INTAKE_MIN_OMEGA) return;
+        RobotRig rig = r.rig;
+        List<Ball> held = r.held;
         RobotConfig.Chassis c = rig.config.chassis;
         double front = c.lengthM / 2 + 0.04;   // the roller, as drawn in the 3D view
         if (omega > 0) {
@@ -352,8 +388,8 @@ public final class GameElements {
                 double heightAboveFloor = b.body.getPosition().get2();
                 if (local.get0() > c.lengthM / 2 - 0.02 && local.get0() < front + b.radius + INTAKE_REACH_M
                         && Math.abs(local.get1()) < c.widthM * 0.41 && heightAboveFloor < 0.15) {
-                    hold(b);
-                    sinceIntake = 0;
+                    hold(r, b);
+                    r.sinceIntake = 0;
                     return;
                 }
             }
@@ -365,17 +401,18 @@ public final class GameElements {
             DVector3 v = rig.body.vectorToWorld(1.0, 0, 0);
             DVector3C rv = rig.body.chassis.getLinearVel();
             free(b, p.get0(), p.get1(), p.get2(), v.get0() + rv.get0(), v.get1() + rv.get1(), 0);
-            sinceIntake = 0;
+            r.sinceIntake = 0;
         }
     }
 
-    private void runFeeder() {
-        if (held.isEmpty() || sinceFeed < FEED_INTERVAL_S || feeder.port.speedDegPerSec < FEED_MIN_DEG_PER_SEC) return;
-        double gear = launcher.device.externalGearRatio <= 0 ? 1 : launcher.device.externalGearRatio;
-        double speed = Math.abs(launcher.motorOmega()) / gear * launcherWheelRadius * LAUNCH_EFFICIENCY;
+    private void runFeeder(Holder r) {
+        if (r.held.isEmpty() || r.sinceFeed < FEED_INTERVAL_S || r.feeder.port.speedDegPerSec < FEED_MIN_DEG_PER_SEC) return;
+        double gear = r.launcher.device.externalGearRatio <= 0 ? 1 : r.launcher.device.externalGearRatio;
+        double speed = Math.abs(r.launcher.motorOmega()) / gear * r.launcherWheelRadius * LAUNCH_EFFICIENCY;
         if (speed < LAUNCH_MIN_SPEED) return;   // the ball sits against a stopped flywheel
-        Ball b = held.remove(0);
-        double elev = Math.toRadians(launchAngleDeg());
+        RobotRig rig = r.rig;
+        Ball b = r.held.remove(0);
+        double elev = Math.toRadians(launchAngle(r));
         RobotConfig.Chassis c = rig.config.chassis;
         double top = c.groundClearanceM + c.frameHeightM;
         double ex = LAUNCHER_X_M + 0.07 * Math.cos(elev), ez = top + LAUNCHER_ABOVE_TOP_M + 0.07 * Math.sin(elev);
@@ -383,19 +420,24 @@ public final class GameElements {
         DVector3 v = rig.body.vectorToWorld(speed * Math.cos(elev), 0, speed * Math.sin(elev));
         DVector3C rv = rig.body.chassis.getLinearVel();
         free(b, p.get0(), p.get1(), p.get2(), v.get0() + rv.get0(), v.get1() + rv.get1(), v.get2() + rv.get2());
-        sinceFeed = 0;
-        launched++;
+        r.sinceFeed = 0;
+        r.launched++;
     }
 
     /** Launch elevation above horizontal set by the hood servo (50° at position 0.5). */
-    public double launchAngleDeg() {
-        double a = LAUNCH_ANGLE_AT_CENTER_DEG + (hood == null ? 0 : hood.angleDeg() * LAUNCH_ANGLE_PER_SERVO_DEG);
+    private static double launchAngle(Holder r) {
+        double a = LAUNCH_ANGLE_AT_CENTER_DEG + (r.hood == null ? 0 : r.hood.angleDeg() * LAUNCH_ANGLE_PER_SERVO_DEG);
         return Math.max(LAUNCH_ANGLE_MIN_DEG, Math.min(LAUNCH_ANGLE_MAX_DEG, a));
     }
 
-    /** Puts one ball at rest on the tiles at (x, y), out of the robot or its staging spot. */
+    /** The first robot's launch elevation. */
+    public double launchAngleDeg() {
+        return launchAngle(robots.get(0));
+    }
+
+    /** Puts one ball at rest on the tiles at (x, y), out of a robot or its staging spot. */
     public void placeBall(Ball b, double x, double y) {
-        held.remove(b);
+        for (Holder r : robots) r.held.remove(b);
         free(b, x, y, b.radius, 0, 0, 0);
     }
 
@@ -405,12 +447,22 @@ public final class GameElements {
         return balls;
     }
 
+    /** Balls inside the first robot. */
     public int heldCount() {
-        return held.size();
+        return heldCount(0);
     }
 
+    public int heldCount(int robot) {
+        return robots.get(robot).held.size();
+    }
+
+    /** Balls the first robot has launched since the last restage. */
     public int launchedCount() {
-        return launched;
+        return launchedCount(0);
+    }
+
+    public int launchedCount(int robot) {
+        return robots.get(robot).launched;
     }
 
     /** Ball kinds for the browser, once per connection. */
@@ -429,17 +481,18 @@ public final class GameElements {
     /** x, y, z of every ball (mm resolution), in {@link #balls()} order. HELD balls ride on the robot. */
     public double[] positions() {
         double[] out = new double[balls.size() * 3];
-        RobotConfig.Chassis c = rig.config.chassis;
-        double top = c.groundClearanceM + c.frameHeightM;
         for (Ball b : balls) {
             double x, y, z;
-            if (b.state == State.HELD) {
-                int i = held.indexOf(b);
-                DVector3 p = rig.body.pointToWorld(0.12 - i * 0.075, 0, top + b.radius + 0.01 + i * 0.03);
+            Holder r = b.state == State.HELD ? holderOf(b) : null;
+            if (r != null) {
+                RobotConfig.Chassis c = r.rig.config.chassis;
+                double top = c.groundClearanceM + c.frameHeightM;
+                int i = r.held.indexOf(b);
+                DVector3 p = r.rig.body.pointToWorld(0.12 - i * 0.075, 0, top + b.radius + 0.01 + i * 0.03);
                 x = p.get0();
                 y = p.get1();
                 z = p.get2();
-            } else if (b.state == State.STAGED) {
+            } else if (b.state != State.FREE) {
                 x = b.stagedAt[0];
                 y = b.stagedAt[1];
                 z = b.stagedAt[2];
@@ -454,5 +507,10 @@ public final class GameElements {
             out[b.id * 3 + 2] = Math.round(z * 1000) / 1000.0;
         }
         return out;
+    }
+
+    private Holder holderOf(Ball b) {
+        for (Holder r : robots) if (r.held.contains(b)) return r;
+        return null;
     }
 }

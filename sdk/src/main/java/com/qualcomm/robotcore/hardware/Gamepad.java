@@ -333,13 +333,13 @@ public class Gamepad {
     // ---- LED & rumble ----------------------------------------------------------------------
 
     public void setLedColor(double r, double g, double b, int durationMs) {
-        GamepadEffects.led(simUser, r, g, b, durationMs);
+        GamepadEffects.led(this, simUser, r, g, b, durationMs);
     }
 
     public void runLedEffect(LedEffect effect) {
         if (effect != null && !effect.steps.isEmpty()) {
             LedEffect.Step s = effect.steps.get(0);
-            GamepadEffects.led(simUser, s.r, s.g, s.b, effect.repeating ? LED_DURATION_CONTINUOUS : s.duration);
+            GamepadEffects.led(this, simUser, s.r, s.g, s.b, effect.repeating ? LED_DURATION_CONTINUOUS : s.duration);
         }
     }
 
@@ -357,7 +357,7 @@ public class Gamepad {
             total += s.duration;
         }
         nextRumbleApproxFinishTime = System.currentTimeMillis() + total;
-        GamepadEffects.rumble(simUser, strong, weak, durations);
+        GamepadEffects.rumble(this, simUser, strong, weak, durations);
     }
 
     public void rumble(int durationMs) {
@@ -371,7 +371,7 @@ public class Gamepad {
 
     public void stopRumble() {
         nextRumbleApproxFinishTime = 0;
-        GamepadEffects.rumble(simUser, new double[]{0}, new double[]{0}, new int[]{0});
+        GamepadEffects.rumble(this, simUser, new double[]{0}, new double[]{0}, new int[]{0});
     }
 
     public void rumbleBlips(int count) {

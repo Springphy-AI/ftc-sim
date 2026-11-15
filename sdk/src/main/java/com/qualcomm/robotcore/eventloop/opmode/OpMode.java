@@ -4,6 +4,7 @@ import java.util.HashMap;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
+import ftcsim.hal.ContextBlackboard;
 import ftcsim.hal.SimTelemetry;
 
 /**
@@ -12,8 +13,11 @@ import ftcsim.hal.SimTelemetry;
  */
 public abstract class OpMode extends OpModeInternal {
 
-    /** A place to share data between OpModes (for example from Autonomous to TeleOp). */
-    public static final HashMap<String, Object> blackboard = new HashMap<String, Object>();
+    /**
+     * A place to share data between OpModes (for example from Autonomous to TeleOp). In the
+     * simulator each robot has its own, as each real robot runs its own Robot Controller app.
+     */
+    public static final HashMap<String, Object> blackboard = new ContextBlackboard();
 
     /** Number of seconds this OpMode has been running; updated before every call to init_loop() and loop(). */
     public volatile double time = 0.0;
