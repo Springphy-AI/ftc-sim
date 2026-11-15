@@ -10,6 +10,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
@@ -135,60 +138,78 @@ class ExampleOpModesTest {
     }
 
     @Test
-    void launcherSpinsUpRumblesAndShootsToHiveHeight() throws Exception {
+    void launcherSpinsUpRumblesAndShootsIntoTheHiveCell() throws Exception {
         Simulator sim = start();
-        // A clear lane: facing the rear wall, left of the HIVE frame.
-        sim.handle("{\"type\":\"place\",\"x\":-1.2,\"y\":-1.5,\"h\":90}");
-        sim.handle("{\"type\":\"init\",\"opmode\":\"BIOBUZZ TeleOp\"}");
-        waitFor(sim, Simulator.DsState.INIT, 2000);
-        sim.handle("{\"type\":\"start\"}");
-        waitFor(sim, Simulator.DsState.RUNNING, 2000);
-        Thread.sleep(200);
-        long yPressed = System.currentTimeMillis();
-        sim.handle(buttons(3));   // Y toggles the launcher
-        Thread.sleep(150);
-        sim.handle(buttons(-1));
-        // The controller rumbles when the launcher reaches speed; a driver presses RB right then.
-        long deadline = System.currentTimeMillis() + 4000;
-        while (messages.stream().noneMatch(m -> m.contains("\"type\":\"rumble\"")) && System.currentTimeMillis() < deadline) Thread.sleep(10);
-        assertTrue(messages.stream().anyMatch(m -> m.contains("\"type\":\"rumble\"")), "rumble sent to the controller");
-        System.out.printf("launcher ready %.1f s after Y%n", (System.currentTimeMillis() - yPressed) / 1000.0);
-        assertTrue(System.currentTimeMillis() - yPressed < 2000, "launcher reaches speed within 2 s");
+        FieldModel field = sim.rig().world.field;
+        // In line with the red HIVE on the audience side, facing its open CELL (the rear wall): the
+        // near end of the range the TeleOp documents, the middle, and backed against the audience wall
+        // (place keeps the center 0.23 m from the wall, y = -1.60).
+        for (double y : new double[]{-1.0, -1.3, -1.6}) {
+            messages.clear();
+            sim.handle("{\"type\":\"reset\"}");   // a fresh pre-load
+            sim.handle("{\"type\":\"place\",\"x\":-0.32,\"y\":" + y + ",\"h\":90}");
+            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 4
+                    && Math.abs(sim.rig().body.position().get1() - y) < 0.01), 3000, "robot placed with 4 POLLEN");
+            sim.handle("{\"type\":\"init\",\"opmode\":\"BIOBUZZ TeleOp\"}");
+            waitFor(sim, Simulator.DsState.INIT, 2000);
+            sim.handle("{\"type\":\"start\"}");
+            waitFor(sim, Simulator.DsState.RUNNING, 2000);
+            Thread.sleep(200);
+            long yPressed = System.currentTimeMillis();
+            sim.handle(buttons(3));   // Y toggles the launcher
+            Thread.sleep(150);
+            sim.handle(buttons(-1));
+            // The controller rumbles when the launcher reaches speed; a driver presses RB right then.
+            waitUntil(() -> messages.stream().anyMatch(m -> m.contains("\"type\":\"rumble\"")), 4000, "rumble sent to the controller");
+            System.out.printf("y %.1f: launcher ready %.1f s after Y%n", y, (System.currentTimeMillis() - yPressed) / 1000.0);
+            assertTrue(System.currentTimeMillis() - yPressed < 2000, "launcher reaches speed within 2 s");
 
-        // RB feeds the 4 pre-loaded POLLEN. Follow them until they land.
-        List<GameElements.Ball> preload = new ArrayList<>();
-        sim.onPhysicsThread(() -> sim.elements().balls().stream()
-                .filter(b -> b.state() == GameElements.State.HELD).forEach(preload::add));
-        assertEquals(4, preload.size());
-        double startY = sim.rig().body.position().get1();
-        sim.handle(buttons(5));
-        double[] apex = new double[preload.size()], apexAt = new double[preload.size()];
-        long until = System.currentTimeMillis() + 3500;
-        while (System.currentTimeMillis() < until) {
-            sim.onPhysicsThread(() -> {
-                for (int i = 0; i < preload.size(); i++) {
-                    GameElements.Ball b = preload.get(i);
-                    if (b.state() != GameElements.State.FREE || b.position().get2() <= apex[i]) continue;
-                    apex[i] = b.position().get2();
-                    apexAt[i] = b.position().get1() - startY;
-                }
-            });
-            Thread.sleep(5);
+            // RB feeds the 4 pre-loaded POLLEN. Hold it until all 4 are out, then let them settle.
+            List<GameElements.Ball> preload = read(sim, () -> sim.elements().balls().stream()
+                    .filter(b -> b.state() == GameElements.State.HELD).collect(Collectors.toList()));
+            assertEquals(4, preload.size());
+            sim.handle(buttons(5));
+            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 0), 4000, "RB right after the rumble shoots all 4");
+            double tps = sim.rig().motors.get("launcher").port.velocityTicksPerSecond;
+            sim.handle(buttons(-1));
+            System.out.printf("y %.1f: launcher %.0f ticks/s (target 970)%n", y, tps);
+            assertEquals(970, tps, 29, "launcher holds speed within 3%");
+            int[] still = {0};
+            waitUntil(() -> {
+                boolean rest = read(sim, () -> preload.stream().allMatch(b -> b.velocity().length() < 0.02));
+                still[0] = rest ? still[0] + 1 : 0;
+                return still[0] >= 10;   // at rest for 10 polls in a row, not at the top of a bounce
+            }, 10000, "the shots come to rest");
+            for (int i = 0; i < preload.size(); i++) {
+                GameElements.Ball b = preload.get(i);
+                double[] at = read(sim, () -> new double[]{b.position().get0(), b.position().get1(), b.position().get2()});
+                String cell = field.cellAt(at[0], at[1], at[2]);
+                System.out.printf("y %.1f: shot %d at (%.2f, %.2f, %.2f), in CELL: %s%n", y, i + 1, at[0], at[1], at[2], cell);
+                assertEquals("red audience", cell, "from y = " + y + ", shot " + (i + 1) + " lands in the red HIVE's open CELL");
+            }
+            sim.handle("{\"type\":\"stop\"}");
+            waitFor(sim, Simulator.DsState.IDLE, 3000);
+            assertNull(sim.lastError());
         }
-        sim.handle(buttons(-1));
-        double tps = sim.rig().motors.get("launcher").port.velocityTicksPerSecond;
-        System.out.printf("launcher: %.0f ticks/s (target 1200)%n", tps);
-        assertEquals(1200, tps, 36, "launcher holds speed within 3%");
-        sim.onPhysicsThread(() -> assertEquals(0, sim.elements().heldCount(), "RB right after the rumble shoots all 4"));
-        for (int i = 0; i < preload.size(); i++) {
-            System.out.printf("shot %d: apex %.2f m high, %.2f m out%n", i + 1, apex[i], apexAt[i]);
-            // HIVE CELL openings are 1.36-1.67 m above the tiles (Competition Manual 9.6.2).
-            assertTrue(apex[i] > 1.4 && apex[i] < 1.9, "shot " + (i + 1) + " peaks near HIVE CELL height: " + apex[i]);
-            assertTrue(apexAt[i] > 1.2 && apexAt[i] < 2.2, "shot " + (i + 1) + " peaks within the field: " + apexAt[i]);
-        }
-        sim.handle("{\"type\":\"stop\"}");
-        waitFor(sim, Simulator.DsState.IDLE, 3000);
-        assertNull(sim.lastError());
         sim.shutdown();
+    }
+
+    private static void waitUntil(BooleanSupplier condition, long timeoutMs, String what) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (!condition.getAsBoolean()) {
+            assertTrue(System.currentTimeMillis() < deadline, what);
+            Thread.sleep(20);
+        }
+    }
+
+    /** Reads simulator state on the physics thread. */
+    private static <T> T read(Simulator sim, Supplier<T> get) {
+        List<T> out = new ArrayList<>(1);
+        try {
+            sim.onPhysicsThread(() -> out.add(get.get()));
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.get(0);
     }
 }

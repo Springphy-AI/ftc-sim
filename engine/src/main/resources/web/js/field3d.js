@@ -217,11 +217,18 @@ export class FieldView {
     const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
     geo.rotateX(Math.PI / 2);                 // extrusion now runs along -y
     geo.translate(0, -cells.along_arm_m[0], 0);
+    // The CELL is a tube open at its outer end: draw the sides (group 1) but not the end caps
+    // (group 0), then close only the inner end.
+    const innerEnd = new THREE.ShapeGeometry(shape);
+    innerEnd.rotateX(Math.PI / 2);
+    innerEnd.translate(0, -cells.along_arm_m[0], 0);
     const shell = new THREE.MeshStandardMaterial({ color: 0xe6ebf0, transparent: true, opacity: 0.32, roughness: 0.2, side: THREE.DoubleSide, depthWrite: false });
+    const noCaps = new THREE.MeshBasicMaterial({ visible: false });
     const edge = new THREE.LineBasicMaterial({ color });
     for (const flip of [false, true]) {          // audience cell (-y), then rear cell (+y)
       const cell = new THREE.Group();
-      cell.add(new THREE.Mesh(geo, shell));
+      cell.add(new THREE.Mesh(geo, [noCaps, shell]));
+      cell.add(new THREE.Mesh(innerEnd, shell));
       cell.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edge));
       if (flip) cell.rotation.z = Math.PI;
       pivot.add(cell);

@@ -61,25 +61,55 @@ class GameElementsTest {
         assertEquals(20, count(balls, "yellow", State.FREE));
         assertEquals(4, count(balls, "yellow", State.HELD));
         assertEquals(GameElements.PRELOAD, s.elements.heldCount());
-        // NECTAR: 3 in the up CELL + 5 in the ALLIANCE AREA, all staged.
-        assertEquals(8, count(balls, "red", State.STAGED));
-        assertEquals(8, count(balls, "blue", State.STAGED));
-        // Red up-CELL NECTAR sit high in the HIVE, the others outside the field.
+        // NECTAR: 3 free in the up CELL (a physical container) + 5 staged in the ALLIANCE AREA.
+        assertEquals(5, count(balls, "red", State.STAGED));
+        assertEquals(5, count(balls, "blue", State.STAGED));
+        assertEquals(3, count(balls, "red", State.FREE));
+        assertEquals(3, count(balls, "blue", State.FREE));
+        // Red NECTAR: 3 in the red HIVE's raised (audience) CELL, the others outside the field.
         List<Ball> red = balls.stream().filter(b -> b.color.equals("red")).collect(Collectors.toList());
-        assertEquals(3, red.stream().filter(b -> b.position().get2() > 1.0).count());
+        assertEquals(3, red.stream().filter(b -> "red audience".equals(cellOf(s, b))).count());
         assertEquals(5, red.stream().filter(b -> b.position().get0() < -1.83).count());
+        List<Ball> blue = balls.stream().filter(b -> b.color.equals("blue")).collect(Collectors.toList());
+        assertEquals(3, blue.stream().filter(b -> "blue rear".equals(cellOf(s, b))).count());
     }
 
     @Test
-    void freeBallsRestOnTheTilesInsideTheField() throws Exception {
+    void hiveCellsCatchBallsThroughTheOpenEndOnly() throws Exception {
+        Setup s = setup("mecanum.json");
+        s.rig.place(1.2, -1.2, 0);   // out of the way
+        List<Ball> free = s.elements.balls().stream()
+                .filter(b -> b.kind.equals("pollen") && b.state() == State.FREE).limit(2).collect(Collectors.toList());
+        Ball intoMouth = free.get(0), atSide = free.get(1);
+        // Red HIVE: its raised CELL opens toward the audience (-y), 1.36-1.67 m up. Lob one in from
+        // the audience side (5.2 m/s at 67.5 degrees); throw the other at the CELL's side wall from
+        // the red wall's side (+x).
+        s.elements.throwBall(intoMouth, -0.32, -1.35, 0.49, 0, 2.0, 4.82);
+        s.elements.throwBall(atSide, -1.3, -0.31, 0.5, 1.7, 0, 4.0);
+        s.run(3.0);
+        assertEquals("red audience", cellOf(s, intoMouth), "lobbed into the open end, at " + intoMouth.position());
+        assertEquals(null, cellOf(s, atSide), "bounced off the CELL's side wall, at " + atSide.position());
+        assertTrue(atSide.position().get2() < 0.1, "the ball that hit the side fell to the tiles");
+        assertTrue(atSide.position().get0() < -0.55, "...on the red side of the HIVE, x=" + atSide.position().get0());
+        // NECTAR already in the CELL are still there.
+        assertEquals(3, s.elements.balls().stream().filter(b -> b.color.equals("red") && "red audience".equals(cellOf(s, b))).count());
+    }
+
+    @Test
+    void freeBallsRestOnTheTilesOrInTheirCell() throws Exception {
         Setup s = setup("mecanum.json");
         s.run(2.0);
         for (Ball b : s.elements.balls()) {
             if (b.state() != State.FREE) continue;
             DVector3C p = b.position();
+            DVector3C v = b.velocity();
+            assertTrue(Math.sqrt(v.get0() * v.get0() + v.get1() * v.get1() + v.get2() * v.get2()) < 0.01, "ball " + b.id + " at rest");
+            if (b.kind.equals("nectar")) {
+                assertEquals(b.color.equals("red") ? "red audience" : "blue rear", cellOf(s, b), "NECTAR " + b.id + " stays in its CELL");
+                continue;
+            }
             assertEquals(b.radius, p.get2(), 0.004, "ball " + b.id + " should rest on the floor");
             assertTrue(Math.abs(p.get0()) < 1.8288 && Math.abs(p.get1()) < 1.8288, "ball " + b.id + " inside the walls");
-            assertTrue(Math.hypot(b.velocity().get0(), b.velocity().get1()) < 0.01, "ball " + b.id + " at rest");
         }
     }
 
@@ -137,5 +167,10 @@ class GameElementsTest {
 
     private static void ballAt(Setup s, Ball b, double x, double y) {
         s.elements.placeBall(b, x, y);
+    }
+
+    private static String cellOf(Setup s, Ball b) {
+        DVector3C p = b.position();
+        return s.rig.world.field.cellAt(p.get0(), p.get1(), p.get2());
     }
 }

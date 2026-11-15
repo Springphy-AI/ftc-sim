@@ -180,6 +180,13 @@ With one controller, set **Gamepad 2 → Keyboard** to try two-driver code.
 | RB (`E`) | shoot (only once the launcher is up to speed) |
 | d-pad up/down (`T` / `G`) | raise / lower the hood |
 
+To score, shoot into the open end of your HIVE's raised CELL, not at the side of the HIVE. Each
+CELL is a tube that is closed at the pivot end and open at the outer end. For red, line the robot
+up with the red HIVE (x = −0.32 m) on the audience side, facing the rear wall, with its center
+anywhere from y = −1.0 m (1.0 m from the field's center line) back to y = −1.6 m, where the
+robot's back touches the audience wall. Blue is the mirror image from the rear side. From
+anywhere in that range, the default hood and launcher speed drop the ball into the CELL.
+
 ## The Driver Station panel
 
 - **OpMode list** with Autonomous and TeleOp groups. Tick *FTC samples* to show the FTC SDK samples,
@@ -231,7 +238,7 @@ are wrong in the same way they would be on the robot.
   is a chassis plus one body per wheel. Each mecanum wheel grips only along its roller axis, which
   is the standard way Gazebo models mecanum wheels, so strafing, wheel slip and pushing against
   walls behave physically. The robot collides with the walls, the HIVE structure's A-frames and
-  the FLOWERS.
+  the FLOWERS. Balls also hit the HIVE CELLS.
 - **Motors** follow their torque-speed curve, sag the battery under load, and BRAKE/FLOAT
   correctly. The **hub firmware** implements `RUN_WITHOUT_ENCODER`, `RUN_USING_ENCODER`
   (velocity PIDF), `RUN_TO_POSITION`, `STOP_AND_RESET_ENCODER`, `setVelocity`, PIDF tuning,
@@ -249,8 +256,10 @@ are wrong in the same way they would be on the robot.
   and the robot pushes them. A robot with an `intake` role picks up balls
   in front of its roller (reverse it to spit one out) and holds at most 4 (rule G407); a `feeder`
   then sends them into the `launcher`, which throws them at about half the flywheel's surface
-  speed, at an angle set by the `hood` servo. Balls in FLOWERS, CELLS and ALLIANCE AREAS stay put
-  (those holders are not modeled as containers yet). *Reset* also resets the game pieces.
+  speed, at an angle set by the `hood` servo. HIVE CELLS are physical: a ball that goes in the
+  open outer end stays in the CELL, and a ball that hits the side bounces off. The HIVES stay at
+  their starting tilt. Balls in FLOWERS and ALLIANCE AREAS stay put (those holders are not modeled
+  as containers yet). *Reset* also resets the game pieces.
 - **OpMode lifecycle**: iterative and linear OpModes, `waitForStart`, `opModeInInit`,
   `isStopRequested`, thread interruption on STOP, `requestOpModeStop`, `terminateOpModeNow`,
   `OpMode.blackboard`. When an OpMode ends, motors stop and servos go limp.
@@ -272,7 +281,8 @@ The suite includes:
 - `ApiConformanceTest`: the simulator's SDK must be a subset of the official FTC SDK 12.0. It
   downloads the official jars from Maven Central.
 - `GameElementsTest`: POLLEN and NECTAR counts and staging per section 10.3.1, balls at rest,
-  pushing, intake (4-ball limit) and launching.
+  pushing, intake (4-ball limit), launching, and HIVE CELLS that catch balls only through the
+  open end.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
   contact, no drift at rest.
 - `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
@@ -281,8 +291,8 @@ The suite includes:
   robots; *INIT all* / *START all* / *STOP all* run both robots' Autonomous together.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
-  Pinpoint auto to within 0.2 in, and the BIOBUZZ TeleOp's shots peak at HIVE CELL height
-  (1.4–1.9 m).
+  Pinpoint auto to within 0.2 in, and the BIOBUZZ TeleOp's 4 pre-loaded shots land in the red
+  HIVE's CELL from the near end, the middle and the far end of its documented shooting range.
 
 On GitHub, these tests run on Windows, Ubuntu and macOS (JDK 21, plus JDK 17 on Ubuntu) for every
 push to `main`/`master` and every pull request. Each OS has its own workflow (`windows.yml`,

@@ -31,15 +31,24 @@ import com.qualcomm.robotcore.util.Range;
  *   Y               launcher on/off (rumbles when it reaches speed)
  *   RB              feed into the launcher
  *   d-pad up/down   raise/lower the hood
+ *
+ * Shooting: a HIVE CELL is a tube that is open only at its outer end, so shoot into that end, not
+ * at the side of the HIVE. The red HIVE's raised CELL opens toward the audience: line the robot up
+ * with the HIVE (x = -0.32 m, about half a tile red-ward of the field center) on the audience side,
+ * facing the rear wall, with its center anywhere from y = -1.0 m (1.0 m from the field's center
+ * line) back to y = -1.6 m, where an 18 in robot's back touches the audience wall. Blue mirrors
+ * this from the rear side. At the default hood and speed the ball drops into the CELL from anywhere
+ * in that range.
  */
 @TeleOp(name = "BIOBUZZ TeleOp", group = "Examples")
 public class BiobuzzTeleOp extends OpMode {
 
-    // goBILDA 6000 RPM motor (28 ticks/rev) on a 96 mm wheel: about 6.5 m/s out of the hood, an arc
-    // that peaks near HIVE CELL height (~1.6 m) and lands about 3.5 m away. Tune on your robot.
-    static final double LAUNCHER_TICKS_PER_SECOND = 1200;
+    // goBILDA 6000 RPM motor (28 ticks/rev) on a 96 mm wheel: the ball leaves at about 5.2 m/s and
+    // 67.5 degrees, rises above the open CELL and drops in. Tune both on your robot.
+    static final double LAUNCHER_TICKS_PER_SECOND = 970;
     static final double LAUNCHER_P = 50;
     static final double LAUNCHER_F = 32767.0 / 3000;
+    static final double HOOD_START = 0.85;   // servo position: 0.5 is 50 degrees, each 0.05 step 2.5 degrees
     static final double HOOD_STEP = 0.05;
 
     private DcMotor frontLeft, frontRight, backLeft, backRight, intake;
@@ -52,7 +61,7 @@ public class BiobuzzTeleOp extends OpMode {
 
     private boolean launcherOn = false;
     private boolean launcherWasReady = false;
-    private double hoodPosition = 0.5;
+    private double hoodPosition = HOOD_START;
     private boolean fieldCentric = false;
 
     @Override

@@ -33,8 +33,8 @@ import ftcsim.physics.ServoUnit;
  *   <li>{@code HELD}: inside the robot (pre-load or picked up by the intake). It rides along and
  *       does not collide. At most {@link #ROBOT_CAPACITY} at once (rule G407).</li>
  *   <li>{@code STAGED}: parked where the field holds it and the simulator does not model the holder
- *       as a container: stacked in a FLOWER, in an upward-facing HIVE CELL, or in the ALLIANCE
- *       AREA waiting for the human player.</li>
+ *       as a container: stacked in a FLOWER, or in the ALLIANCE AREA waiting for the human player.
+ *       (HIVE CELLS are physical containers, so balls in them are FREE.)</li>
  * </ul>
  */
 public final class GameElements {
@@ -210,7 +210,8 @@ public final class GameElements {
      *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in each simulated robot. The
      *       pre-loads of absent ROBOTS (each ALLIANCE has two) go in the center of their LOADING
      *       ZONE against the perimeter wall (10.3.4).</li>
-     *   <li>NECTAR: 3 in each upward-facing CELL of its color, 5 in each ALLIANCE AREA.</li>
+     *   <li>NECTAR: 3 in each upward-facing CELL of its color (free, resting in it), 5 in each
+     *       ALLIANCE AREA.</li>
      * </ul>
      */
     public void restage() {
@@ -276,25 +277,17 @@ public final class GameElements {
         // Any POLLEN left over (a field file with a different count) waits beside the field.
         for (int k = 0; p < pollen.size(); k++) stage(pollen.get(p++), 0, -field.half - 0.25 - 0.08 * k, 0.04);
 
-        // NECTAR: 3 in each upward-facing CELL of its color, the rest in the ALLIANCE AREA.
+        // NECTAR: 3 in each upward-facing CELL of its color, the rest in the ALLIANCE AREA. The CELL
+        // is a physical container: its NECTAR lie side by side against the closed inner end.
         for (String alliance : new String[]{"red", "blue"}) {
             List<Ball> nec = "red".equals(alliance) ? red : blue;
             int n = 0;
-            JsonObject hive = field.json.getAsJsonObject("hives").getAsJsonObject(alliance);
-            JsonObject cells = field.json.getAsJsonObject("cells");
-            String up = hive.get("start_up").getAsString();
-            double phi = hive.getAsJsonObject("stops_rad").get(up + "_up").getAsDouble();
-            JsonArray pivot = hive.getAsJsonArray("pivot_m");
-            double along = (cells.getAsJsonArray("along_arm_m").get(0).getAsDouble()
-                    + cells.getAsJsonArray("along_arm_m").get(1).getAsDouble()) / 2 * ("rear".equals(up) ? 1 : -1);
-            double floor = cells.get("floor_z_m").getAsDouble();
+            double side = "rear".equals(field.raisedCell(alliance)) ? 1 : -1;
             for (int i = 0; i < 3 && n < nec.size(); i++) {
                 Ball b = nec.get(n++);
-                double hx = (i - 1) * (2 * b.radius + 0.01), hy = along, hz = floor + b.radius;
-                double c = Math.cos(phi), s = Math.sin(phi);
-                stage(b, pivot.get(0).getAsDouble() + hx,
-                        pivot.get(1).getAsDouble() + hy * c - hz * s,
-                        pivot.get(2).getAsDouble() + hy * s + hz * c);
+                double[] at = field.hiveToWorld(alliance, (i - 1) * (2 * b.radius + 0.01),
+                        side * (field.cellInner + b.radius + 0.002), field.cellFloor + b.radius + 0.001);
+                free(b, at[0], at[1], at[2], 0, 0, 0);
             }
             double sign = "red".equals(alliance) ? -1 : 1;
             for (int i = 0; n < nec.size(); i++) {
@@ -437,8 +430,13 @@ public final class GameElements {
 
     /** Puts one ball at rest on the tiles at (x, y), out of a robot or its staging spot. */
     public void placeBall(Ball b, double x, double y) {
+        throwBall(b, x, y, b.radius, 0, 0, 0);
+    }
+
+    /** Sets one ball loose at (x, y, z) moving at (vx, vy, vz), out of a robot or its staging spot. */
+    public void throwBall(Ball b, double x, double y, double z, double vx, double vy, double vz) {
         for (Holder r : robots) r.held.remove(b);
-        free(b, x, y, b.radius, 0, 0, 0);
+        free(b, x, y, z, vx, vy, vz);
     }
 
     // ---- views ---------------------------------------------------------------------------------

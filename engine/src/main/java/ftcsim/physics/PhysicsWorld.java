@@ -5,6 +5,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.ode4j.math.DMatrix3;
 import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3;
 import org.ode4j.math.DVector3C;
@@ -21,9 +22,9 @@ import org.ode4j.ode.OdeConstants;
 import org.ode4j.ode.OdeHelper;
 
 /**
- * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure's A-frames and the
- * FLOWERS, plus whatever bodies are added (one or more robots, the game pieces). Every method must
- * be called on the physics thread.
+ * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure's A-frames and CELLS,
+ * and the FLOWERS, plus whatever bodies are added (one or more robots, the game pieces). Every
+ * method must be called on the physics thread.
  */
 public final class PhysicsWorld {
 
@@ -105,14 +106,20 @@ public final class PhysicsWorld {
             m.mu = m.mu2 = 0.3;
             register(c, m, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
         }
+        for (FieldModel.Panel p : field.cellPanels) {
+            DGeom box = addStaticBox("structure", p.cx(), p.cy(), p.cz(), p.sx(), p.sy(), p.sz());
+            double[] r = p.rot();
+            box.setRotation(new DMatrix3(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]));
+        }
     }
 
-    private void addStaticBox(String kind, double x, double y, double z, double sx, double sy, double sz) {
+    private DGeom addStaticBox(String kind, double x, double y, double z, double sx, double sy, double sz) {
         DGeom box = OdeHelper.createBox(space, sx, sy, sz);
         box.setPosition(x, y, z);
         Material m = new Material(kind);
         m.mu = m.mu2 = 0.3;
         register(box, m, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
+        return box;
     }
 
     public void register(DGeom geom, Material material, long category, long collide) {
