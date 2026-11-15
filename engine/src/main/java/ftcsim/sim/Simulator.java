@@ -27,6 +27,7 @@ import ftcsim.config.RobotConfig;
 import ftcsim.hal.GamepadEffects;
 import ftcsim.hal.SimLog;
 import ftcsim.physics.FieldModel;
+import ftcsim.physics.HiveBody;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.runner.TeamCodeCompiler;
 
@@ -307,6 +308,12 @@ public final class Simulator {
                 for (SimRobot r : robots) r.stopOpMode();
                 return;
             }
+            // The human player: one NECTAR from the ALLIANCE AREA into that alliance's LOADING ZONE.
+            case "nectar" -> {
+                String color = msg.has("color") ? msg.get("color").getAsString() : "";
+                if ("red".equals(color) || "blue".equals(color)) post(() -> elements.introduceNectar(color));
+                return;
+            }
             default -> {
             }
         }
@@ -410,6 +417,13 @@ public final class Simulator {
         m.put("rtf", realTimeFactor);
         m.put("robots", rs);
         m.put("balls", elements.positions());
+        m.put("cells", elements.cellCounts());
+        Map<String, Object> hives = new LinkedHashMap<>();
+        for (HiveBody h : world.hives) {
+            hives.put(h.start.alliance(), Map.of("phi", Math.round(h.angle() * 1e4) / 1e4, "tips", h.tips(), "up", h.upCell()));
+        }
+        m.put("hives", hives);
+        m.put("nectarWaiting", Map.of("red", elements.waitingNectar("red"), "blue", elements.waitingNectar("blue")));
         output.broadcastState(GSON.toJson(m));
     }
 

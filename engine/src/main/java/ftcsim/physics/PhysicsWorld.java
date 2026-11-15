@@ -14,6 +14,7 @@ import org.ode4j.ode.DContact;
 import org.ode4j.ode.DContactBuffer;
 import org.ode4j.ode.DContactJoint;
 import org.ode4j.ode.DGeom;
+import org.ode4j.ode.DJoint;
 import org.ode4j.ode.DJointGroup;
 import org.ode4j.ode.DRay;
 import org.ode4j.ode.DSpace;
@@ -22,9 +23,9 @@ import org.ode4j.ode.OdeConstants;
 import org.ode4j.ode.OdeHelper;
 
 /**
- * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure's A-frames and CELLS,
- * and the FLOWERS, plus whatever bodies are added (one or more robots, the game pieces). Every
- * method must be called on the physics thread.
+ * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure (A-frames, axle, sign
+ * board), the two HIVES on their pivots ({@link HiveBody}), the FLOWERS, plus whatever bodies are
+ * added (one or more robots, the game pieces). Every method must be called on the physics thread.
  */
 public final class PhysicsWorld {
 
@@ -66,6 +67,8 @@ public final class PhysicsWorld {
     private final Map<DGeom, Material> materials = new IdentityHashMap<>();
     /** Contacts on each robot's chassis during the last step (for touch sensors). */
     private final Map<DBody, List<ChassisContact>> chassisContacts = new IdentityHashMap<>();
+    /** The red and blue HIVES, in biobuzz-field.json order. */
+    public final List<HiveBody> hives = new ArrayList<>();
 
     public PhysicsWorld(FieldModel field) {
         synchronized (PhysicsWorld.class) {
@@ -99,6 +102,17 @@ public final class PhysicsWorld {
         for (FieldModel.Box b : field.boxes) {
             addStaticBox("structure", b.cx(), b.cy(), b.cz(), b.sx(), b.sy(), b.sz());
         }
+        for (FieldModel.Panel p : field.panels) {
+            DGeom box = OdeHelper.createBox(space, p.size()[0], p.size()[1], p.size()[2]);
+            box.setPosition(p.center()[0], p.center()[1], p.center()[2]);
+            double[] m = p.rot();
+            box.setRotation(new DMatrix3(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]));
+            // Aluminum and polycarbonate: smoother than the tiles. The ball sets the bounce.
+            Material mat = new Material("structure");
+            mat.mu = mat.mu2 = 0.25;
+            register(box, mat, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
+        }
+        for (FieldModel.Hive hive : field.hives) hives.add(new HiveBody(this, hive, field.hivePanels));
         for (FieldModel.Post p : field.posts) {
             DGeom c = OdeHelper.createCylinder(space, p.radius(), p.height());
             c.setPosition(p.cx(), p.cy(), p.height() / 2);
@@ -106,20 +120,14 @@ public final class PhysicsWorld {
             m.mu = m.mu2 = 0.3;
             register(c, m, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
         }
-        for (FieldModel.Panel p : field.cellPanels) {
-            DGeom box = addStaticBox("structure", p.cx(), p.cy(), p.cz(), p.sx(), p.sy(), p.sz());
-            double[] r = p.rot();
-            box.setRotation(new DMatrix3(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]));
-        }
     }
 
-    private DGeom addStaticBox(String kind, double x, double y, double z, double sx, double sy, double sz) {
+    private void addStaticBox(String kind, double x, double y, double z, double sx, double sy, double sz) {
         DGeom box = OdeHelper.createBox(space, sx, sy, sz);
         box.setPosition(x, y, z);
         Material m = new Material(kind);
         m.mu = m.mu2 = 0.3;
         register(box, m, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
-        return box;
     }
 
     public void register(DGeom geom, Material material, long category, long collide) {
@@ -147,8 +155,21 @@ public final class PhysicsWorld {
         return l == null ? List.of() : l;
     }
 
+    /** Both HIVES back at their start position. */
+    public void resetHives() {
+        for (HiveBody h : hives) h.reset();
+    }
+
+    /** Both HIVES at their current tilt, for CELL geometry. */
+    public List<FieldModel.Hive> currentHives() {
+        List<FieldModel.Hive> out = new ArrayList<>();
+        for (HiveBody h : hives) out.add(h.current());
+        return out;
+    }
+
     public void step(double dt) {
         for (List<ChassisContact> l : chassisContacts.values()) l.clear();
+        for (HiveBody h : hives) h.beforeStep();
         space.collide(null, this::nearCallback);
         world.quickStep(dt);
         contactGroup.empty();
@@ -157,7 +178,9 @@ public final class PhysicsWorld {
     private void nearCallback(Object data, DGeom g1, DGeom g2) {
         DBody b1 = g1.getBody(), b2 = g2.getBody();
         if (b1 == null && b2 == null) return;
-        if (b1 != null && b2 != null && OdeHelper.areConnected(b1, b2)) return;
+        // Skip bodies joined by a real joint (a wheel and its chassis). Contact joints made earlier in
+        // this step don't count: a ball touching a HIVE's floor must still hit the same HIVE's walls.
+        if (b1 != null && b2 != null && joinedByRealJoint(b1, b2)) return;
         Material m1 = materials.get(g1), m2 = materials.get(g2);
         if (m1 == null || m2 == null) return;
         if (m1.owner != null && m1.owner == m2.owner) return;   // two parts of the same robot
@@ -177,6 +200,15 @@ public final class PhysicsWorld {
                 if (on2 != null) on2.add(cc);
             }
         }
+    }
+
+    private static boolean joinedByRealJoint(DBody a, DBody b) {
+        for (int i = 0; i < a.getNumJoints(); i++) {
+            DJoint j = a.getJoint(i);
+            if (j instanceof DContactJoint) continue;
+            if (j.getBody(0) == b || j.getBody(1) == b) return true;
+        }
+        return false;
     }
 
     private void configureSurface(DContact c, DGeom g1, Material m1, Material m2) {

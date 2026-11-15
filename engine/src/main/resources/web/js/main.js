@@ -47,6 +47,16 @@ const setPlacing = (on) => {
 };
 placeBtn.addEventListener('click', () => setPlacing(!placeBtn.classList.contains('on')));
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setPlacing(false); });
+
+// Human player: one NECTAR from the ALLIANCE AREA into that alliance's LOADING ZONE.
+const addNectar = (color) => send({ type: 'nectar', color });
+$('nectarRedBtn').addEventListener('click', () => addNectar('red'));
+$('nectarBlueBtn').addEventListener('click', () => addNectar('blue'));
+window.addEventListener('keydown', (e) => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || input.typingIn(e.target)) return;
+  if (e.code === 'KeyN') addNectar('red');
+  else if (e.code === 'KeyM') addNectar('blue');
+});
 $('resetBtn').addEventListener('click', () => send({ type: 'reset', robot: current }));
 $('robotSelect').addEventListener('change', (e) => send({ type: 'robot', robot: current, file: e.target.value }));
 
@@ -116,6 +126,20 @@ function onMessage(msg) {
       const r = msg.robots[current];
       if (r) $('battery').textContent = `${r.battery.toFixed(1)} V`;
       $('rtf').textContent = `${Math.round(msg.rtf * 100)}%`;
+      if (msg.nectarWaiting) {
+        for (const [color, btn, left] of [['red', 'nectarRedBtn', 'nectarRedLeft'], ['blue', 'nectarBlueBtn', 'nectarBlueLeft']]) {
+          const n = msg.nectarWaiting[color] ?? 0;
+          $(left).textContent = `(${n})`;
+          $(btn).disabled = n === 0;
+        }
+      }
+      if (msg.cells) {
+        for (const [alliance, id] of [['red', 'hiveRed'], ['blue', 'hiveBlue']]) {
+          const tips = msg.hives?.[alliance]?.tips ?? 0;
+          $(id).textContent = `${msg.cells[`${alliance} audience`] ?? 0} / ${msg.cells[`${alliance} rear`] ?? 0}`
+            + (tips ? ` · ${tips} tip${tips > 1 ? 's' : ''}` : '');
+        }
+      }
       const p = view.pose(current);
       if (p) {
         $('pose').textContent = `x ${(p.x / 0.0254).toFixed(1).padStart(6)} in   y ${(p.y / 0.0254).toFixed(1).padStart(6)} in   heading ${p.h.toFixed(1).padStart(6)}°`;

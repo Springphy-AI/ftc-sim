@@ -19,6 +19,8 @@
     <label class="robotpick"><span id="robotPickName">Robot</span>
       <select id="robotSelect" title="Robot description (robots/*.json)"></select>
     </label>
+    <div class="stat" title="Balls inside the red HIVE's CELLS: audience CELL / rear CELL, and how many times it has tipped since Reset (not a MATCH score)"><span class="k">Red HIVE</span><span id="hiveRed">–</span></div>
+    <div class="stat" title="Balls inside the blue HIVE's CELLS: audience CELL / rear CELL, and how many times it has tipped since Reset (not a MATCH score)"><span class="k">Blue HIVE</span><span id="hiveBlue">–</span></div>
     <div class="stat" title="Battery voltage"><span class="k">Battery</span><span id="battery">–</span></div>
     <div class="stat" title="Simulated time / real time"><span class="k">Real-time</span><span id="rtf">–</span></div>
   </header>
@@ -37,6 +39,10 @@
           <button id="placeBtn" title="Click on the field to move the robot; drag to aim it">Place robot</button>
           <button id="resetBtn" title="Power-cycle the robot, put it back at its start position and restage the game pieces">Reset</button>
         </div>
+        <div class="seg" role="group" aria-label="Human player">
+          <button id="nectarRedBtn" title="Human player: put one red NECTAR into the red LOADING ZONE (key N)">+ Red NECTAR <span id="nectarRedLeft"></span></button>
+          <button id="nectarBlueBtn" title="Human player: put one blue NECTAR into the blue LOADING ZONE (key M)">+ Blue NECTAR <span id="nectarBlueLeft"></span></button>
+        </div>
       </div>
       <div class="hud bottom-left pose" id="pose"></div>
       <div class="hud bottom-right keys" id="keys" hidden>
@@ -44,6 +50,7 @@
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> left stick · <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> right stick</div>
         <div><kbd>K</kbd> A · <kbd>L</kbd> B · <kbd>J</kbd> X · <kbd>I</kbd> Y · <kbd>Q</kbd>/<kbd>E</kbd> bumpers · <kbd>Z</kbd>/<kbd>C</kbd> triggers</div>
         <div><kbd>T</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd> d-pad · <kbd>[</kbd> back · <kbd>]</kbd> start · hold <kbd>Shift</kbd> for 40% sticks</div>
+        <div><kbd>N</kbd> red NECTAR · <kbd>M</kbd> blue NECTAR into the LOADING ZONE (human player)</div>
       </div>
       <div class="placing-hint" id="placeHint" hidden>Click to place the robot · drag to aim · Esc to cancel</div>
     </section>

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
@@ -61,55 +62,29 @@ class GameElementsTest {
         assertEquals(20, count(balls, "yellow", State.FREE));
         assertEquals(4, count(balls, "yellow", State.HELD));
         assertEquals(GameElements.PRELOAD, s.elements.heldCount());
-        // NECTAR: 3 free in the up CELL (a physical container) + 5 staged in the ALLIANCE AREA.
-        assertEquals(5, count(balls, "red", State.STAGED));
-        assertEquals(5, count(balls, "blue", State.STAGED));
+        // NECTAR: 3 free in the up CELL (held by its walls) + 5 staged in the ALLIANCE AREA.
         assertEquals(3, count(balls, "red", State.FREE));
+        assertEquals(5, count(balls, "red", State.STAGED));
         assertEquals(3, count(balls, "blue", State.FREE));
+        assertEquals(5, count(balls, "blue", State.STAGED));
         // Red NECTAR: 3 in the red HIVE's raised (audience) CELL, the others outside the field.
         List<Ball> red = balls.stream().filter(b -> b.color.equals("red")).collect(Collectors.toList());
-        assertEquals(3, red.stream().filter(b -> "red audience".equals(cellOf(s, b))).count());
+        assertEquals(3, red.stream().filter(b -> "red audience".equals(s.elements.cellOf(b))).count());
         assertEquals(5, red.stream().filter(b -> b.position().get0() < -1.83).count());
         List<Ball> blue = balls.stream().filter(b -> b.color.equals("blue")).collect(Collectors.toList());
-        assertEquals(3, blue.stream().filter(b -> "blue rear".equals(cellOf(s, b))).count());
+        assertEquals(3, blue.stream().filter(b -> "blue rear".equals(s.elements.cellOf(b))).count());
     }
 
     @Test
-    void hiveCellsCatchBallsThroughTheOpenEndOnly() throws Exception {
-        Setup s = setup("mecanum.json");
-        s.rig.place(1.2, -1.2, 0);   // out of the way
-        List<Ball> free = s.elements.balls().stream()
-                .filter(b -> b.kind.equals("pollen") && b.state() == State.FREE).limit(2).collect(Collectors.toList());
-        Ball intoMouth = free.get(0), atSide = free.get(1);
-        // Red HIVE: its raised CELL opens toward the audience (-y), 1.36-1.67 m up. Lob one in from
-        // the audience side (5.2 m/s at 67.5 degrees); throw the other at the CELL's side wall from
-        // the red wall's side (+x).
-        s.elements.throwBall(intoMouth, -0.32, -1.35, 0.49, 0, 2.0, 4.82);
-        s.elements.throwBall(atSide, -1.3, -0.31, 0.5, 1.7, 0, 4.0);
-        s.run(3.0);
-        assertEquals("red audience", cellOf(s, intoMouth), "lobbed into the open end, at " + intoMouth.position());
-        assertEquals(null, cellOf(s, atSide), "bounced off the CELL's side wall, at " + atSide.position());
-        assertTrue(atSide.position().get2() < 0.1, "the ball that hit the side fell to the tiles");
-        assertTrue(atSide.position().get0() < -0.55, "...on the red side of the HIVE, x=" + atSide.position().get0());
-        // NECTAR already in the CELL are still there.
-        assertEquals(3, s.elements.balls().stream().filter(b -> b.color.equals("red") && "red audience".equals(cellOf(s, b))).count());
-    }
-
-    @Test
-    void freeBallsRestOnTheTilesOrInTheirCell() throws Exception {
+    void freeBallsRestOnTheTilesInsideTheField() throws Exception {
         Setup s = setup("mecanum.json");
         s.run(2.0);
         for (Ball b : s.elements.balls()) {
-            if (b.state() != State.FREE) continue;
+            if (b.state() != State.FREE || s.elements.cellOf(b) != null) continue;
             DVector3C p = b.position();
-            DVector3C v = b.velocity();
-            assertTrue(Math.sqrt(v.get0() * v.get0() + v.get1() * v.get1() + v.get2() * v.get2()) < 0.01, "ball " + b.id + " at rest");
-            if (b.kind.equals("nectar")) {
-                assertEquals(b.color.equals("red") ? "red audience" : "blue rear", cellOf(s, b), "NECTAR " + b.id + " stays in its CELL");
-                continue;
-            }
             assertEquals(b.radius, p.get2(), 0.004, "ball " + b.id + " should rest on the floor");
             assertTrue(Math.abs(p.get0()) < 1.8288 && Math.abs(p.get1()) < 1.8288, "ball " + b.id + " inside the walls");
+            assertTrue(Math.hypot(b.velocity().get0(), b.velocity().get1()) < 0.01, "ball " + b.id + " at rest");
         }
     }
 
@@ -165,12 +140,126 @@ class GameElementsTest {
         assertTrue(maxZ > 1.0, "launched balls fly high, max z " + maxZ);
     }
 
-    private static void ballAt(Setup s, Ball b, double x, double y) {
-        s.elements.placeBall(b, x, y);
+    @Test
+    void nectarStaysInTheUpwardFacingCells() throws Exception {
+        Setup s = setup("mecanum.json");
+        s.run(3.0);
+        Map<String, Integer> cells = s.elements.cellCounts();
+        // Red starts audience-side up, blue rear-side up (biobuzz-field.json "start_up").
+        assertEquals(3, cells.get("red audience"), "cells " + cells);
+        assertEquals(3, cells.get("blue rear"), "cells " + cells);
+        assertEquals(0, cells.get("red rear"));
+        assertEquals(0, cells.get("blue audience"));
+        for (Ball b : s.elements.balls()) {
+            if (s.elements.cellOf(b) == null) continue;
+            assertTrue(Math.hypot(b.velocity().get0(), Math.hypot(b.velocity().get1(), b.velocity().get2())) < 0.01,
+                    "NECTAR " + b.id + " settled in its CELL");
+        }
     }
 
-    private static String cellOf(Setup s, Ball b) {
-        DVector3C p = b.position();
-        return s.rig.world.field.cellAt(p.get0(), p.get1(), p.get2());
+    @Test
+    void ballShotIntoTheOpenEndStaysInTheCell() throws Exception {
+        Setup s = setup("mecanum.json");
+        FieldModel field = FieldModel.loadBiobuzz();
+        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        Ball ball = freePollen(s);
+        // Aim just inside the open outer end of the red audience CELL, arriving from the audience
+        // side on a falling arc, as a launched ball would.
+        double[] target = red.toWorld(0, -(field.cellOuter - 0.04), field.cellFloor + 0.12);
+        lob(s, ball, target, 0, -1.2, 0.2, 0.45);
+        s.run(3.0);
+        assertEquals("red audience", s.elements.cellOf(ball), "ball at " + ball.position());
+        assertEquals(1 + 3, s.elements.cellCounts().get("red audience"));
+    }
+
+    @Test
+    void ballThrownAtTheSideOfTheCellBouncesOff() throws Exception {
+        Setup s = setup("mecanum.json");
+        s.rig.place(1.2, -1.2, 0);   // out of the way
+        Ball ball = freePollen(s);
+        // At the red raised CELL's side wall, 1.3 m up, from the red wall's side (+x): the CELL is
+        // open only at its outer end, so this one must not get in.
+        s.elements.throwBall(ball, -1.3, -0.31, 0.5, 1.7, 0, 4.0);
+        s.run(3.0);
+        assertEquals(null, s.elements.cellOf(ball), "bounced off the CELL's side wall, at " + ball.position());
+        assertTrue(ball.position().get2() < 0.1, "fell to the tiles, z " + ball.position().get2());
+        assertTrue(ball.position().get0() < -0.55, "on the red side of the HIVE, x " + ball.position().get0());
+        assertEquals(3, s.elements.cellCounts().get("red audience"), "the NECTAR in the CELL are still there");
+    }
+
+    @Test
+    void ballLandingOnTheRoofBouncesOff() throws Exception {
+        Setup s = setup("mecanum.json");
+        FieldModel field = FieldModel.loadBiobuzz();
+        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        Ball ball = freePollen(s);
+        double mid = (field.cellInner + field.cellOuter) / 2;
+        double[] ridge = red.toWorld(0.05, -mid, field.cellFloor + field.cellPeak);
+        s.elements.throwBall(ball, ridge[0], ridge[1], ridge[2] + 0.4, 0, 0, 0);
+        boolean gotIn = false;
+        for (int i = 0; i < 60; i++) {
+            s.run(0.05);
+            if (s.elements.cellOf(ball) != null) gotIn = true;
+        }
+        assertTrue(!gotIn, "a ball dropped on the roof must not fall through into the CELL");
+        assertTrue(ball.position().get2() < 0.1, "it slides off and ends on the tiles, z " + ball.position().get2());
+    }
+
+    @Test
+    void ballInTheDownwardFacingCellRollsOut() throws Exception {
+        Setup s = setup("mecanum.json");
+        FieldModel field = FieldModel.loadBiobuzz();
+        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        Ball ball = freePollen(s);
+        double mid = (field.cellInner + field.cellOuter) / 2;
+        double[] p = red.toWorld(0, mid, field.cellFloor + ball.radius + 0.002);
+        s.elements.throwBall(ball, p[0], p[1], p[2], 0, 0, 0);
+        s.run(0.05);
+        assertEquals("red rear", s.elements.cellOf(ball), "starts inside the down CELL");
+        s.run(3.0);
+        assertEquals(null, s.elements.cellOf(ball), "rolls out of the open, lower end");
+    }
+
+    @Test
+    void humanPlayerPutsNectarIntoTheLoadingZone() throws Exception {
+        Setup s = setup("mecanum.json");
+        FieldModel field = FieldModel.loadBiobuzz();
+        for (String color : new String[]{"red", "blue"}) {
+            assertEquals(5, s.elements.waitingNectar(color));
+            for (int i = 0; i < 5; i++) assertTrue(s.elements.introduceNectar(color), color + " NECTAR " + (i + 1));
+            assertEquals(0, s.elements.waitingNectar(color));
+            assertTrue(!s.elements.introduceNectar(color), "no 6th " + color + " NECTAR");
+        }
+        s.run(2.0);
+        var zones = field.json.getAsJsonObject("loading_zones");
+        for (Ball b : s.elements.balls()) {
+            if (!b.kind.equals("nectar") || s.elements.cellOf(b) != null) continue;
+            assertEquals(State.FREE, b.state(), "NECTAR " + b.id + " is on the field");
+            var z = zones.getAsJsonObject(b.color);
+            double x = b.position().get0(), y = b.position().get1();
+            assertTrue(x >= z.getAsJsonArray("x_m").get(0).getAsDouble() - 0.01 && x <= z.getAsJsonArray("x_m").get(1).getAsDouble() + 0.01
+                    && y >= z.getAsJsonArray("y_m").get(0).getAsDouble() && y <= z.getAsJsonArray("y_m").get(1).getAsDouble(),
+                    b.color + " NECTAR " + b.id + " in its LOADING ZONE, at " + x + ", " + y);
+            assertEquals(b.radius, b.position().get2(), 0.004, "resting on the tiles");
+            assertTrue(Math.hypot(b.velocity().get0(), b.velocity().get1()) < 0.01, "at rest (placed clear of other balls)");
+        }
+        s.elements.restage();
+        assertEquals(5, s.elements.waitingNectar("red"));
+        assertEquals(5, s.elements.waitingNectar("blue"));
+    }
+
+    private static Ball freePollen(Setup s) {
+        return s.elements.balls().stream().filter(b -> b.kind.equals("pollen") && b.state() == State.FREE)
+                .findFirst().orElseThrow();
+    }
+
+    /** Throws a ball from (target + offset) so that, ignoring drag, it reaches target after t seconds. */
+    private static void lob(Setup s, Ball b, double[] target, double dx, double dy, double dz, double t) {
+        double x = target[0] + dx, y = target[1] + dy, z = target[2] + dz;
+        s.elements.throwBall(b, x, y, z, -dx / t, -dy / t, -dz / t + 9.81 * t / 2);
+    }
+
+    private static void ballAt(Setup s, Ball b, double x, double y) {
+        s.elements.placeBall(b, x, y);
     }
 }

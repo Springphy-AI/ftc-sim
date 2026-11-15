@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 import ftcsim.physics.FieldModel;
+import ftcsim.physics.HiveBody;
 import ftcsim.runner.TeamCodeCompiler;
 import ftcsim.sim.GameElements;
 import ftcsim.sim.Simulator;
@@ -140,15 +141,16 @@ class ExampleOpModesTest {
     @Test
     void launcherSpinsUpRumblesAndShootsIntoTheHiveCell() throws Exception {
         Simulator sim = start();
-        FieldModel field = sim.rig().world.field;
+        HiveBody red = sim.rig().world.hives.get(0);
+        assertEquals("red", red.start.alliance());
         // In line with the red HIVE on the audience side, facing its open CELL (the rear wall): the
         // near end of the range the TeleOp documents, the middle, and backed against the audience wall
         // (place keeps the center 0.23 m from the wall, y = -1.60).
         for (double y : new double[]{-1.0, -1.3, -1.6}) {
             messages.clear();
-            sim.handle("{\"type\":\"reset\"}");   // a fresh pre-load
+            sim.handle("{\"type\":\"reset\"}");   // a fresh pre-load, the HIVE back on its start stop
             sim.handle("{\"type\":\"place\",\"x\":-0.32,\"y\":" + y + ",\"h\":90}");
-            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 4
+            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 4 && red.tips() == 0
                     && Math.abs(sim.rig().body.position().get1() - y) < 0.01), 3000, "robot placed with 4 POLLEN");
             sim.handle("{\"type\":\"init\",\"opmode\":\"BIOBUZZ TeleOp\"}");
             waitFor(sim, Simulator.DsState.INIT, 2000);
@@ -164,34 +166,49 @@ class ExampleOpModesTest {
             System.out.printf("y %.1f: launcher ready %.1f s after Y%n", y, (System.currentTimeMillis() - yPressed) / 1000.0);
             assertTrue(System.currentTimeMillis() - yPressed < 2000, "launcher reaches speed within 2 s");
 
-            // RB feeds the 4 pre-loaded POLLEN. Hold it until all 4 are out, then let them settle.
+            // Two POLLEN: with the 3 starting NECTAR, the CELL holds them and the HIVE stays put.
             List<GameElements.Ball> preload = read(sim, () -> sim.elements().balls().stream()
                     .filter(b -> b.state() == GameElements.State.HELD).collect(Collectors.toList()));
             assertEquals(4, preload.size());
+            List<GameElements.Ball> firstTwo = preload.subList(0, 2);   // the feeder takes them in order
             sim.handle(buttons(5));
-            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 0), 4000, "RB right after the rumble shoots all 4");
-            double tps = sim.rig().motors.get("launcher").port.velocityTicksPerSecond;
+            waitUntil(() -> read(sim, () -> sim.elements().heldCount() <= 2), 4000, "RB shoots");
             sim.handle(buttons(-1));
+            double tps = sim.rig().motors.get("launcher").port.velocityTicksPerSecond;
             System.out.printf("y %.1f: launcher %.0f ticks/s (target 970)%n", y, tps);
             assertEquals(970, tps, 29, "launcher holds speed within 3%");
-            int[] still = {0};
-            waitUntil(() -> {
-                boolean rest = read(sim, () -> preload.stream().allMatch(b -> b.velocity().length() < 0.02));
-                still[0] = rest ? still[0] + 1 : 0;
-                return still[0] >= 10;   // at rest for 10 polls in a row, not at the top of a bounce
-            }, 10000, "the shots come to rest");
-            for (int i = 0; i < preload.size(); i++) {
-                GameElements.Ball b = preload.get(i);
-                double[] at = read(sim, () -> new double[]{b.position().get0(), b.position().get1(), b.position().get2()});
-                String cell = field.cellAt(at[0], at[1], at[2]);
-                System.out.printf("y %.1f: shot %d at (%.2f, %.2f, %.2f), in CELL: %s%n", y, i + 1, at[0], at[1], at[2], cell);
+            assertEquals(2, (int) read(sim, () -> sim.elements().heldCount()), "releasing RB stops the feeder after 2");
+            waitForRest(sim, firstTwo);
+            for (int i = 0; i < 2; i++) {
+                GameElements.Ball b = firstTwo.get(i);
+                String cell = read(sim, () -> sim.elements().cellOf(b));
+                System.out.printf("y %.1f: shot %d at %s, in CELL: %s%n", y, i + 1, read(sim, () -> b.position().toString()), cell);
                 assertEquals("red audience", cell, "from y = " + y + ", shot " + (i + 1) + " lands in the red HIVE's open CELL");
             }
+            assertEquals(0, (int) read(sim, red::tips), "3 NECTAR + 2 POLLEN: the HIVE holds");
+
+            // The 3rd POLLEN tips it (Event Field Setup Guide 12.3); the raised CELL is now the rear one.
+            sim.handle(buttons(5));
+            waitUntil(() -> read(sim, () -> sim.elements().heldCount() == 0), 4000, "RB shoots the other 2");
+            sim.handle(buttons(-1));
+            waitUntil(() -> read(sim, red::tips) >= 1, 12000, "from y = " + y + ", the 3rd POLLEN tips the red HIVE");
+            assertEquals("rear", read(sim, red::upCell));
+            System.out.printf("y %.1f: HIVE tipped%n", y);
             sim.handle("{\"type\":\"stop\"}");
             waitFor(sim, Simulator.DsState.IDLE, 3000);
             assertNull(sim.lastError());
         }
         sim.shutdown();
+    }
+
+    /** Waits until these balls have been still for 10 polls in a row (not at the top of a bounce). */
+    private static void waitForRest(Simulator sim, List<GameElements.Ball> balls) throws InterruptedException {
+        int[] still = {0};
+        waitUntil(() -> {
+            boolean rest = read(sim, () -> balls.stream().allMatch(b -> b.velocity().length() < 0.02));
+            still[0] = rest ? still[0] + 1 : 0;
+            return still[0] >= 10;
+        }, 10000, "the shots come to rest");
     }
 
     private static void waitUntil(BooleanSupplier condition, long timeoutMs, String what) throws InterruptedException {

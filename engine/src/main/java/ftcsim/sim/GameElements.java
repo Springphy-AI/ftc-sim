@@ -28,13 +28,13 @@ import ftcsim.physics.ServoUnit;
  *
  * <p>A ball is in one of three states:
  * <ul>
- *   <li>{@code FREE}: a rigid sphere in the physics world. It rolls, bounces, and is pushed by
- *       the robot and other balls.</li>
+ *   <li>{@code FREE}: a rigid sphere in the physics world. It rolls, bounces, is pushed by the
+ *       robot and other balls, and can land in (or bounce off) a HIVE CELL.</li>
  *   <li>{@code HELD}: inside the robot (pre-load or picked up by the intake). It rides along and
  *       does not collide. At most {@link #ROBOT_CAPACITY} at once (rule G407).</li>
  *   <li>{@code STAGED}: parked where the field holds it and the simulator does not model the holder
- *       as a container: stacked in a FLOWER, or in the ALLIANCE AREA waiting for the human player.
- *       (HIVE CELLS are physical containers, so balls in them are FREE.)</li>
+ *       as a container: stacked in a FLOWER, or in the ALLIANCE AREA waiting for the human
+ *       player.</li>
  * </ul>
  */
 public final class GameElements {
@@ -210,11 +210,13 @@ public final class GameElements {
      *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in each simulated robot. The
      *       pre-loads of absent ROBOTS (each ALLIANCE has two) go in the center of their LOADING
      *       ZONE against the perimeter wall (10.3.4).</li>
-     *   <li>NECTAR: 3 in each upward-facing CELL of its color (free, resting in it), 5 in each
-     *       ALLIANCE AREA.</li>
+     *   <li>NECTAR: 3 in each upward-facing CELL of its color (free balls, held by the CELL's
+     *       walls), 5 in each ALLIANCE AREA.</li>
      * </ul>
+     * Both HIVES go back to their start position.
      */
     public void restage() {
+        world.resetHives();
         for (Holder r : robots) {
             r.held.clear();
             r.launched = 0;
@@ -282,17 +284,19 @@ public final class GameElements {
         for (String alliance : new String[]{"red", "blue"}) {
             List<Ball> nec = "red".equals(alliance) ? red : blue;
             int n = 0;
-            double side = "rear".equals(field.raisedCell(alliance)) ? 1 : -1;
+            FieldModel.Hive hive = field.hives.stream().filter(h -> h.alliance().equals(alliance)).findFirst().orElseThrow();
+            // Side by side against the closed inner end, resting on the CELL floor.
+            double sign = "rear".equals(hive.upCell()) ? 1 : -1;
             for (int i = 0; i < 3 && n < nec.size(); i++) {
                 Ball b = nec.get(n++);
-                double[] at = field.hiveToWorld(alliance, (i - 1) * (2 * b.radius + 0.01),
-                        side * (field.cellInner + b.radius + 0.002), field.cellFloor + b.radius + 0.001);
-                free(b, at[0], at[1], at[2], 0, 0, 0);
+                double[] w = hive.toWorld((i - 1) * (2 * b.radius + 0.01), sign * (field.cellInner + b.radius + 0.002),
+                        field.cellFloor + b.radius + 0.001);
+                free(b, w[0], w[1], w[2], 0, 0, 0);
             }
-            double sign = "red".equals(alliance) ? -1 : 1;
+            double wall = "red".equals(alliance) ? -1 : 1;
             for (int i = 0; n < nec.size(); i++) {
                 Ball b = nec.get(n++);
-                stage(b, sign * (field.half + 0.35), sign * (-0.4 + i * 0.12), b.radius);
+                stage(b, wall * (field.half + 0.35), wall * (-0.4 + i * 0.12), b.radius);
             }
         }
     }
@@ -437,6 +441,96 @@ public final class GameElements {
     public void throwBall(Ball b, double x, double y, double z, double vx, double vy, double vz) {
         for (Holder r : robots) r.held.remove(b);
         free(b, x, y, z, vx, vy, vz);
+    }
+
+    // ---- the human player ------------------------------------------------------------------------
+
+    /** NECTAR of this color still waiting in its ALLIANCE AREA (outside the field). */
+    public int waitingNectar(String color) {
+        int n = 0;
+        for (Ball b : balls) if ("nectar".equals(b.kind) && color.equals(b.color) && b.state == State.STAGED) n++;
+        return n;
+    }
+
+    /**
+     * The human player puts one NECTAR of this color ("red" or "blue") from its ALLIANCE AREA onto
+     * the field, at rest in that alliance's LOADING ZONE: the first free spot along the alliance
+     * wall, clear of other balls and the robots; past the zone's inner edge if the zone is full.
+     *
+     * @return false if none of that color is waiting or there is no free spot
+     */
+    public boolean introduceNectar(String color) {
+        Ball b = null;
+        for (Ball x : balls) {
+            if ("nectar".equals(x.kind) && color.equals(x.color) && x.state == State.STAGED) {
+                b = x;
+                break;
+            }
+        }
+        if (b == null) return false;
+        JsonObject z = field.json.getAsJsonObject("loading_zones").getAsJsonObject(color);
+        if (z == null) return false;
+        double x0 = z.getAsJsonArray("x_m").get(0).getAsDouble(), x1 = z.getAsJsonArray("x_m").get(1).getAsDouble();
+        double y0 = z.getAsJsonArray("y_m").get(0).getAsDouble(), y1 = z.getAsJsonArray("y_m").get(1).getAsDouble();
+        double wallSign = Math.abs(x0 + field.half) < Math.abs(x1 - field.half) ? -1 : 1;
+        double yc = (y0 + y1) / 2, halfLen = (y1 - y0) / 2, r = b.radius, step = 2 * r + 0.01;
+        // Columns from the wall inward; in each, spots from the zone's middle outward.
+        for (int col = 0; col < 8; col++) {
+            double x = wallSign * (field.half - r - 0.003 - col * step);
+            for (int k = 0; k <= 2 * (int) (halfLen / step) + 1; k++) {
+                double y = yc + (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * step;
+                if (Math.abs(y - yc) > halfLen - r) continue;
+                if (spotIsFree(x, y, r)) {
+                    free(b, x, y, r, 0, 0, 0);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean spotIsFree(double x, double y, double r) {
+        for (Ball o : balls) {
+            if (o.state != State.FREE) continue;
+            DVector3C p = o.body.getPosition();
+            if (p.get2() < 0.3 && Math.hypot(p.get0() - x, p.get1() - y) < r + o.radius + 0.005) return false;
+        }
+        // Every robot: test the spot in its chassis frame against its footprint plus a margin.
+        DVector3 local = new DVector3();
+        for (Holder h : robots) {
+            h.rig.body.chassis.getPosRelPoint(x, y, r, local);
+            RobotConfig.Chassis c = h.rig.config.chassis;
+            if (Math.abs(local.get0()) < c.lengthM / 2 + 0.06 + r && Math.abs(local.get1()) < c.widthM / 2 + 0.03 + r) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Free balls inside each CELL, keyed "red rear", "red audience", "blue rear", "blue audience".
+     * This is just where the balls are, not a MATCH score.
+     */
+    public Map<String, Integer> cellCounts() {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (FieldModel.Hive h : field.hives) {
+            out.put(h.alliance() + " rear", 0);
+            out.put(h.alliance() + " audience", 0);
+        }
+        List<FieldModel.Hive> hives = world.currentHives();
+        for (Ball b : balls) {
+            if (b.state != State.FREE) continue;
+            DVector3C p = b.body.getPosition();
+            String cell = field.cellAt(p.get0(), p.get1(), p.get2(), hives);
+            if (cell != null) out.merge(cell, 1, Integer::sum);
+        }
+        return out;
+    }
+
+    /** The CELL a ball is in ("red audience"...), or null. */
+    public String cellOf(Ball b) {
+        if (b.state != State.FREE) return null;
+        DVector3C p = b.body.getPosition();
+        List<FieldModel.Hive> hives = world.currentHives();
+        return field.cellAt(p.get0(), p.get1(), p.get2(), hives);
     }
 
     // ---- views ---------------------------------------------------------------------------------

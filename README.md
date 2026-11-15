@@ -179,13 +179,16 @@ With one controller, set **Gamepad 2 → Keyboard** to try two-driver code.
 | Y (`I`) | launcher on/off; the controller rumbles when it is up to speed |
 | RB (`E`) | shoot (only once the launcher is up to speed) |
 | d-pad up/down (`T` / `G`) | raise / lower the hood |
+| d-pad left/right (`F` / `H`) | launcher speed down / up, 100 ticks/s per press (starts at 970) |
 
 To score, shoot into the open end of your HIVE's raised CELL, not at the side of the HIVE. Each
 CELL is a tube that is closed at the pivot end and open at the outer end. For red, line the robot
 up with the red HIVE (x = −0.32 m) on the audience side, facing the rear wall, with its center
 anywhere from y = −1.0 m (1.0 m from the field's center line) back to y = −1.6 m, where the
 robot's back touches the audience wall. Blue is the mirror image from the rear side. From
-anywhere in that range, the default hood and launcher speed drop the ball into the CELL.
+anywhere in that range, the default hood and launcher speed drop the ball into the CELL. With
+the 3 starting NECTAR in it, the 3rd POLLEN that lands tips the HIVE, and then its other CELL is
+the raised one, open toward the rear wall.
 
 ## The Driver Station panel
 
@@ -238,7 +241,7 @@ are wrong in the same way they would be on the robot.
   is a chassis plus one body per wheel. Each mecanum wheel grips only along its roller axis, which
   is the standard way Gazebo models mecanum wheels, so strafing, wheel slip and pushing against
   walls behave physically. The robot collides with the walls, the HIVE structure's A-frames and
-  the FLOWERS. Balls also hit the HIVE CELLS.
+  the FLOWERS. Balls also hit the A-frame legs, the axle, the sign board and both HIVES' CELLS.
 - **Motors** follow their torque-speed curve, sag the battery under load, and BRAKE/FLOAT
   correctly. The **hub firmware** implements `RUN_WITHOUT_ENCODER`, `RUN_USING_ENCODER`
   (velocity PIDF), `RUN_TO_POSITION`, `STOP_AND_RESET_ENCODER`, `setVelocity`, PIDF tuning,
@@ -256,10 +259,25 @@ are wrong in the same way they would be on the robot.
   and the robot pushes them. A robot with an `intake` role picks up balls
   in front of its roller (reverse it to spit one out) and holds at most 4 (rule G407); a `feeder`
   then sends them into the `launcher`, which throws them at about half the flywheel's surface
-  speed, at an angle set by the `hood` servo. HIVE CELLS are physical: a ball that goes in the
-  open outer end stays in the CELL, and a ball that hits the side bounces off. The HIVES stay at
-  their starting tilt. Balls in FLOWERS and ALLIANCE AREAS stay put (those holders are not modeled
-  as containers yet). *Reset* also resets the game pieces.
+  speed, at an angle set by the `hood` servo.
+- **HIVES** are solid seesaws. Each CELL has a floor, side walls and a peaked roof, is closed at
+  the end next to the pivot and open at the outer end. A ball that goes in through the open end of
+  an upward-facing CELL rolls to the back and stays; one that lands on the roof bounces off; one
+  in a downward-facing CELL rolls out. Each HIVE turns on its pivot between stops at +-30 degrees
+  and is bi-stable like the real one: it holds its position until enough weight lands in the
+  upward-facing CELL, then tips (slowed by a damper) and dumps what was in that CELL. It is
+  calibrated to the Event Field Setup Guide, section 12.3: a POLLEN tossed onto 3 NECTAR + 1 POLLEN
+  or onto 6 POLLEN does not tip it, one tossed onto 3 NECTAR + 2 POLLEN or onto 7 POLLEN does. With
+  the 3 starting NECTAR, 2 POLLEN launched by the robot do not tip it and a 3rd does.
+  Just over the tipping point it starts slowly: the HIVE can creep for a few seconds before it
+  swings over. The
+  top bar shows how many balls are in each HIVE's CELLS (audience / rear) and how many times it
+  has tipped. That is not a MATCH score. Balls in FLOWERS and ALLIANCE AREAS stay put (those
+  holders are not modeled as containers yet). *Reset* also resets the HIVES and the game pieces.
+- **Human player NECTAR**: press **N** (red) or **M** (blue), or the *+ Red NECTAR* / *+ Blue
+  NECTAR* buttons, to put one NECTAR from that ALLIANCE AREA into its LOADING ZONE, at rest at
+  the first free spot along the alliance wall. Each button shows how many are left (5 per color
+  until *Reset*). The robot can intake and launch NECTAR like POLLEN.
 - **OpMode lifecycle**: iterative and linear OpModes, `waitForStart`, `opModeInInit`,
   `isStopRequested`, thread interruption on STOP, `requestOpModeStop`, `terminateOpModeNow`,
   `OpMode.blackboard`. When an OpMode ends, motors stop and servos go limp.
@@ -267,7 +285,7 @@ are wrong in the same way they would be on the robot.
   tuning carries over.
 
 **Not simulated yet**: VisionPortal / AprilTag / color-blob processing, scoring, taking POLLEN
-out of a FLOWER, human-player NECTAR, the HIVE tipping, LEDs and sounds, Limelight, OctoQuad, legacy BNO055 / Modern Robotics sensors.
+out of a FLOWER, LEDs and sounds, Limelight, OctoQuad, legacy BNO055 / Modern Robotics sensors.
 OpModes that use them are skipped at build time with the reason.
 
 ## Checking the simulator itself
@@ -281,8 +299,11 @@ The suite includes:
 - `ApiConformanceTest`: the simulator's SDK must be a subset of the official FTC SDK 12.0. It
   downloads the official jars from Maven Central.
 - `GameElementsTest`: POLLEN and NECTAR counts and staging per section 10.3.1, balls at rest,
-  pushing, intake (4-ball limit), launching, and HIVE CELLS that catch balls only through the
-  open end.
+  pushing, intake (4-ball limit), launching, and the CELLS: NECTAR stays in the upward-facing
+  CELLS, a ball shot into the open end stays, a ball dropped on the roof bounces off, and a ball
+  in a downward-facing CELL rolls out, and a ball thrown at a CELL's side bounces off.
+- `HiveTipTest`: the HIVE calibration table from the Event Field Setup Guide (section 12.3), with
+  balls gently placed or tossed in, and a tip dumping the CELL and turning the other CELL up.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
   contact, no drift at rest.
 - `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
@@ -291,8 +312,9 @@ The suite includes:
   robots; *INIT all* / *START all* / *STOP all* run both robots' Autonomous together.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
-  Pinpoint auto to within 0.2 in, and the BIOBUZZ TeleOp's 4 pre-loaded shots land in the red
-  HIVE's CELL from the near end, the middle and the far end of its documented shooting range.
+  Pinpoint auto to within 0.2 in, and from the near end, the middle and the far end of its
+  documented shooting range the BIOBUZZ TeleOp's first 2 shots land in the red HIVE's CELL and
+  the 3rd tips the HIVE.
 
 On GitHub, these tests run on Windows, Ubuntu and macOS (JDK 21, plus JDK 17 on Ubuntu) for every
 push to `main`/`master` and every pull request. Each OS has its own workflow (`windows.yml`,
