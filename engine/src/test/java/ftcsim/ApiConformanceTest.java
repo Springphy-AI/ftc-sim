@@ -37,6 +37,12 @@ class ApiConformanceTest {
             "com.qualcomm.robotcore.hardware.HardwareMap#public com.qualcomm.robotcore.hardware.HardwareMap();"
     );
 
+    /**
+     * Classes that are not in the SDK's jars but do exist in the robot app. RobotCore's resource
+     * ids (com.qualcomm.robotcore.R) are generated into the Robot Controller app when it is built.
+     */
+    private static final Set<String> ALLOWED_CLASSES = Set.of("com.qualcomm.robotcore.R", "com.qualcomm.robotcore.R$string");
+
     private static final ToolProvider JAVAP = ToolProvider.findFirst("javap").orElseThrow();
 
     @Test
@@ -77,7 +83,7 @@ class ApiConformanceTest {
             String header = simLines.get(0);
             boolean visible = header.startsWith("public ") || header.startsWith("protected ");
             if (!realClassNames.contains(cls)) {
-                if (visible) problems.computeIfAbsent(cls, k -> new ArrayList<>()).add("class does not exist in the FTC SDK");
+                if (visible && !ALLOWED_CLASSES.contains(cls)) problems.computeIfAbsent(cls, k -> new ArrayList<>()).add("class does not exist in the FTC SDK");
                 continue;
             }
             checkedClasses++;

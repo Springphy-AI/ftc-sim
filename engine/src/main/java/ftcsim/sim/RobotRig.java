@@ -34,6 +34,7 @@ import com.qualcomm.robotcore.hardware.configuration.typecontainers.ServoConfigu
 
 import ftcsim.config.MotorModels;
 import ftcsim.config.RobotConfig;
+import ftcsim.hal.CameraBackend;
 import ftcsim.hal.DigitalPort;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.ImuBackend;
@@ -53,6 +54,7 @@ import ftcsim.physics.MotorUnit;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.physics.RobotBody;
 import ftcsim.physics.ServoUnit;
+import ftcsim.vision.CameraWorld;
 
 /**
  * The simulated robot's electronics and mechanisms, built from a robot JSON file: hubs and
@@ -81,6 +83,7 @@ public final class RobotRig {
     private final List<ColorMount> colors = new ArrayList<>();
     private final List<TouchMount> touches = new ArrayList<>();
     private final List<RobotConfig.Device> webcams = new ArrayList<>();
+    private final Map<RobotConfig.Device, CameraBackend> cameras = new LinkedHashMap<>();
     private final Map<RobotConfig.Device, ServoPort> servoPorts = new LinkedHashMap<>();
     private final Map<RobotConfig.Device, DigitalPort> digitalPorts = new LinkedHashMap<>();
 
@@ -280,8 +283,14 @@ public final class RobotRig {
                 map.digitalChannel.put(tm.device.name, ch);
             }
         }
-        for (RobotConfig.Device w : webcams) put(map, w.name, w.aliases, new SimWebcamName(w.name));
+        for (RobotConfig.Device w : webcams) put(map, w.name, w.aliases, new SimWebcamName(w.name, cameras.get(w)));
         return map;
+    }
+
+    /** Gives the robot's webcams something to see: robot number {@code robot} in {@code world}. */
+    public void attachCameras(CameraWorld world, int robot) {
+        cameras.clear();
+        for (RobotConfig.Device w : webcams) cameras.put(w, world.camera(robot, w));
     }
 
     private List<String> aliasesOf(String name) {

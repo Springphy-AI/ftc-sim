@@ -26,18 +26,42 @@ dependencies {
     realFtcSdk "org.firstinspires.ftc:RobotCore:${ftcSdkVersion}@aar"
     realFtcSdk "org.firstinspires.ftc:Hardware:${ftcSdkVersion}@aar"
     realFtcSdk "org.firstinspires.ftc:Vision:${ftcSdkVersion}@aar"
+    realFtcSdk "org.openftc:easyopencv:1.7.3@aar"                 // what FTC SDK 12.0's Vision depends on
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.release = 17
 }
 
+// The AprilTag detector FIRST's SDK calls (System.loadLibrary("apriltag")), compiled for this
+// machine; see natives/apriltag/README.md. It has to be on java.library.path when the JVM starts.
+def aprilTagNatives = rootProject.file("natives/apriltag/${rootProject.simPlatform}")
+
 application {
     mainClass = 'ftcsim.Main'
     applicationName = 'ftc-sim'
+    applicationDefaultJvmArgs = ['-Djava.library.path=__APP_HOME__/natives']
+}
+
+distributions {
+    main {
+        contents {
+            from(aprilTagNatives) { into 'natives' }
+        }
+    }
+}
+
+tasks.named('startScripts') {
+    // Point java.library.path at the install's natives/ folder, wherever the install is.
+    doLast {
+        unixScript.text = unixScript.text.replace('__APP_HOME__', '\'"$APP_HOME"\'')
+        windowsScript.text = windowsScript.text.replace('__APP_HOME__', '%APP_HOME%')
+    }
 }
 
 tasks.named('run') {
+    // Not the start scripts' placeholder (applicationDefaultJvmArgs): this machine's natives folder.
+    jvmArguments.set(["-Djava.library.path=${aprilTagNatives.absolutePath}".toString()])
     workingDir = rootProject.projectDir
     standardInput = System.in
     // Pass simulator options with: gradlew run --args="--project C:/path/to/FtcRobotController"
@@ -69,6 +93,10 @@ tasks.named('test') {
     dependsOn extractRealFtcSdk
     workingDir = rootProject.projectDir
     systemProperty 'ftcsim.realSdkDir', realSdkDir.get().asFile.absolutePath
+    systemProperty 'java.library.path', aprilTagNatives.absolutePath
+    // Where OpenCV and the AprilTag detector exist for this machine, vision tests must run, not skip.
+    systemProperty 'ftcsim.visionExpected',
+            (rootProject.javacppPlatform != null && new File(aprilTagNatives, System.mapLibraryName('apriltag')).isFile()).toString()
     systemProperty 'ftcsim.simSdkClasses', "${rootDir}/sdk/build/classes/java/main"
     testLogging {
         events 'passed', 'failed', 'skipped'

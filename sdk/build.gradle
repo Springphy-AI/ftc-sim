@@ -8,3 +8,143 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 8
     options.compilerArgs += ['-Xlint:-options']
 }
+
+// ---------------------------------------------------------------------------------------------
+// FIRST's own compiled code, run unmodified.
+//
+// Wherever the official FTC SDK is plain Java it runs here as-is, straight from FIRST's packages
+// on Maven Central: VisionPortal and the AprilTag / color processors (Vision), the pure-Java parts
+// of RobotCore they use (units, angles, orientations, matrices, camera calibration), and the Java
+// wrapper of the AprilTag detector. src/main/java only replaces what needs Android or hardware.
+// ---------------------------------------------------------------------------------------------
+def ftcSdkVersion = '12.0.0'
+def aprilTagPluginVersion = '2.1.0'   // what FTC SDK 12.0's Vision module depends on
+
+configurations {
+    ftcAars {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+dependencies {
+    ftcAars "org.firstinspires.ftc:Vision:${ftcSdkVersion}@aar"
+    ftcAars "org.firstinspires.ftc:RobotCore:${ftcSdkVersion}@aar"
+    ftcAars "org.openftc:apriltag:${aprilTagPluginVersion}@aar"
+}
+
+def aarDir = layout.buildDirectory.dir('ftc-aars')
+def unpackFtcAars = tasks.register('unpackFtcAars') {
+    description = 'Extracts classes.jar from the official FTC SDK packages.'
+    def aars = configurations.ftcAars
+    inputs.files(aars)
+    outputs.dir(aarDir)
+    doLast {
+        def out = aarDir.get().asFile
+        out.mkdirs()
+        aars.each { aar ->
+            def zip = new java.util.zip.ZipFile(aar)
+            try {
+                new File(out, aar.name.replace('.aar', '.jar')).withOutputStream { os ->
+                    os << zip.getInputStream(zip.getEntry('classes.jar'))
+                }
+            } finally {
+                zip.close()
+            }
+        }
+    }
+}
+
+def libsDir = layout.buildDirectory.dir('ftc-libs')
+
+def ftcVisionJar = tasks.register('ftcVisionJar', Jar) {
+    description = "FIRST's Vision module minus VisionPortalImpl, which drives a USB camera through Android."
+    dependsOn unpackFtcAars
+    archiveFileName = "ftc-vision-${ftcSdkVersion}.jar"
+    destinationDirectory = libsDir
+    from({ zipTree(aarDir.get().file("Vision-${ftcSdkVersion}.jar")) }) {
+        exclude 'org/firstinspires/ftc/vision/VisionPortalImpl*'   // sim version in src/main/java
+        exclude 'META-INF/**'
+    }
+}
+
+// The pure-Java classes of FIRST's RobotCore that robot code and the Vision module use.
+def robotCoreClasses = [
+        'org/firstinspires/ftc/robotcore/external/navigation/**',             // units, angles, poses
+        'org/firstinspires/ftc/robotcore/external/matrices/**',
+        'org/firstinspires/ftc/robotcore/external/function/**',
+        'org/firstinspires/ftc/robotcore/external/hardware/camera/controls/**',
+        'org/firstinspires/ftc/robotcore/external/hardware/camera/CameraCompatibilityManager*.class',
+        'org/firstinspires/ftc/robotcore/external/android/util/Size*.class',
+        'org/firstinspires/ftc/robotcore/external/stream/CameraStreamSource*.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/CameraCompatibilityManagerImpl*.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/calibration/CameraCalibration.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/calibration/CameraCalibrationIdentity*.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/calibration/CameraIntrinsics*.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/calibration/PlaceholderCalibratedAspectRatioMismatch*.class',
+        'org/firstinspires/ftc/robotcore/internal/camera/calibration/VendorProductCalibrationIdentity*.class',
+        'org/firstinspires/ftc/robotcore/internal/collections/MutableReference*.class',
+        'org/firstinspires/ftc/robotcore/internal/ftdi/VendorAndProductIds*.class',
+        'org/firstinspires/ftc/robotcore/internal/system/Assert*.class',
+        'org/firstinspires/ftc/robotcore/internal/system/Deadline*.class',
+        'org/firstinspires/ftc/robotcore/internal/system/MemberwiseCloneable*.class',
+        'org/firstinspires/ftc/robotcore/internal/system/Misc*.class',
+        'org/firstinspires/ftc/robotcore/internal/usb/UsbConstants*.class',
+        'com/qualcomm/robotcore/util/ElapsedTime*.class',
+        'com/qualcomm/robotcore/util/MovingStatistics*.class',
+        'com/qualcomm/robotcore/util/Range*.class',
+        'com/qualcomm/robotcore/util/SortOrder*.class',
+        'com/qualcomm/robotcore/util/Statistics*.class',
+]
+def robotCoreExcluded = [
+        'org/firstinspires/ftc/robotcore/external/navigation/MotionDetection*',   // phone accelerometer
+]
+
+def ftcRobotCoreJar = tasks.register('ftcRobotCoreJar', Jar) {
+    description = "The pure-Java classes of FIRST's RobotCore that robot code and the Vision module use."
+    dependsOn unpackFtcAars
+    inputs.property('classes', robotCoreClasses)
+    inputs.property('excluded', robotCoreExcluded)
+    archiveFileName = "ftc-robotcore-${ftcSdkVersion}-pure.jar"
+    destinationDirectory = libsDir
+    from({ zipTree(aarDir.get().file("RobotCore-${ftcSdkVersion}.jar")) }) {
+        include robotCoreClasses
+        exclude robotCoreExcluded
+    }
+}
+
+// FIRST's table of webcam lens calibrations (by USB vendor/product id and resolution) and
+// RobotCore's string resources (USB vendor and product names), unmodified.
+def ftcResources = tasks.register('ftcResources', Sync) {
+    description = "Copies the SDK's webcam calibrations and string resources out of FIRST's RobotCore package."
+    def aars = configurations.ftcAars
+    from({ zipTree(aars.find { it.name.startsWith('RobotCore-') }) }) {
+        include 'res/xml/builtinwebcamcalibrations.xml'
+        eachFile { path = 'org/firstinspires/ftc/robotcore/internal/camera/calibration/' + name }
+    }
+    from({ zipTree(aars.find { it.name.startsWith('RobotCore-') }) }) {
+        include 'res/values/values.xml'
+        eachFile { path = 'com/qualcomm/robotcore/values.xml' }
+    }
+    includeEmptyDirs = false
+    into layout.buildDirectory.dir('ftc-resources')
+}
+sourceSets.main.resources.srcDir(ftcResources)
+
+dependencies {
+    api files(ftcVisionJar, ftcRobotCoreJar)
+    api files(aarDir.map { it.file("apriltag-${aprilTagPluginVersion}.jar") }).builtBy(unpackFtcAars)
+
+    // OpenCV's Java API at the robot's version (FTC SDK 12.0 ships OpenCV 4.10.0), with the native
+    // libraries for this machine.
+    api 'org.bytedeco:opencv:4.10.0-1.5.11'
+    def natives = rootProject.javacppPlatform
+    if (natives != null) {
+        runtimeOnly "org.bytedeco:opencv:4.10.0-1.5.11:${natives}"
+        runtimeOnly "org.bytedeco:openblas:0.3.28-1.5.11:${natives}"
+        runtimeOnly "org.bytedeco:javacpp:1.5.11:${natives}"
+    } else {
+        logger.lifecycle("No OpenCV build for this machine: the simulator runs without vision (VisionPortal).")
+    }
+}

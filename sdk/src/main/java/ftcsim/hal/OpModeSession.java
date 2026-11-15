@@ -1,5 +1,6 @@
 package ftcsim.hal;
 
+import java.util.List;
 import java.util.concurrent.locks.LockSupport;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
@@ -41,6 +42,8 @@ public final class OpModeSession {
     private volatile Throwable error = null;
     private volatile boolean stuck = false;
     private Thread thread;
+    /** This OpMode's own cleanups (VisionPortals...), run when its thread ends. */
+    private List<Runnable> stopHooks;
 
     public OpModeSession(String name, OpMode opMode, HardwareMap hardwareMap, Gamepad gamepad1, Gamepad gamepad2,
                          Telemetry telemetry, Listener listener) {
@@ -107,6 +110,7 @@ public final class OpModeSession {
     /** INIT: starts the OpMode thread, which runs init()/init_loop() or runOpMode(). */
     public synchronized void init() {
         if (thread != null) return;
+        stopHooks = robot != null ? robot.newOpModeStopHooks() : null;
         thread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -194,8 +198,12 @@ public final class OpModeSession {
                 listener.onError(this, t);
             }
         } finally {
-            state = State.STOPPED;
-            listener.onStateChanged(this, State.STOPPED);
+            try {
+                if (stopHooks != null) RobotContext.runOpModeStopHooks(stopHooks);
+            } finally {
+                state = State.STOPPED;
+                listener.onStateChanged(this, State.STOPPED);
+            }
         }
     }
 

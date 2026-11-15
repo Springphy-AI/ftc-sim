@@ -508,6 +508,29 @@ export class DriverStation {
       return `<tr><td>${esc(name)}</td><td>${esc(text)}</td></tr>`;
     }).join('');
     $('hubs').innerHTML = d.hubs.map((h) => `<span><i class="led" style="background:${esc(h.led)}"></i>${esc(h.name)} · bulk cache ${esc(h.cache)}</span>`).join('');
+    this.renderCameras(d.cameras || []);
+  }
+
+  /** One live view per streaming VisionPortal. Each <img> keeps its MJPEG stream across updates. */
+  renderCameras(cameras) {
+    const box = $('cameraViews');
+    $('cameraCard').hidden = cameras.length === 0;
+    const keep = new Set(cameras.map((c) => String(c.id)));
+    for (const fig of [...box.children]) {
+      if (keep.has(fig.dataset.id)) continue;
+      fig.querySelector('img')?.removeAttribute('src');   // closes the MJPEG connection now, not at garbage collection
+      fig.remove();
+    }
+    for (const c of cameras) {
+      let fig = box.querySelector(`figure[data-id="${c.id}"]`);
+      if (!fig) {
+        fig = document.createElement('figure');
+        fig.dataset.id = String(c.id);
+        fig.innerHTML = `<img alt="Live view of ${esc(c.name)}" src="camera/${c.id}"><figcaption></figcaption>`;
+        box.append(fig);
+      }
+      fig.querySelector('figcaption').textContent = `${c.name} · ${Number(c.fps).toFixed(1)} fps`;
+    }
   }
 
   // ---- gamepads ------------------------------------------------------------------------------

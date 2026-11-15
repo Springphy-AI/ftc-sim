@@ -137,7 +137,7 @@ alliance partner. An alliance has at most two robots.
 - TeamCode is compiled the way Android Studio compiles it: **Java 8**, against the **FTC SDK 12.0**
   API. An automated test checks the simulator's SDK against the official SDK 12.0 jars, class by
   class and method by method, so code that compiles here also compiles for the robot.
-- Files that use something the simulator does not model (for example `VisionPortal`, or
+- Files that use something the simulator does not model (for example an EasyOpenCV camera, or
   Android UI classes) are skipped and listed under **Build** with the reason. Everything else still
   runs.
 - Never import `ftcsim.*` in TeamCode. Those are simulator internals that don't exist on the robot,
@@ -205,6 +205,40 @@ the raised one, open toward the rear wall.
 - **3D view**: audience, overhead, red-driver and chase cameras. *Place robot* puts the robot
   anywhere (drag to aim it). *Reset* power-cycles it, which resets encoders and the IMU heading,
   puts it back at its start and restages the game pieces.
+- **Camera**: while a `VisionPortal` streams, its live view, with the processors' overlays (tag
+  outlines, axes, ids), like the Robot Controller's camera preview.
+
+## Vision: VisionPortal and AprilTags
+
+`VisionPortal`, `AprilTagProcessor`, `ColorBlobLocatorProcessor` and `PredominantColorProcessor`
+work as on the robot, because they **are** the robot's code. The simulator runs FIRST's own
+compiled classes from the FTC SDK 12.0 Vision package, unmodified, along with the pure-Java parts
+of RobotCore they use (units, poses, matrices, camera calibration). The AprilTag detector is the
+C library FIRST ships (OpenFTC's EOCV-AprilTag-Plugin 2.1.0), built from the same source for PCs
+(see [`natives/apriltag/`](natives/apriltag/README.md)). OpenCV is 4.10.0, the robot's version.
+
+Only what touches hardware is the simulator's:
+
+- **The webcam**. It renders what it would see from where the robot file mounts it: the field, the
+  HIVES with their real tag36h11 AprilTags (IDs 30–45), robots and balls. Its lens is the camera
+  model's entry in the SDK's own calibration table. FIRST's AprilTag processor looks up the same
+  entry by the webcam's USB ids, so poses come out right, just as with a calibrated webcam on the
+  robot. Frames arrive at the camera's frame rate (default 30 fps), each showing the world as it was
+  `latency_ms` earlier (default 50 ms), with that capture time.
+- **The portal's plumbing**: opening the camera, camera states, `getFps()`, `stopStreaming()`,
+  `saveNextFrameRaw()` (saved to `captures/`), the camera controls (exposure, gain, focus, white
+  balance and PTZ settings are kept but don't change the image), and closing the portal when the
+  OpMode stops.
+
+With the season's tag library, the BIOBUZZ tags come back as FIRST's clusters (`RED SCORING`,
+`BLUE AUDIENCE`, …), whose origin is the center of the CELL opening. As the SDK notes, the tags
+move with the HIVE, so use them for aiming, not for locating the robot on the field.
+
+The official vision samples are in `examples/samples` (`ConceptAprilTag`, `ConceptAprilTagEasy`,
+`ConceptAprilTagLocalization`, `ConceptAprilTagOptimizeExposure`, `ConceptAprilTagMultiPortal`,
+`ConceptVisionColorLocator_*`, `ConceptVisionColorSensor`, `RobotAutoDriveToAprilTag*`). To see
+one work, place the default robot at x = −0.25 m, y = −1.15 m, heading 90° (facing the red HIVE),
+INIT *Concept: AprilTag* and press START.
 
 ## Describing your robot
 
@@ -226,7 +260,7 @@ Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 | `chassis` | size, mass, color |
 | `drive` | `type` (`mecanum`, `tank`, `tank4`), wheel diameter, wheelbase, track width, `motor` model, external gear ratio, motor names, grip |
 | `imu` | name and how the Control Hub is mounted (`logo`, `usb`, same words as `RevHubOrientationOnRobot`) |
-| `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam`; each with a mounting position and an optional `role` for the 3D model |
+| `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` for the 3D model |
 | `io` | simulated bus latency (default 1 ms per hub command, 2.5 ms per I2C read) |
 | `start` | starting pose `[x, y, heading]` on the field |
 
@@ -284,8 +318,9 @@ are wrong in the same way they would be on the robot.
 - **Loop timing**: hardware calls take about as long as on a real Control Hub, so control-loop
   tuning carries over.
 
-**Not simulated yet**: VisionPortal / AprilTag / color-blob processing, scoring, taking POLLEN
-out of a FLOWER, LEDs and sounds, Limelight, OctoQuad, legacy BNO055 / Modern Robotics sensors.
+**Not simulated yet**: scoring, taking POLLEN out of a FLOWER, LEDs and sounds, Limelight,
+OctoQuad, legacy BNO055 / Modern Robotics sensors, switchable webcams, cameras driven through
+EasyOpenCV directly (`OpenCvCameraFactory`), lens distortion and motion blur in the webcam image.
 OpModes that use them are skipped at build time with the reason.
 
 ## Checking the simulator itself
@@ -310,6 +345,13 @@ The suite includes:
   spot, pre-load, blackboard and gamepads; one robot pushes the other; swapping one robot's file
   leaves the other alone; alliance partners start side by side and an alliance takes at most two
   robots; *INIT all* / *START all* / *STOP all* run both robots' Autonomous together.
+- `VisionLinkageTest`: every class, method and field that FIRST's Vision and RobotCore classes
+  refer to exists in the simulator, so a missing stand-in can't surface as a `NoSuchMethodError`
+  in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
+- `AprilTagVisionTest`: FIRST's `AprilTagProcessor` on the simulated webcam finds the HIVE's tags,
+  the poses it solves match where the camera and tags really are to about a millimeter, and the
+  `RED SCORING` cluster origin it reports sits at the CELL opening. `CameraStreamTest`: the live
+  view reaches the Driver Station page.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
   Pinpoint auto to within 0.2 in, and from the near end, the middle and the far end of its
@@ -328,7 +370,8 @@ Station page loads.
 
 | Path | Contents |
 |---|---|
-| `sdk/` | Desktop stand-in for the FTC SDK 12.0 API (same packages and signatures); simulator internals are in `ftcsim.hal` |
+| `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision, RobotCore math), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
+| `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64 and Linux x64 so far), with the script that builds it |
 | `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, web server, browser UI (`src/main/resources/web`) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
@@ -344,9 +387,13 @@ Third-party code in this repository keeps its own license:
 |---|---|---|
 | `examples/samples/` | FTC SDK sample OpModes, © FIRST | BSD-3-Clause-Clear ([LICENSE-FTC-SDK](examples/samples/LICENSE-FTC-SDK)) |
 | `engine/src/main/resources/web/vendor/` | Three.js and OrbitControls, © three.js authors | MIT ([THREE-LICENSE](engine/src/main/resources/web/vendor/THREE-LICENSE)) |
+| `natives/apriltag/` | AprilTag detector, © The Regents of The University of Michigan, and its JNI glue, © OpenFTC Team (compiled) | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)), MIT ([LICENSE-eocv-apriltag-plugin](natives/apriltag/LICENSE-eocv-apriltag-plugin.txt)) |
+| `engine/src/main/java/ftcsim/vision/Tag36h11.java` | tag36h11 codes from AprilRobotics/apriltag | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)) |
 
 Libraries that Gradle downloads at build time: ODE4j (LGPL-2.1-or-later or BSD-style, at your
-choice), Javalin, Gson and Kotlin stdlib (Apache-2.0), Jetty (Apache-2.0 or EPL-2.0), SLF4J (MIT).
+choice), Javalin, Gson and Kotlin stdlib (Apache-2.0), Jetty (Apache-2.0 or EPL-2.0), SLF4J (MIT),
+FIRST's FTC SDK packages RobotCore and Vision (BSD-3-Clause), OpenFTC's AprilTag plugin (MIT),
+and OpenCV with JavaCPP and OpenBLAS from Bytedeco (Apache-2.0, BSD-3-Clause).
 
 The field layout follows the *BIOBUZZ presented by RTX* Competition Manual (FIRST Tech Challenge
 2026–27). FIRST®, FIRST® Tech Challenge and BIOBUZZ™ are trademarks of FIRST (For Inspiration and

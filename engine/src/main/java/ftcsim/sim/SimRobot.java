@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.ode4j.math.DQuaternionC;
 import org.ode4j.math.DVector3C;
 
@@ -23,6 +24,7 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.RobotLog;
 
 import ftcsim.config.RobotConfig;
+import ftcsim.hal.CameraPreviews;
 import ftcsim.hal.GamepadAccess;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.MotorPort;
@@ -31,6 +33,7 @@ import ftcsim.hal.RobotContext;
 import ftcsim.hal.ServoPort;
 import ftcsim.hal.SimHub;
 import ftcsim.hal.SimTelemetry;
+import ftcsim.hal.VisionNatives;
 import ftcsim.physics.Mechanism;
 import ftcsim.physics.RobotBody;
 import ftcsim.physics.ServoUnit;
@@ -99,6 +102,7 @@ public final class SimRobot {
         this.context = new RobotContext(index);
         applyIo(config);
         this.rig = new RobotRig(config, sim.world, startPose(config));
+        rig.attachCameras(sim.cameras, index);
         GamepadAccess.get().setUser(gamepad1, 1);
         GamepadAccess.get().setUser(gamepad2, 2);
         this.buildExecutor = Executors.newSingleThreadExecutor(r -> Simulator.daemon(r, "teamcode-build-" + (index + 1)));
@@ -273,6 +277,9 @@ public final class SimRobot {
     }
 
     private void initOpMode(String name) {
+        // TeamCode may create OpenCV objects as soon as it is constructed. Wait for the native
+        // libraries outside the lock: the physics thread takes it every 20 ms.
+        VisionNatives.await();
         synchronized (lock) {
             if (state != DsState.IDLE || name == null) return;
             TeamCodeCompiler.Result b = build;
@@ -296,6 +303,8 @@ public final class SimRobot {
             r.resetForOpMode();
             hal = new HalSession();
             HardwareMap hw = r.createHardwareMap(hal);
+            context.webcams.clear();
+            context.webcams.addAll(hw.getAll(WebcamName.class));
             telemetry = new SimTelemetry();
             gamepad1.resetEdgeDetection();
             gamepad2.resetEdgeDetection();
@@ -464,6 +473,7 @@ public final class SimRobot {
                 RobotConfig cfg = RobotConfig.load(file);
                 RobotRig previous = rig;
                 RobotRig next = new RobotRig(cfg, sim.world, startPose(cfg));
+                next.attachCameras(sim.cameras, index);
                 previous.destroy();
                 sim.elements.replaceRobot(index, next);
                 applyIo(cfg);
@@ -674,6 +684,15 @@ public final class SimRobot {
         m.put("motors", motors);
         m.put("servos", servos);
         m.put("sensors", r.sensorReadings());
+        List<Map<String, Object>> cameras = new ArrayList<>();
+        for (CameraPreviews.Preview p : CameraPreviews.of(index)) {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("id", p.id);
+            c.put("name", p.camera);
+            c.put("fps", Math.round(p.fps() * 10) / 10.0);
+            cameras.add(c);
+        }
+        m.put("cameras", cameras);
         return m;
     }
 

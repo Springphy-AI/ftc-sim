@@ -26,10 +26,12 @@ import com.qualcomm.robotcore.util.RobotLog;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.GamepadEffects;
 import ftcsim.hal.SimLog;
+import ftcsim.hal.VisionNatives;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.HiveBody;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.vision.CameraWorld;
 
 /**
  * The simulated field: physics at 1 kHz in real time for one or more robots and the game pieces,
@@ -67,6 +69,8 @@ public final class Simulator {
     final PhysicsWorld world;
     /** POLLEN and NECTAR, in the same physics world as the robots. */
     final GameElements elements;
+    /** What the robots' webcams see. */
+    final CameraWorld cameras;
     private final List<SimRobot> robots = new ArrayList<>();
     private volatile Output output = new Output() {
         @Override
@@ -99,6 +103,8 @@ public final class Simulator {
         this.field = field;
         this.robotsDir = robotsDir;
         this.world = new PhysicsWorld(field);
+        this.cameras = new CameraWorld(field);
+        VisionNatives.startLoading();   // OpenCV and the AprilTag detector, before any OpMode runs
         String home = GameElements.homeAlliance(field);
         String other = "red".equals(home) ? "blue" : "red";
         Map<String, Integer> perAlliance = new HashMap<>();
@@ -245,6 +251,12 @@ public final class Simulator {
                 steps++;
                 n++;
                 rtfSteps++;
+            }
+            if (n > 0) {
+                // Cameras see each HIVE at its current tilt (field JSON order, red first).
+                double[] tilts = new double[world.hives.size()];
+                for (int i = 0; i < tilts.length; i++) tilts[i] = world.hives.get(i).angle();
+                cameras.update(rigs, elements, tilts);
             }
             if (now - rtfWindowStart > 1_000_000_000L) {
                 realTimeFactor = rtfSteps * DT / ((now - rtfWindowStart) / 1e9);
@@ -464,6 +476,10 @@ public final class Simulator {
     /** The first robot's hardware. */
     public RobotRig rig() {
         return robots.get(0).rig();
+    }
+
+    public CameraWorld cameras() {
+        return cameras;
     }
 
     public GameElements elements() {

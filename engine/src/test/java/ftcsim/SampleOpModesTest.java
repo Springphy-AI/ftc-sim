@@ -151,4 +151,32 @@ class SampleOpModesTest {
         waitFor(sim, Simulator.DsState.IDLE, 3000);
         sim.shutdown();
     }
+
+    @Test
+    void conceptAprilTagSeesTheHiveThroughTheWebcam() throws Exception {
+        VisionAssumptions.assumeDetectorAvailable();
+        Simulator sim = start("mecanum.json");
+        // Facing the red HIVE from the audience side: the tags under its lowered (rear) CELL hang
+        // about 0.9 m up, 1.4 m from the webcam, which is tilted up 20 degrees.
+        sim.handle("{\"type\":\"place\",\"x\":-0.25,\"y\":-1.15,\"h\":90}");
+        Thread.sleep(500);
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Concept: AprilTag\"}");
+        waitFor(sim, Simulator.DsState.INIT, 10000);
+        sim.handle("{\"type\":\"start\"}");
+        waitFor(sim, Simulator.DsState.RUNNING, 2000);
+        long deadline = System.currentTimeMillis() + 15000;
+        while (System.currentTimeMillis() < deadline && messages.stream().noneMatch(m -> m.contains("Tag Cluster (RED SCORING)"))) {
+            Thread.sleep(100);
+        }
+        assertTrue(messages.stream().anyMatch(m -> m.contains("Tag Cluster (RED SCORING)")),
+                "FIRST's ConceptAprilTag sample reports the red HIVE's tag cluster");
+        assertTrue(!ftcsim.hal.CameraPreviews.of(0).isEmpty(), "the portal shows a live view");
+        sim.handle("{\"type\":\"stop\"}");
+        waitFor(sim, Simulator.DsState.IDLE, 5000);
+        assertNull(sim.lastError(), "no errors from the sample");
+        deadline = System.currentTimeMillis() + 3000;
+        while (!ftcsim.hal.CameraPreviews.of(0).isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertTrue(ftcsim.hal.CameraPreviews.of(0).isEmpty(), "the camera closes when the OpMode stops, as on the robot");
+        sim.shutdown();
+    }
 }

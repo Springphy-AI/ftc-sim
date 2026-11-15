@@ -1,5 +1,10 @@
 package ftcsim.server;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -7,10 +12,18 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+
 import io.javalin.Javalin;
+import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
 import io.javalin.websocket.WsContext;
 
+import ftcsim.hal.CameraPreviews;
 import ftcsim.sim.Simulator;
 
 /**
@@ -80,6 +93,7 @@ public final class WebServer {
         app = Javalin.create(config -> {
             config.staticFiles.add("/web", Location.CLASSPATH);
             config.startup.showJavalinBanner = false;
+            config.routes.get("/camera/{id}", WebServer::streamCamera);
             config.routes.ws("/ws", ws -> {
                 ws.onConnect(ctx -> {
                     ctx.enableAutomaticPings(5, TimeUnit.SECONDS);
@@ -101,5 +115,77 @@ public final class WebServer {
 
     public void stop() {
         if (app != null) app.stop();
+    }
+
+    /**
+     * A VisionPortal's live view as an MJPEG stream (an {@code <img>} shows it), like the camera
+     * preview on the robot. Frames are encoded only while someone watches, at most 30 a second.
+     */
+    private static void streamCamera(Context ctx) throws IOException {
+        CameraPreviews.Preview preview;
+        try {
+            preview = CameraPreviews.byId(Integer.parseInt(ctx.pathParam("id")));
+        } catch (NumberFormatException e) {
+            preview = null;
+        }
+        if (preview == null) {
+            ctx.status(404);
+            return;
+        }
+        ctx.res().setContentType("multipart/x-mixed-replace; boundary=frame");
+        ctx.res().setHeader("Cache-Control", "no-store");
+        OutputStream out = ctx.res().getOutputStream();
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+        ImageWriteParam params = writer.getDefaultWriteParam();
+        params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        params.setCompressionQuality(0.85f);
+        BufferedImage image = null;
+        long sequence = 0, lastSent = 0;
+        try {
+            while (true) {
+                CameraPreviews.Frame f;
+                try {
+                    f = preview.next(sequence, 1000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                if (f == null) {
+                    if (CameraPreviews.byId(preview.id) == null) return;   // the portal closed
+                    continue;
+                }
+                // At most one frame per 33 ms: wait out the rest of the gap, then send the newest
+                // frame (so the last one before a pause is never dropped).
+                long wait = lastSent + 33_000_000L - System.nanoTime();
+                if (wait > 0) {
+                    try {
+                        Thread.sleep(wait / 1_000_000L, (int) (wait % 1_000_000L));
+                        CameraPreviews.Frame newer = preview.next(f.sequence, 0);
+                        if (newer != null) f = newer;
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+                sequence = f.sequence;
+                lastSent = System.nanoTime();
+                if (image == null || image.getWidth() != f.width || image.getHeight() != f.height) {
+                    image = new BufferedImage(f.width, f.height, BufferedImage.TYPE_INT_RGB);
+                }
+                image.setRGB(0, 0, f.width, f.height, f.argb, 0, f.width);
+                ByteArrayOutputStream jpeg = new ByteArrayOutputStream(64 * 1024);
+                try (ImageOutputStream ios = ImageIO.createImageOutputStream(jpeg)) {
+                    writer.setOutput(ios);
+                    writer.write(null, new IIOImage(image, null, null), params);
+                }
+                out.write(("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + jpeg.size() + "\r\n\r\n")
+                        .getBytes(StandardCharsets.US_ASCII));
+                jpeg.writeTo(out);
+                out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+            }
+        } catch (IOException e) {
+            // the viewer went away
+        } finally {
+            writer.dispose();
+        }
     }
 }

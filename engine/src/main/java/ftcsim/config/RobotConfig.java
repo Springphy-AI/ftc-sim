@@ -67,8 +67,8 @@ public final class RobotConfig {
         public String type;
         public String name;
         public List<String> aliases = new ArrayList<>();
-        // mounting (robot frame)
-        public double xM = 0, yM = 0, zM = 0.05, yawDeg = 0, pitchDeg = 0;
+        // mounting (robot frame); roll only matters for webcams (turned clockwise, seen from behind)
+        public double xM = 0, yM = 0, zM = 0.05, yawDeg = 0, pitchDeg = 0, rollDeg = 0;
         // motor
         public String motor;
         public double externalGearRatio = 1.0;
@@ -81,6 +81,11 @@ public final class RobotConfig {
         public double xPodOffsetMm = -84;
         public double yPodOffsetMm = -168;
         public String pod = "4bar";
+        // webcam: model (sets its USB ids, so the SDK finds its lens calibration), frame rate, and
+        // the delay from exposure until VisionPortal gets the frame
+        public String model;
+        public double fps = 30;
+        public double latencyMs = 50;
         // visual role in the browser view (intake, launcher, hood, feeder, arm, claw, lift...)
         public String role;
     }
@@ -134,6 +139,7 @@ public final class RobotConfig {
         MotorModels.get(drive.motor);
         for (Device d : devices) {
             if ("motor".equals(d.type)) MotorModels.get(d.motor);
+            if ("webcam".equals(d.type)) ftcsim.vision.WebcamModels.get(d.model);
         }
     }
 

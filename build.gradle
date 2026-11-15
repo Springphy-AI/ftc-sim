@@ -4,6 +4,20 @@ allprojects {
     }
 }
 
+// The machine this build runs on, for picking native libraries (the AprilTag detector in
+// natives/apriltag/, OpenCV from Maven). run-sim builds on the machine that runs the simulator.
+def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+def osArch = System.getProperty('os.arch').toLowerCase(Locale.ROOT)
+def hostOs = osName.contains('win') ? 'windows' : (osName.contains('mac') ? 'macos' : 'linux')
+def hostArch = (osArch == 'aarch64' || osArch == 'arm64') ? 'aarch64' : 'x86_64'
+def bytedecoPlatform = "${hostOs == 'macos' ? 'macosx' : hostOs}-${hostArch == 'aarch64' ? 'arm64' : 'x86_64'}".toString()
+ext {
+    simPlatform = "${hostOs}-${hostArch}"                       // e.g. windows-x86_64
+    // Bytedeco's OpenCV natives exist for these; elsewhere (e.g. Windows on ARM) the simulator
+    // still builds and runs, just without vision.
+    javacppPlatform = bytedecoPlatform in ['windows-x86_64', 'linux-x86_64', 'linux-arm64', 'macosx-x86_64', 'macosx-arm64'] ? bytedecoPlatform : null
+}
+
 subprojects {
     tasks.withType(JavaCompile).configureEach {
         options.encoding = 'UTF-8'

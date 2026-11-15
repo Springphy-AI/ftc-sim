@@ -1,6 +1,10 @@
 package ftcsim.hal;
 
 import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 
 /**
  * One simulated Robot Controller's share of what the FTC SDK keeps in static fields: the
@@ -26,6 +30,48 @@ public final class RobotContext {
     public volatile String globalWarning = "";
 
     final HashMap<String, Object> blackboard = new HashMap<String, Object>();
+
+    /** The robot's configured webcams, for {@code ClassFactory.getInstance().getCameraManager()}. */
+    public final List<WebcamName> webcams = new CopyOnWriteArrayList<WebcamName>();
+
+    /** Cleanups for the OpMode now running on this robot. Each OpMode gets a fresh list. */
+    private volatile List<Runnable> opModeStopHooks = new CopyOnWriteArrayList<Runnable>();
+
+    /**
+     * Runs {@code hook} once the current OpMode has stopped, like the SDK's OpMode-stop
+     * notifications (VisionPortal closes its camera this way).
+     *
+     * @return cancels the hook
+     */
+    public Runnable onOpModeStopped(final Runnable hook) {
+        final List<Runnable> hooks = opModeStopHooks;
+        hooks.add(hook);
+        return new Runnable() {
+            @Override
+            public void run() {
+                hooks.remove(hook);
+            }
+        };
+    }
+
+    /** Called by the OpMode runner as an OpMode is created: the list its cleanups go into. */
+    List<Runnable> newOpModeStopHooks() {
+        List<Runnable> hooks = new CopyOnWriteArrayList<Runnable>();
+        opModeStopHooks = hooks;
+        return hooks;
+    }
+
+    /** Called by the OpMode runner after that OpMode's thread has finished. Never throws. */
+    static void runOpModeStopHooks(List<Runnable> hooks) {
+        for (Runnable hook : hooks) {
+            hooks.remove(hook);
+            try {
+                hook.run();
+            } catch (Throwable t) {
+                SimLog.log('E', "OpModeSession", "cleanup after the OpMode failed: " + t);
+            }
+        }
+    }
 
     public RobotContext(int index) {
         this.index = index;

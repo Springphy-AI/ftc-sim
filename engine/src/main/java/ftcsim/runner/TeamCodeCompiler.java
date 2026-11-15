@@ -103,6 +103,7 @@ public final class TeamCodeCompiler {
         List<String> options = List.of("--release", "8", "-Xlint:-options", "-nowarn", "-proc:none",
                 "-encoding", "UTF-8", "-g", "-classpath", classpath, "-d", out.toString());
         try (StandardJavaFileManager fm = javac.getStandardFileManager(null, Locale.US, StandardCharsets.UTF_8)) {
+            Files.createDirectories(out);   // also when there is nothing to compile (an empty TeamCode)
             for (int round = 0; round < 12 && !active.isEmpty(); round++) {
                 deleteTree(out);
                 Files.createDirectories(out);
@@ -189,13 +190,27 @@ public final class TeamCodeCompiler {
         return result;
     }
 
-    /** Location of the simulator's FTC SDK classes, to compile TeamCode against. */
+    /**
+     * What TeamCode compiles against, as on the robot: the simulator's SDK classes, FIRST's own
+     * Vision and RobotCore classes it runs unmodified, the AprilTag detector's Java wrapper, and
+     * OpenCV's Java API (the robot's version).
+     */
     static String sdkClasspath() {
-        try {
-            return Paths.get(OpMode.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("Cannot locate the simulator's SDK classes", e);
+        Class<?>[] markers = {
+                OpMode.class,                                                              // simulator SDK
+                org.firstinspires.ftc.vision.VisionPortal.class,                           // FIRST Vision
+                org.firstinspires.ftc.robotcore.external.matrices.MatrixF.class,           // FIRST RobotCore
+                org.openftc.apriltag.AprilTagDetectorJNI.class,                            // AprilTag wrapper
+                org.opencv.core.Mat.class};                                                // OpenCV
+        Set<String> entries = new java.util.LinkedHashSet<>();
+        for (Class<?> c : markers) {
+            try {
+                entries.add(Paths.get(c.getProtectionDomain().getCodeSource().getLocation().toURI()).toString());
+            } catch (Exception e) {
+                throw new IllegalStateException("Cannot locate the classes of " + c.getName(), e);
+            }
         }
+        return String.join(File.pathSeparator, entries);
     }
 
     private String display(Path f) {

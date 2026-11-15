@@ -21,3 +21,6 @@ bin/
 # OS
 .DS_Store
 Thumbs.db
+
+# Frames saved by VisionPortal.saveNextFrameRaw()
+captures/
