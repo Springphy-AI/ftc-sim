@@ -34,6 +34,8 @@ kbd { font: 11px var(--mono); background: var(--card-2); border: 1px solid var(-
 .project { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .spacer { flex: 1; }
 .robotpick { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.tb-btn { background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tb-btn:hover { color: var(--text); border-color: var(--faint); }
 .stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; min-width: 56px; }
 .stat .k { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; }
 .stat span:last-child { font-variant-numeric: tabular-nums; }
@@ -64,6 +66,7 @@ select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px s
 .cad-notice { white-space: pre-line; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); max-width: min(720px, 80%); background: rgba(24, 27, 31, .92); border: 1px solid var(--line); border-left: 3px solid var(--amber); color: var(--text); padding: 6px 12px; border-radius: 8px; z-index: 3; font-size: 12.5px; line-height: 1.4; }
 .cad-notice.ok { border-left-color: var(--green); }
 .cad-notice.err { border-left-color: var(--red); }
+.drop-zone { position: absolute; inset: 10px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; border: 2px dashed var(--blue); border-radius: 12px; background: rgba(62, 123, 250, .14); color: var(--text); font-size: 16px; font-weight: 500; z-index: 4; pointer-events: none; }
 .placing-hint { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); background: rgba(62, 123, 250, .9); color: #fff; padding: 6px 12px; border-radius: 999px; z-index: 3; font-weight: 500; }
 
 /* ---- driver station cards ---- */

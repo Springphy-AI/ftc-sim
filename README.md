@@ -284,14 +284,16 @@ servos. Robots without `cad` work as before.
 1. Export the robot's assembly as a STEP file. In Onshape, right-click the assembly's tab and
    choose *Export*, then STEP. In Fusion 360, use *File → Export*; in SolidWorks and Inventor,
    *Save As*.
-2. Put it in `robots/cad/`. Copy the robot file whose devices match your Driver Station
-   configuration, and give the copy a `cad` section with the STEP file's name:
-   `"cad": "cad/our-robot.step"`.
-3. Pick the copy from the **Robot** menu, or start with `--robot`.
+2. In the simulator, pick the robot file whose devices match your Driver Station configuration
+   from the **Robot** menu. Then click **+ From CAD** in the top bar and choose the STEP file, or
+   drop the file anywhere on the page.
 
-The page turns the STEP file into triangles with OpenCascade, which runs in the browser, and the
-simulator saves them next to it as `our-robot.step.cadmesh`. A big assembly takes up to a minute.
-The robot log then says what the simulator worked out by itself:
+That's all. The simulator saves the file as `robots/cad/<name>.step` and writes
+`robots/<name>.json` with the devices and drive of the robot file you had picked, so your TeamCode
+finds the same hardware. The page turns the STEP file into triangles with OpenCascade, which runs
+in the browser, and the simulator saves them next to it as `<name>.step.cadmesh`. A big assembly
+takes up to a minute. A note at the bottom of the 3D view then says what the simulator worked out
+by itself:
 
 - **Which way the robot faces.** Up comes from the drive wheels: their centers are level and the
   robot is above them. The front is the end with the intake, or the end with parts named *front*
@@ -303,9 +305,9 @@ The robot log then says what the simulator worked out by itself:
   or a `flywheel` load turns the *Flywheel* and its hub. They keep the robot file's `load.inertia`.
 - **Mass**: `chassis.mass_kg` spread over the parts by volume. Set it to what your robot weighs.
 
-To update the robot, export the STEP file again over the old one: the page converts it again.
-Commit the STEP, `.cadmesh` and robot files so your teammates and CI don't convert the STEP file
-again.
+To update the robot, export the STEP file again and drop it with the same name: the STEP file is
+replaced and the robot file keeps what you added to it. Commit the STEP, `.cadmesh` and robot
+files so your teammates and CI don't convert the STEP file again.
 
 Arms, slides, hoods and claws need one line each in the robot file's `cad.links`, because how far
 they may move isn't in a STEP file:
@@ -478,9 +480,10 @@ The suite includes:
 - `CadImportTest`: robots from CAD. The STEP and URDF examples are read into their links, joints,
   wheels and masses. The STEP example with nothing but its file name comes out the same as with
   everything spelled out, also exported y-up or modeled facing backward; a link with only its
-  name and device finds its pivot. A STEP file is converted again only when it changes (line
-  endings don't count), and when its saved conversion is damaged or no longer fits the robot
-  file. The CAD robot drives at the plain robot's speed, and its
+  name and device finds its pivot. A STEP file added from the page gets a robot file with the
+  devices of the robot in use, and a newer export keeps that robot file. A STEP file is converted
+  again only when it changes (line endings don't count), and when its saved conversion is damaged
+  or no longer fits the robot file. The CAD robot drives at the plain robot's speed, and its
   odometry sees no movement while it turns in place. The URDF arm swings up on its motor with its
   encoder following, and falls back unpowered; URDF drive wheels are found without "wheel" in
   their names. The hood follows its servo, the CAD intake and flywheel take in and launch balls

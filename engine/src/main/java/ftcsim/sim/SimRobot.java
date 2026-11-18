@@ -26,6 +26,7 @@ import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.RobotLog;
 
+import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
 import ftcsim.cad.CadState;
 import ftcsim.cad.Geom3;
@@ -622,6 +623,22 @@ public final class SimRobot {
         // Every robot built from this STEP file (several robots can share one robot file).
         reloadRobotsUsing(s.file, null);
         return null;
+    }
+
+    /**
+     * A STEP file dropped on the Driver Station page: saves it with a robot file that has this
+     * robot's devices and drive (or updates the STEP file of the robot file made from it before),
+     * and switches this robot to it. The page then converts it as for any new STEP file.
+     */
+    public CadImport.Result importCad(String fileName, java.io.InputStream in) throws IOException {
+        if (!isIdle()) throw new IllegalStateException("Stop the OpMode before changing the robot.");
+        CadImport.Result r = CadImport.add(sim.robotsDir, fileName, in, robotFile);
+        log("CAD: " + (r.updated() ? "updated " : "added ") + sim.robotsDir.relativize(r.step()).toString().replace('\\', '/')
+                + (r.updated() ? " (" + r.robotFile().getFileName() + " stays as it is)" : " and " + r.robotFile().getFileName()
+                + ", with the devices and drive of " + robotFile.getFileName()));
+        reloadRobotsUsing(r.step(), this);
+        requestLoad(r.robotFile());
+        return r;
     }
 
     private static double round5(double v) {

@@ -2,11 +2,13 @@ package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +19,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
 import ftcsim.cad.CadState;
 import ftcsim.cad.Geom3;
@@ -172,6 +175,53 @@ class CadImportTest {
         assertEquals(RobotModel.Kind.SPINNER, roller.kind, "continuous: a roller motor drives it");
         sameAxis(group(listed, "intake roller"), roller);
         assertNotNull(m.drivenBy("launcher"), "the rest are still found by name");
+    }
+
+    @Test
+    void aStepFileDroppedOnThePageBecomesARobot(@TempDir Path dir) throws Exception {
+        Path robots = dir.resolve("robots"), template = robots.resolve("mecanum.json");
+        Files.createDirectories(robots);
+        Files.copy(Path.of("robots/mecanum.json"), template);
+        byte[] step = Files.readAllBytes(Path.of("robots/cad/biobuzz-bot.step"));
+        CadImport.Result r = CadImport.add(robots, "Our Robot v3.STEP", new ByteArrayInputStream(step), template);
+        assertEquals(robots.resolve("our-robot-v3.json"), r.robotFile());
+        assertEquals(robots.resolve("cad/our-robot-v3.step"), r.step());
+        assertFalse(r.updated());
+        RobotConfig cfg = RobotConfig.load(r.robotFile());
+        assertEquals("cad/our-robot-v3.step", cfg.cad.file);
+        assertEquals("Our Robot v3", cfg.name);
+        assertEquals(RobotConfig.load(template).deviceNames(), cfg.deviceNames(), "the same hardware for TeamCode");
+        assertEquals(CadState.Status.CONVERT, cfg.cadState.status, "the page converts it next");
+        Files.copy(Path.of("robots/cad/biobuzz-bot.step.cadmesh"), CadMeshFile.cacheFor(r.step()));   // what it sends back
+        cfg = RobotConfig.load(r.robotFile());
+        assertEquals(CadState.Status.READY, cfg.cadState.status, cfg.cadState.message);
+        assertNotNull(cfg.model().drivenBy("intake"));
+
+        // A newer export of the same robot: the STEP file is replaced, the robot file and what was added to it kept.
+        Files.writeString(r.robotFile(), Files.readString(r.robotFile()).replace("\"links\": []",
+                "\"links\": [{ \"name\": \"Hood\", \"device\": \"hood\", \"limits\": [-35, 35] }]"));
+        byte[] newer = (new String(step, StandardCharsets.ISO_8859_1) + "\n").getBytes(StandardCharsets.ISO_8859_1);
+        CadImport.Result again = CadImport.add(robots, "Our Robot v3.step", new ByteArrayInputStream(newer), template);
+        assertTrue(again.updated());
+        assertEquals(r.robotFile(), again.robotFile());
+        cfg = RobotConfig.load(r.robotFile());
+        assertEquals("Hood", cfg.cad.links.get(0).name);
+        assertEquals(CadState.Status.CONVERT, cfg.cadState.status, "changed, so converted again");
+
+        // A robot file of the same name that isn't from this STEP file is left alone.
+        Files.copy(template, robots.resolve("arm.json"));
+        assertEquals(robots.resolve("arm-2.json"), CadImport.add(robots, "Arm.stp", new ByteArrayInputStream(step), template).robotFile());
+
+        assertThrows(IllegalArgumentException.class, () -> CadImport.add(robots, "robot.stl", new ByteArrayInputStream(step), template));
+        assertThrows(IllegalArgumentException.class,
+                () -> CadImport.add(robots, "robot.step", new ByteArrayInputStream("solid robot".getBytes(StandardCharsets.US_ASCII)), template));
+        try (var left = Files.list(robots.resolve("cad"))) {
+            assertEquals(List.of("arm-2.step", "our-robot-v3.step", "our-robot-v3.step.cadmesh"),
+                    left.map(f -> f.getFileName().toString()).sorted().collect(Collectors.toList()), "no temporary files left");
+        }
+        assertEquals("evil", CadImport.baseName("../../evil.step"));
+        assertEquals("\u673a\u5668\u4eba-v2", CadImport.baseName("\u673a\u5668\u4eba v2.step"));
+        assertEquals("con-robot", CadImport.baseName("CON.step"));
     }
 
     @Test

@@ -85,6 +85,7 @@ function renderTopBar() {
   sel.value = r.robotFile;
   sel.title = r.robot.description || r.robot.name;
   placeBtn.textContent = several ? `Place robot ${current + 1}` : 'Place robot';
+  $('cadImportBtn').title = `Make ${several ? `robot ${current + 1}` : 'this robot'} from your CAD: pick the STEP file of its assembly, or drop it on the page`;
   $('resetBtn').title = several
     ? 'Power-cycle every robot, put them back at their start positions and restage the game pieces'
     : 'Power-cycle the robot, put it back at its start position and restage the game pieces';
@@ -108,6 +109,9 @@ function cadNotice(text, kind = '', hideAfterMs = 0) {
   if (hideAfterMs) cadNoticeTimer = setTimeout(() => { el.hidden = true; }, hideAfterMs);
 }
 
+let imported = null;       // {robot, file}: a robot just made from a STEP file, until it's built
+let importShownAt = 0;
+
 /** After a hello: converts STEP files that need it, and says what's wrong with CAD that can't be used. */
 function checkCad() {
   const problems = [];
@@ -115,11 +119,76 @@ function checkCad() {
     if (!r.cad) return;
     if (r.cad.status === 'error') problems.push(`Robot ${i + 1}: ${r.cad.message} (drawn from the robot file's numbers instead)`);
     if (r.cad.status === 'convert') {
-      convertIfNeeded(i, r.cad, (text, done, failed) => cadNotice(text, failed ? 'err' : (done ? 'ok' : ''), done && !failed ? 6000 : 0));
+      convertIfNeeded(i, r.cad, (text, done, failed) => {
+        if (done && !failed && performance.now() - importShownAt < 3000) return;   // what it found is showing
+        cadNotice(text, failed ? 'err' : (done ? 'ok' : ''), done && !failed ? 6000 : 0);
+      });
+    }
+    if (r.cad.status === 'ready' && imported && imported.robot === i && imported.file === r.robotFile) {
+      // What the simulator worked out by itself, and where to go from here.
+      const notes = r.cad.notes || [];
+      const lines = [`${robots.length > 1 ? `Robot ${i + 1}: ` : ''}${r.cad.message}`, ...notes.slice(0, 6)];
+      if (notes.length > 6) lines.push(`… ${notes.length - 6} more in the robot log`);
+      lines.push(`Arms, slides and claws: list them in cad.links in robots/${r.robotFile} (README: Robots from CAD).`);
+      cadNotice(lines.join('\n'), 'ok', 30000);
+      importShownAt = performance.now();
+      imported = null;
     }
   });
   if (problems.length) cadNotice(problems.join('\n'), 'err');
 }
+
+// ---- a robot from CAD: pick or drop the STEP file of its assembly -----------------------------
+async function importCad(file) {
+  const i = current;
+  const who = robots.length > 1 ? `Robot ${i + 1}: ` : '';
+  if (!/\.(step|stp)$/i.test(file.name)) {
+    cadNotice(`${who}${file.name} isn't a STEP file. Export the robot's assembly as STEP (.step or .stp) from your CAD and use that.`, 'err', 12000);
+    return;
+  }
+  cadNotice(`${who}sending ${file.name} (${(file.size / 1e6).toFixed(1)} MB)…`);
+  try {
+    const res = await fetch(`/cad/${i}/import?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Ftcsim-Upload': '1' },
+      body: file,
+    });
+    if (!res.ok) throw new Error(await res.text() || `the simulator refused it (${res.status})`);
+    const r = await res.json();
+    imported = { robot: i, file: r.robotFile };
+    cadNotice(`${who}${r.updated ? `updated robots/${r.step}` : `saved robots/${r.step} and robots/${r.robotFile}`}; building the robot…`);
+  } catch (e) {
+    cadNotice(`${who}${e.message}`, 'err');
+  }
+}
+$('cadImportBtn').addEventListener('click', () => $('cadFile').click());
+$('cadFile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) importCad(f);
+});
+let dragDepth = 0;
+const draggingFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => {
+  if (!draggingFiles(e)) return;
+  dragDepth++;
+  $('dropZone').textContent = `Drop the STEP file of your robot's assembly to make ${robots.length > 1 ? `robot ${current + 1}` : 'the robot'} from it`;
+  $('dropZone').hidden = false;
+});
+window.addEventListener('dragleave', (e) => {
+  if (!draggingFiles(e) || --dragDepth > 0) return;
+  dragDepth = 0;
+  $('dropZone').hidden = true;
+});
+window.addEventListener('dragover', (e) => { if (draggingFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', (e) => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $('dropZone').hidden = true;
+  const f = e.dataTransfer.files[0];
+  if (f) importCad(f);
+});
 
 function setConnection(ok, text) {
   $('conn').className = 'conn ' + (ok ? 'ok' : 'bad');

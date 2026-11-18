@@ -1,6 +1,6 @@
 {
   "name": "Mecanum robot from CAD (STEP)",
-  "description": "The mecanum robot of mecanum.json, built from a STEP file: it looks like its CAD, its mass properties and collision shape come from the CAD, and the hood is a rigid body on its servo. Copy it, point cad.file at your own STEP export and list your moving parts in cad.links.",
+  "description": "The mecanum robot of mecanum.json, built from a STEP file: it looks like its CAD, its mass properties and collision shape come from the CAD, and the hood is a rigid body on its servo. For your own robot, click + From CAD in the top bar and pick your STEP export (README: Robots from CAD).",
 
   "chassis": {
     "length_m": 0.4572,

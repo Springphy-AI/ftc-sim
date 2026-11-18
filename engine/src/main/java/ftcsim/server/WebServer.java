@@ -26,6 +26,7 @@ import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
 import io.javalin.websocket.WsContext;
 
+import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
 import ftcsim.hal.CameraPreviews;
 import ftcsim.sim.SimRobot;
@@ -102,6 +103,7 @@ public final class WebServer {
             config.routes.get("/cad/{robot}/model", this::cadModel);
             config.routes.get("/cad/{robot}/source", this::cadSource);
             config.routes.post("/cad/{robot}/mesh", this::cadMesh);
+            config.routes.post("/cad/{robot}/import", this::cadImport);
             config.routes.ws("/ws", ws -> {
                 ws.onConnect(ctx -> {
                     ctx.enableAutomaticPings(5, TimeUnit.SECONDS);
@@ -186,6 +188,32 @@ public final class WebServer {
             return;
         }
         ctx.status(204);
+    }
+
+    /**
+     * A STEP file dropped on the page ({@code ?name=} its file name): becomes this robot, with a
+     * robot file of its own. Needs X-Ftcsim-Upload, like {@link #cadMesh}.
+     */
+    private void cadImport(Context ctx) throws IOException {
+        SimRobot r = robotOf(ctx);
+        if (r == null || ctx.header("X-Ftcsim-Upload") == null) {
+            ctx.status(r == null ? 404 : 403);
+            return;
+        }
+        try (InputStream in = ctx.bodyInputStream()) {
+            CadImport.Result res = r.importCad(ctx.queryParam("name"), in);
+            com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+            o.addProperty("robotFile", res.robotFile().getFileName().toString());
+            o.addProperty("step", "cad/" + res.step().getFileName());
+            o.addProperty("updated", res.updated());
+            ctx.contentType("application/json").result(o.toString());
+        } catch (CadImport.TooBig e) {
+            ctx.status(413).result(e.getMessage());
+        } catch (IllegalStateException e) {
+            ctx.status(409).result(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            ctx.status(422).result(e.getMessage());
+        }
     }
 
     /**

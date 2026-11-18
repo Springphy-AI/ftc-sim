@@ -19,6 +19,8 @@
     <label class="robotpick"><span id="robotPickName">Robot</span>
       <select id="robotSelect" title="Robot description (robots/*.json)"></select>
     </label>
+    <button class="tb-btn" id="cadImportBtn" title="Make this robot from your CAD: pick the STEP file of its assembly, or drop it on the page">+ From CAD</button>
+    <input type="file" id="cadFile" accept=".step,.stp" hidden>
     <div class="stat" title="Balls inside the red HIVE's CELLS: audience CELL / rear CELL, and how many times it has tipped since Reset (not a MATCH score)"><span class="k">Red HIVE</span><span id="hiveRed">–</span></div>
     <div class="stat" title="Balls inside the blue HIVE's CELLS: audience CELL / rear CELL, and how many times it has tipped since Reset (not a MATCH score)"><span class="k">Blue HIVE</span><span id="hiveBlue">–</span></div>
     <div class="stat" title="Battery voltage"><span class="k">Battery</span><span id="battery">–</span></div>
@@ -54,6 +56,7 @@
       </div>
       <div class="placing-hint" id="placeHint" hidden>Click to place the robot · drag to aim · Esc to cancel</div>
       <div class="cad-notice" id="cadNotice" role="status" hidden></div>
+      <div class="drop-zone" id="dropZone" hidden></div>
     </section>
 
     <aside class="ds" aria-label="Driver Station">
