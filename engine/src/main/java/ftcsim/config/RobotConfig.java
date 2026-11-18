@@ -27,8 +27,13 @@ public final class RobotConfig {
     public Imu imu = new Imu();
     public List<Device> devices = new ArrayList<>();
     public Io io = new Io();
-    /** Starting pose on the field: x, y in meters, heading in degrees (0 faces +x, the blue wall). */
-    public double[] start = {-1.55, -0.30, 0};
+    /**
+     * Where the robot starts, instead of the season's spot: x, y in meters and heading in degrees
+     * in the season's field coordinates, per season: {@code {"biobuzz": [x, y, h], "decode": [...]}}.
+     * A plain {@code [x, y, h]} is a BIOBUZZ spot: robot files from before there were seasons
+     * (and the CAD robots made from them) have one. Absent, the season decides.
+     */
+    public com.google.gson.JsonElement start;
     /**
      * The robot's CAD model (a STEP or URDF file). When present, the robot looks like its CAD, its
      * mass properties and collision shape come from it, and its moving parts are rigid bodies on
@@ -242,6 +247,19 @@ public final class RobotConfig {
         c.validate();
         if (c.cad != null && withCad) c.cadState = ftcsim.cad.CadState.load(c);
         return c;
+    }
+
+    /** This robot file's own start spot (x, y, heading in degrees) for a season, or null to use the season's. */
+    public double[] startFor(String season) {
+        com.google.gson.JsonElement e = start;
+        if (e == null || e.isJsonNull()) return null;
+        if (e.isJsonArray() && !"biobuzz".equals(season)) return null;   // a spot on the BIOBUZZ field
+        if (e.isJsonObject()) {
+            e = e.getAsJsonObject().get(season);
+            if (e == null || e.isJsonNull()) return null;
+        }
+        com.google.gson.JsonArray a = e.getAsJsonArray();
+        return new double[]{a.get(0).getAsDouble(), a.get(1).getAsDouble(), a.size() > 2 ? a.get(2).getAsDouble() : 0};
     }
 
     /** The CAD model, if this robot has one and it is ready. */

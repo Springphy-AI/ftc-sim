@@ -48,7 +48,5 @@
     { "type": "webcam", "name": "Webcam 1", "model": "Logitech C920", "x_m": 0.2, "y_m": 0.0, "z_m": 0.3, "pitch_deg": 20 }
   ],
 
-  "io": { "command_ms": 1.0, "i2c_ms": 2.5 },
-
-  "start": [-1.55, -0.30, 0]
+  "io": { "command_ms": 1.0, "i2c_ms": 2.5 }
 }

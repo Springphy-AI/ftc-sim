@@ -49,15 +49,63 @@ const setPlacing = (on) => {
 placeBtn.addEventListener('click', () => setPlacing(!placeBtn.classList.contains('on')));
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setPlacing(false); });
 
-// Human player: one NECTAR from the ALLIANCE AREA into that alliance's LOADING ZONE.
-const addNectar = (color) => send({ type: 'nectar', color });
-$('nectarRedBtn').addEventListener('click', () => addNectar('red'));
-$('nectarBlueBtn').addEventListener('click', () => addNectar('blue'));
+// The season: its name, and the human player's buttons (a game piece from the ALLIANCE AREA into
+// a LOADING ZONE...), each with an optional key.
+let actions = [];
+const act = (id) => send({ type: 'action', id });
+const keyName = (code) => code.replace(/^Key|^Digit/, '');
+function setSeason(season, list) {
+  const name = season ? `${season.title}${season.years ? ` (${season.years})` : ''}` : '';
+  $('seasonName').textContent = season ? season.title.replace(/ presented by .*/i, '') : '';
+  $('seasonName').title = name;
+  document.title = season ? `FTC Simulator · ${season.title.replace(/ presented by .*/i, '')}` : 'FTC Simulator';
+  const home = season?.home ?? 'red';
+  $('driverCamBtn').textContent = `${home[0].toUpperCase()}${home.slice(1)} driver`;
+  actions = list ?? [];
+  const box = $('humanPlayer');
+  box.replaceChildren(...actions.map((a) => {
+    const b = document.createElement('button');
+    b.id = `action-${a.id}`;
+    b.title = (a.title ?? a.label) + (a.key ? ` (key ${keyName(a.key)})` : '');
+    b.append(a.label, ' ');
+    const left = document.createElement('span');
+    left.className = 'left';
+    b.append(left);
+    b.addEventListener('click', () => act(a.id));
+    return b;
+  }));
+  box.hidden = actions.length === 0;
+  const keyed = actions.filter((a) => a.key);
+  input.setPageKeys(keyed.map((a) => a.key));
+  $('actionKeys').innerHTML = keyed.map((a) => `<kbd>${esc(keyName(a.key))}</kbd> ${esc(a.label.replace(/^\+\s*/, ''))}`).join(' · ')
+    + (keyed.length ? ' (human player)' : '');
+  $('actionKeys').hidden = keyed.length === 0;
+  $('seasonStats').replaceChildren();
+}
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || input.typingIn(e.target)) return;
-  if (e.code === 'KeyN') addNectar('red');
-  else if (e.code === 'KeyM') addNectar('blue');
+  const a = actions.find((x) => x.key === e.code);
+  if (a) act(a.id);
 });
+
+/** The season's numbers in the top bar (where the game pieces are, not a MATCH score). */
+function renderStats(stats) {
+  const box = $('seasonStats');
+  if (box.children.length !== stats.length) {
+    box.replaceChildren(...stats.map(() => {
+      const d = document.createElement('div');
+      d.className = 'stat';
+      d.innerHTML = '<span class="k"></span><span class="v"></span>';
+      return d;
+    }));
+  }
+  stats.forEach((st, i) => {
+    const d = box.children[i];
+    d.title = st.title ?? '';
+    d.querySelector('.k').textContent = st.label;
+    d.querySelector('.v').textContent = st.value;
+  });
+}
 $('resetBtn').addEventListener('click', () => send({ type: 'reset', robot: current }));
 $('robotSelect').addEventListener('change', (e) => send({ type: 'robot', robot: current, file: e.target.value }));
 
@@ -235,7 +283,8 @@ function onMessage(msg) {
       robots = msg.robots;
       robotFiles = msg.robotFiles;
       if (current >= robots.length) current = locked !== null ? robots.length - 1 : 0;
-      view.setField(msg.field);
+      view.setField(msg.field, msg.season);
+      setSeason(msg.season, msg.actions);
       view.setRobots(robots);
       view.setBalls(msg.balls);
       ds.setRobotFiles(robotFiles);
@@ -255,19 +304,14 @@ function onMessage(msg) {
       const r = msg.robots[current];
       if (r) $('battery').textContent = `${r.battery.toFixed(1)} V`;
       $('rtf').textContent = `${Math.round(msg.rtf * 100)}%`;
-      if (msg.nectarWaiting) {
-        for (const [color, btn, left] of [['red', 'nectarRedBtn', 'nectarRedLeft'], ['blue', 'nectarBlueBtn', 'nectarBlueLeft']]) {
-          const n = msg.nectarWaiting[color] ?? 0;
-          $(left).textContent = `(${n})`;
-          $(btn).disabled = n === 0;
+      if (msg.game) {
+        for (const [id, n] of Object.entries(msg.game.left ?? {})) {
+          const b = $(`action-${id}`);
+          if (!b) continue;
+          b.querySelector('.left').textContent = n >= 0 ? `(${n})` : '';
+          b.disabled = n === 0;
         }
-      }
-      if (msg.cells) {
-        for (const [alliance, id] of [['red', 'hiveRed'], ['blue', 'hiveBlue']]) {
-          const tips = msg.hives?.[alliance]?.tips ?? 0;
-          $(id).textContent = `${msg.cells[`${alliance} audience`] ?? 0} / ${msg.cells[`${alliance} rear`] ?? 0}`
-            + (tips ? ` · ${tips} tip${tips > 1 ? 's' : ''}` : '');
-        }
+        renderStats(msg.game.stats ?? []);
       }
       const p = view.pose(current);
       if (p) {

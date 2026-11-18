@@ -10,11 +10,14 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.ode4j.math.DVector3C;
 
+import biobuzz.BiobuzzGame;
+import biobuzz.Hive;
+import biobuzz.HiveBody;
+import biobuzz.HiveLayout;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.Latency;
 import ftcsim.hal.ServoPort;
 import ftcsim.physics.FieldModel;
-import ftcsim.physics.HiveBody;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.sim.GameElements;
 import ftcsim.sim.GameElements.Ball;
@@ -35,6 +38,7 @@ public class HiveTipTest {
         public final GameElements elements;
         public final FieldModel field;
         public final HiveBody red;
+        public final HiveLayout cells;
         public final List<Ball> inCell = new ArrayList<>();
         private final List<Ball> spare = new ArrayList<>();
 
@@ -46,10 +50,11 @@ public class HiveTipTest {
             Latency.i2cNanos = 0;
             elements = new GameElements(field, rig);
             rig.place(1.2, -1.2, 0);
-            red = rig.world.hives.get(0);
+            red = BiobuzzGame.of(elements).hive("red");
+            cells = BiobuzzGame.of(elements).layout();
             assertEquals("red", red.start.alliance());
             for (Ball b : elements.balls()) {
-                if (elements.cellOf(b) != null && b.color.equals("red")) inCell.add(b);
+                if (BiobuzzGame.of(elements).cellOf(b) != null && b.color.equals("red")) inCell.add(b);
                 else if (b.state() != State.HELD) spare.add(b);
             }
         }
@@ -78,7 +83,7 @@ public class HiveTipTest {
         /** Puts a ball at rest against the back of the red up CELL, or as close as there is room. */
         public void place(String kind) {
             Ball b = take(kind);
-            FieldModel.Hive h = red.current();
+            Hive h = red.current();
             double sign = "rear".equals(red.upCell()) ? 1 : -1;
             List<double[]> others = new ArrayList<>();
             for (Ball o : inCell) {
@@ -86,10 +91,10 @@ public class HiveTipTest {
                 double[] q = h.toHive(p.get0(), p.get1(), p.get2());
                 others.add(new double[]{q[0], q[1], q[2], o.radius});
             }
-            double r = b.radius, z = field.cellFloor + r + 0.001;
+            double r = b.radius, z = cells.cellFloor + r + 0.001;
             for (double d = 0; d < 0.25; d += 0.004) {
-                double y = sign * (field.cellInner + r + 0.002 + d);
-                for (double ax = 0; ax < field.cellHalfWidth - r - 0.002; ax += 0.004) {
+                double y = sign * (cells.cellInner + r + 0.002 + d);
+                for (double ax = 0; ax < cells.cellHalfWidth - r - 0.002; ax += 0.004) {
                     for (double x : new double[]{ax, -ax}) {
                         boolean free = true;
                         for (double[] o : others) {
@@ -112,9 +117,9 @@ public class HiveTipTest {
         /** Tosses a ball by hand into the open end of the red up CELL, arriving at about 2 m/s. */
         public void toss(String kind) {
             Ball b = take(kind);
-            FieldModel.Hive h = red.current();
+            Hive h = red.current();
             double sign = "rear".equals(red.upCell()) ? 1 : -1;
-            double[] target = h.toWorld(0.03, sign * (field.cellOuter - 0.08), field.cellFloor + 0.10);
+            double[] target = h.toWorld(0.03, sign * (cells.cellOuter - 0.08), cells.cellFloor + 0.10);
             double t = 0.3, dy = sign * 0.45, dz = 0.25;
             elements.throwBall(b, target[0], target[1] + dy, target[2] + dz, 0, -dy / t, -dz / t + 9.81 * t / 2);
             inCell.add(b);
@@ -154,7 +159,7 @@ public class HiveTipTest {
         assertEquals(0, f.red.tips());
         assertEquals("audience", f.red.upCell());
         assertEquals(f.red.start.phi(), f.red.angle(), 0.01, "resting on its stop");
-        assertEquals(3, f.elements.cellCounts().get("red audience"));
+        assertEquals(3, BiobuzzGame.of(f.elements).cellCounts().get("red audience"));
     }
 
     // Section 12.3, "Necessary" rows.
@@ -196,7 +201,7 @@ public class HiveTipTest {
         Field f = new Field();
         int removed = 0;
         for (Ball b : f.elements.balls()) {
-            if (b.state() == State.HELD && removed < GameElements.PRELOAD - count) f.elements.placeBall(b, 1.0 + 0.2 * removed++, 1.5);
+            if (b.state() == State.HELD && removed < 4 - count) f.elements.placeBall(b, 1.0 + 0.2 * removed++, 1.5);
         }
         f.rig.place(-0.32, y, Math.PI / 2);   // facing the red HIVE's audience CELL
         ServoPort hood = f.rig.servoPorts().stream().filter(p -> p.name.equals("hood")).findFirst().orElseThrow();
@@ -209,7 +214,7 @@ public class HiveTipTest {
         feeder.pwmEnabled = true;
         f.run(2.0);
         boolean tipped = f.tipped();
-        assertTrue(tipped || f.elements.cellCounts().get("red audience") == 3 + count, "all launched POLLEN landed in the CELL");
+        assertTrue(tipped || BiobuzzGame.of(f.elements).cellCounts().get("red audience") == 3 + count, "all launched POLLEN landed in the CELL");
         return tipped;
     }
 
@@ -236,8 +241,8 @@ public class HiveTipTest {
         assertEquals(-f.red.start.phi(), f.red.angle(), 0.01, "resting on the other stop");
         // The CELL that was up now points down, open end low: what was in it has rolled out.
         f.run(2.0);
-        assertEquals(0, f.elements.cellCounts().get("red audience"), "balls fell out");
-        assertEquals(0, f.elements.cellCounts().get("red rear"));
+        assertEquals(0, BiobuzzGame.of(f.elements).cellCounts().get("red audience"), "balls fell out");
+        assertEquals(0, BiobuzzGame.of(f.elements).cellCounts().get("red rear"));
         // Reset puts it back.
         f.elements.restage();
         assertEquals("audience", f.red.upCell());

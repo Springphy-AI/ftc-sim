@@ -1,6 +1,9 @@
 # Copy this file to sim.properties (same folder) to set defaults for run-sim.bat / run-sim.sh.
 # Command-line options override these.
 
+# The game: a season pack in seasons/. Default biobuzz.
+#season=biobuzz
+
 # Your FtcRobotController project (the folder that contains TeamCode/).
 # Use forward slashes or doubled backslashes on Windows.
 #project=C:/Users/you/Documents/GitHub/FtcRobotController

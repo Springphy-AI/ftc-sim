@@ -1,92 +1,85 @@
 package ftcsim.vision;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 
 import ftcsim.physics.FieldModel;
 
 /**
- * What the webcams see of the field itself, built from the FieldModel the physics uses (and the
- * field JSON for the AprilTags):
- * tiles and tape, the perimeter, the HIVE structure with its CELLS and AprilTags, and the FLOWERS.
- * The HIVES are drawn at whatever tilt the physics reports (their starting tilt by default).
+ * What the webcams see of the field itself, built from the same {@link FieldModel} shapes the
+ * physics and the browser's 3D view use: the tiles and their tape, the perimeter, the alliance
+ * areas, the season's structures and AprilTags, and its moving parts ({@link Mover}), drawn at
+ * whatever angle the physics reports (their start angle by default).
  */
 final class FieldScene {
 
-    private static final int TILE = 0x50555c, SEAM = 0x3a3e44, RED = 0xd23a3f, BLUE = 0x2f6fe0;
-    private static final int VENUE = 0x1c1e22, ALUMINUM = 0xb9c0c8, STEEL = 0x8d949c, FLOWER = 0x2fa84f, GOLD = 0xd9a52b;
+    private static final int TILE = 0x50555c, SEAM = 0x3a3e44;
+    private static final int VENUE = 0x1c1e22, ALUMINUM = 0xb9c0c8;
 
     /** Everything that never moves. */
     final Scene scene = new Scene();
-    /** The HIVES, which turn about their axle; red first, in field JSON order. */
-    final List<Hive> hives = new ArrayList<>();
-    /** The AprilTags with each HIVE at its starting tilt. */
+    /** The moving parts, in FieldModel order. */
+    final List<Mover> movers = new ArrayList<>();
+    /** The AprilTags that never move. */
+    final List<FieldTag> fixedTags = new ArrayList<>();
+    /** Every AprilTag, with the moving parts at their start angle. */
     final List<FieldTag> tags = new ArrayList<>();
     final Rasterizer.FloorShader floor;
 
     /**
-     * One HIVE. Its CELLS, arm and AprilTags are kept in the HIVE frame (origin on the pivot, x
-     * along the axle, y along the arm, z up from the arm when level) and posed at a tilt with
-     * FieldModel.Hive, the same code the physics poses it with.
+     * One moving part. Its shapes and AprilTags are kept in its own frame and posed at an angle
+     * with FieldModel.Mover, the same code the physics poses it with.
      */
-    static final class Hive {
-        final FieldModel.Hive start;
-        /** Tilt about the axle (rad) at the start of a match. */
-        final double startTilt;
+    static final class Mover {
+        final FieldModel.Mover mover;
         final Scene local = new Scene();
-        final List<FieldTag> localTags = new ArrayList<>();
         private volatile Posed posed;
 
-        private record Posed(double tilt, List<Scene.Tri> tris) {
+        private record Posed(double angle, List<Scene.Tri> tris) {
         }
 
-        Hive(FieldModel.Hive start) {
-            this.start = start;
-            this.startTilt = start.phi();
+        Mover(FieldModel.Mover mover) {
+            this.mover = mover;
         }
 
-        /** The HIVE's triangles in the world at a tilt (the last tilt asked for is kept). */
-        List<Scene.Tri> at(double tilt) {
+        /** Its angle at the start of a match. */
+        double startAngle() {
+            return mover.startAngle();
+        }
+
+        /** Its triangles in the world at an angle (the last angle asked for is kept). */
+        List<Scene.Tri> at(double angle) {
             Posed p = posed;
-            if (p != null && p.tilt() == tilt) return p.tris();
-            FieldModel.Hive h = start.at(tilt);
+            if (p != null && p.angle() == angle) return p.tris();
+            double[] r = mover.rotation(angle), o = mover.pivot();
             List<Scene.Tri> out = new ArrayList<>(local.tris.size());
             for (Scene.Tri t : local.tris) {
                 double[] v = new double[9];
                 for (int k = 0; k < 9; k += 3) {
-                    double[] w = h.toWorld(t.v[k], t.v[k + 1], t.v[k + 2]);
-                    v[k] = w[0];
-                    v[k + 1] = w[1];
-                    v[k + 2] = w[2];
+                    double x = t.v[k], y = t.v[k + 1], z = t.v[k + 2];
+                    v[k] = r[0] * x + r[1] * y + r[2] * z + o[0];
+                    v[k + 1] = r[3] * x + r[4] * y + r[5] * z + o[1];
+                    v[k + 2] = r[6] * x + r[7] * y + r[8] * z + o[2];
                 }
                 out.add(new Scene.Tri(v, t.uv, t.material));
             }
-            posed = new Posed(tilt, out);
+            posed = new Posed(angle, out);
             return out;
         }
 
-        /** A tag of this HIVE in the world at a tilt. */
-        FieldTag tagAt(FieldTag t, double tilt) {
-            FieldModel.Hive h = start.at(tilt);
-            double[] c = t.center();
-            return new FieldTag(t.id(), h.toWorld(c[0], c[1], c[2]), direction(h, t.right()), direction(h, t.up()),
-                    direction(h, t.normal()), t.size());
-        }
-
-        private static double[] direction(FieldModel.Hive h, double[] d) {
-            double[] o = h.toWorld(0, 0, 0), e = h.toWorld(d[0], d[1], d[2]);
-            return new double[]{e[0] - o[0], e[1] - o[1], e[2] - o[2]};
+        /** Its tags in the world at an angle. */
+        List<FieldTag> tagsAt(double angle) {
+            List<FieldTag> out = new ArrayList<>();
+            for (FieldModel.Tag t : mover.tagsAt(angle)) out.add(fieldTag(t));
+            return out;
         }
     }
 
     private final double half;
 
     FieldScene(FieldModel field) {
-        JsonObject json = field.json;
         half = field.half;
         floor = floorShader(field);
 
@@ -103,50 +96,80 @@ final class FieldScene {
                 new double[]{-big, half, -0.003}, venue);
         scene.quad(new double[]{half, -half, -0.003}, new double[]{big, -half, -0.003}, new double[]{big, half, -0.003},
                 new double[]{half, half, -0.003}, venue);
+        for (FieldModel.Area a : field.areas) {
+            scene.quad(new double[]{a.x0(), a.y0(), -0.002}, new double[]{a.x1(), a.y0(), -0.002},
+                    new double[]{a.x1(), a.y1(), -0.002}, new double[]{a.x0(), a.y1(), -0.002}, Material.flat(a.rgb()));
+        }
 
         addWalls(field.wallHeight);
-        for (FieldModel.Box b : field.boxes) {
-            if (b.name().startsWith("A-frame")) addAFrameBase(b.cx());
+        Map<Long, Material> materials = new HashMap<>();
+        for (FieldModel.Solid s : field.solids) add(scene, s, materials);
+        for (FieldModel.Tag t : field.tags) {
+            FieldTag tag = fieldTag(t);
+            fixedTags.add(tag);
+            tags.add(tag);
+            addTag(scene, tag);
         }
-        // The axle, the sign board and the A-frame legs: the panels the physics collides with.
-        for (FieldModel.Panel panel : field.panels) {
-            int rgb = panel.name().startsWith("sign") ? 0xf2c230 : panel.name().startsWith("axle") ? ALUMINUM : STEEL;
-            scene.box(panel.center(), panel.size()[0], panel.size()[1], panel.size()[2], panel.rot(), Material.flat(rgb));
+        for (FieldModel.Mover m : field.movers) {
+            Mover mv = new Mover(m);
+            for (FieldModel.Solid s : m.parts()) add(mv.local, s, materials);
+            for (FieldModel.Tag t : m.tags()) addTag(mv.local, fieldTag(t));
+            tags.addAll(mv.tagsAt(m.startAngle()));
+            movers.add(mv);
         }
-        for (FieldModel.Hive h : field.hives) addHive(field, h);
-        JsonObject structure = json.has("structure") ? json.getAsJsonObject("structure") : new JsonObject();
-        JsonObject flowers = json.getAsJsonObject("flowers");
-        JsonObject top = structure.has("flower_top") ? structure.getAsJsonObject("flower_top") : null;
-        for (Map.Entry<String, com.google.gson.JsonElement> e : flowers.entrySet()) addFlower(e.getValue().getAsJsonObject(), top);
+    }
+
+    private static FieldTag fieldTag(FieldModel.Tag t) {
+        return new FieldTag(t.id(), t.center(), t.right(), t.up(), t.normal(), t.size());
+    }
+
+    /** A shape, if it is drawn. */
+    private static void add(Scene target, FieldModel.Solid s, Map<Long, Material> materials) {
+        if (!s.visible()) return;
+        long key = ((long) s.rgb() << 8) | Math.round(Math.max(0, Math.min(1, s.opacity())) * 255);
+        Material m = materials.computeIfAbsent(key, k -> s.opacity() < 1 ? Material.translucent(s.rgb(), (float) s.opacity())
+                : Material.flat(s.rgb()));
+        if (s.shape() == FieldModel.Shape.BOX) {
+            target.box(s.center(), s.size()[0], s.size()[1], s.size()[2], s.rot(), m);
+        } else {
+            double r = s.size()[0];
+            double[][] ends = s.axisEnds();
+            target.cylinder(ends[0], ends[1], r, r < 0.01 ? 6 : r < 0.05 ? 12 : 20, m);
+        }
     }
 
     // ---- floor ---------------------------------------------------------------------------------
 
-    private record Zone(double x0, double x1, double y0, double y1, int rgb, boolean filled) {
-    }
-
     private static Rasterizer.FloorShader floorShader(FieldModel field) {
-        JsonObject json = field.json;
-        double half = field.half, tile = json.get("tile_m").getAsDouble(), tape = field.tapeWidth;
-        List<Zone> zones = new ArrayList<>();
-        for (String key : new String[]{"gardens", "loading_zones"}) {
-            JsonObject group = json.getAsJsonObject(key);
-            for (String alliance : group.keySet()) {
-                JsonObject z = group.getAsJsonObject(alliance);
-                zones.add(new Zone(z.getAsJsonArray("x_m").get(0).getAsDouble(), z.getAsJsonArray("x_m").get(1).getAsDouble(),
-                        z.getAsJsonArray("y_m").get(0).getAsDouble(), z.getAsJsonArray("y_m").get(1).getAsDouble(),
-                        "red".equals(alliance) ? RED : BLUE, "gardens".equals(key)));
+        double half = field.half, tile = field.tile;
+        List<FieldModel.Tape> tapes = field.tapes;
+        int n = tapes.size();
+        // Bounding boxes, to skip most tapes quickly at most pixels.
+        double[] box = new double[n * 4];
+        for (int i = 0; i < n; i++) {
+            FieldModel.Tape t = tapes.get(i);
+            double x0 = Double.MAX_VALUE, x1 = -Double.MAX_VALUE, y0 = Double.MAX_VALUE, y1 = -Double.MAX_VALUE;
+            double[] p = t.points();
+            for (int k = 0; k < p.length; k += 2) {
+                x0 = Math.min(x0, p[k]);
+                x1 = Math.max(x1, p[k]);
+                y0 = Math.min(y0, p[k + 1]);
+                y1 = Math.max(y1, p[k + 1]);
             }
+            double m = t.width() / 2;
+            box[4 * i] = x0 - m;
+            box[4 * i + 1] = x1 + m;
+            box[4 * i + 2] = y0 - m;
+            box[4 * i + 3] = y1 + m;
         }
         double light = Lighting.sphere(0, 0, 1);
         int tileLit = Lighting.scale(TILE, light), seamLit = Lighting.scale(SEAM, light);
-        int[] zoneLit = zones.stream().mapToInt(z -> Lighting.scale(z.rgb, light)).toArray();
+        int[] tapeLit = tapes.stream().mapToInt(t -> Lighting.scale(t.rgb(), light)).toArray();
         double seam = 0.0035;
         return (x, y) -> {
-            for (int i = 0; i < zones.size(); i++) {
-                Zone z = zones.get(i);
-                if (x < z.x0 || x > z.x1 || y < z.y0 || y > z.y1) continue;
-                if (z.filled || x - z.x0 < tape || z.x1 - x < tape || y - z.y0 < tape || z.y1 - y < tape) return zoneLit[i];
+            for (int i = n - 1; i >= 0; i--) {   // the last listed is on top
+                if (x < box[4 * i] || x > box[4 * i + 1] || y < box[4 * i + 2] || y > box[4 * i + 3]) continue;
+                if (tapes.get(i).covers(x, y)) return tapeLit[i];
             }
             double fx = (x + half) % tile, fy = (y + half) % tile;
             if (fx < seam || tile - fx < seam || fy < seam || tile - fy < seam) return seamLit;
@@ -174,59 +197,11 @@ final class FieldScene {
         }
     }
 
-    /** The A-frame's base and crossbar (the legs are FieldModel panels). */
-    private void addAFrameBase(double x) {
-        Material m = Material.flat(STEEL);
-        scene.beam(new double[]{x, -0.53, 0.025}, new double[]{x, 0.53, 0.025}, 0.05, m);
-        scene.beam(new double[]{x, -0.39, 0.33}, new double[]{x, 0.39, 0.33}, 0.035, m);
-    }
-
-    private void addHive(FieldModel field, FieldModel.Hive start) {
-        Hive hive = new Hive(start);
-        Scene local = hive.local;
-
-        // The CELLS and the arm, exactly the boxes the physics uses (see-through CELL panels).
-        Material shell = Material.translucent(0xe6ebf0, 0.2f);
-        Material arm = Material.flat(0x5b6169);
-        for (FieldModel.Panel panel : field.hivePanels) {
-            local.box(panel.center(), panel.size()[0], panel.size()[1], panel.size()[2], panel.rot(),
-                    panel.name().contains("arm") ? arm : shell);
-        }
-        // Alliance-colored edges along each CELL, as in the 3D view.
-        double hw = field.cellHalfWidth, f = field.cellFloor, wall = field.cellWall, peak = field.cellPeak;
-        double a0 = field.cellInner, a1 = field.cellOuter;
-        double[][] outline = {{-hw, f}, {hw, f}, {hw, f + wall}, {0, f + peak}, {-hw, f + wall}};
-        Material edge = Material.flat("red".equals(start.alliance()) ? RED : BLUE);
-        for (int side = -1; side <= 1; side += 2) {
-            for (int i = 0; i < outline.length; i++) {
-                double[] p = outline[i], q = outline[(i + 1) % outline.length];
-                double[] pa = {p[0], side * a0, p[1]}, pb = {p[0], side * a1, p[1]}, qb = {q[0], side * a1, q[1]};
-                local.beam(pa, pb, 0.008, edge);
-                local.beam(pb, qb, 0.008, edge);
-            }
-        }
-
-        // AprilTags under the CELLS (the field JSON gives them in the HIVE frame).
-        JsonObject tagJson = field.json.getAsJsonObject("apriltags");
-        double size = tagJson.get("size_m").getAsDouble();
-        JsonObject list = tagJson.getAsJsonObject("tags");
-        for (String id : list.keySet()) {
-            JsonObject t = list.getAsJsonObject(id);
-            if (!start.alliance().equals(t.get("hive").getAsString())) continue;
-            FieldTag tag = new FieldTag(Integer.parseInt(id), vec(t.getAsJsonArray("center_m")), vec(t.getAsJsonArray("right")),
-                    vec(t.getAsJsonArray("up")), vec(t.getAsJsonArray("normal")), size);
-            hive.localTags.add(tag);
-            addTag(local, tag);
-            tags.add(hive.tagAt(tag, start.phi()));
-        }
-        hives.add(hive);
-    }
-
     /** The printed tag: the black-bordered square is {@code size}; its white margin goes around it. */
     private static void addTag(Scene target, FieldTag t) {
         double full = t.size() * Tag36h11.TOTAL_WIDTH / Tag36h11.WIDTH_AT_BORDER;
         double h = full / 2;
-        // a hair off the surface toward the viewer, so the HIVE never covers it
+        // a hair off the surface toward the viewer, so the structure never covers it
         double[] c = {t.center()[0] + t.normal()[0] * 0.0005, t.center()[1] + t.normal()[1] * 0.0005, t.center()[2] + t.normal()[2] * 0.0005};
         double[] r = t.right(), u = t.up();
         double[] tl = {c[0] - r[0] * h + u[0] * h, c[1] - r[1] * h + u[1] * h, c[2] - r[2] * h + u[2] * h};
@@ -244,30 +219,4 @@ final class FieldScene {
         for (int i = 0; i < px.length; i++) px[i] = cells[i] ? 0xffe6e6e6 : 0xff141414;
         return Material.texture(px, n);
     }
-
-    private void addFlower(JsonObject flower, JsonObject top) {
-        double x = flower.getAsJsonArray("axis_m").get(0).getAsDouble(), y = flower.getAsJsonArray("axis_m").get(1).getAsDouble();
-        double h = flower.get("opening_height_m").getAsDouble();
-        Material bars = Material.flat(FLOWER);
-        for (int i = 0; i < 6; i++) {
-            double a = i / 6.0 * Math.PI * 2;
-            double bx = x + Math.cos(a) * 0.055, by = y + Math.sin(a) * 0.055;
-            scene.cylinder(new double[]{bx, by, 0}, new double[]{bx, by, h}, 0.006, 6, bars);
-        }
-        double ring = top != null && top.has("radius_m") ? top.get("radius_m").getAsDouble() : 0.07;
-        int segments = 20;
-        for (int i = 0; i < segments; i++) {
-            double t0 = 2 * Math.PI * i / segments, t1 = 2 * Math.PI * (i + 1) / segments;
-            scene.beam(new double[]{x + Math.cos(t0) * ring, y + Math.sin(t0) * ring, h},
-                    new double[]{x + Math.cos(t1) * ring, y + Math.sin(t1) * ring, h}, 0.024, Material.flat(GOLD));
-        }
-        scene.cylinder(new double[]{x, y, 0}, new double[]{x, y, 0.012}, 0.08, 16, Material.flat(0x24262a));
-    }
-
-    // ---- json helpers --------------------------------------------------------------------------
-
-    private static double[] vec(JsonArray a) {
-        return new double[]{a.get(0).getAsDouble(), a.get(1).getAsDouble(), a.get(2).getAsDouble()};
-    }
-
 }

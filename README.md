@@ -5,9 +5,10 @@
 [![macOS](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml/badge.svg?branch=main)](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml)
 
 Run your real FTC robot code (the `TeamCode` in your FtcRobotController project) against a
-simulated robot on the **BIOBUZZ** (2026–27) field. Drive it from a browser Driver Station with
-an Xbox/PlayStation controller or the keyboard. When it works in the simulator, deploy the
-same code to the robot as usual. Nothing in TeamCode changes.
+simulated robot on the **BIOBUZZ** (2026–27) field; each season's game is a
+[season pack](#seasons), so next season's field is added next to it. Drive it from a browser
+Driver Station with an Xbox/PlayStation controller or the keyboard. When it works in the
+simulator, deploy the same code to the robot as usual. Nothing in TeamCode changes.
 
 ![Driver Station and 3D field](docs/screenshot.png)
 
@@ -91,11 +92,12 @@ Robots alternate between the alliances by default (robot 1 red, robot 2 blue, an
 robots on the same alliance with `--allianceN`, for example `--alliance2 red` to practice with an
 alliance partner. An alliance has at most two robots.
 
-- **Starting spots.** The robot file's `start` is the first spot of the red alliance. The red
-  alliance's second robot starts beside it, mirrored across the field's center line. The blue
-  spots are the red ones turned half a turn about the field center, as the field itself is. With
-  `robots/mecanum.json` the red robots start 61 in from the center by the red wall, at y = −11.8 in
-  and +11.8 in, facing the blue wall; the blue robots start at the matching spots by the blue wall.
+- **Starting spots.** Each alliance's two spots come from the season ([Seasons](#seasons)). On
+  BIOBUZZ the red robots start 61 in from the center by the red wall, at y = −11.8 in and
+  +11.8 in, facing the blue wall, and the blue robots at the matching spots by the blue wall (the
+  red ones turned half a turn about the field center, as the field itself is). A robot file with
+  its own `start` for the season starts there as the first red robot; its partner starts beside
+  it, mirrored across the field's center line.
 - **Pre-loads.** Every simulated robot starts with its 4 POLLEN. A LOADING ZONE holds the pre-loads
   of its alliance's robots that aren't on the field: none when both of its robots are simulated.
 - **Telling them apart.** With more than one robot, each robot's side plates take its alliance
@@ -130,6 +132,61 @@ alliance partner. An alliance has at most two robots.
 - **Kept apart.** Robots running the same project still get separate copies of TeamCode, so static
   fields aren't shared. `OpMode.blackboard`, `RobotLog`'s global error, and the bus latency from
   the robot file are also per robot.
+
+## Seasons
+
+Every FTC season is a different game. The simulator keeps what stays the same (the 12 ft field,
+tiles and perimeter, the physics, your robot, the SDK, the Driver Station) apart from what changes
+each year (the field's structures and tape, the game pieces and how they start a match, the
+AprilTags, the human player). Each game is a **season pack** in `seasons/`:
+
+| Season | Pack | |
+|---|---|---|
+| BIOBUZZ presented by RTX (2026–27) | `seasons/biobuzz/` | the default |
+
+Pick one with `--season`, or `season=` in `sim.properties`:
+
+```bat
+.\run-sim.bat --season biobuzz --project "C:\path\to\FtcRobotController"
+```
+
+The top bar shows the season, and the 3D view's camera presets, the human player buttons and the
+numbers in the top bar follow it. Field coordinates are that season's official FTC field
+coordinates, the same ones as the SDK's tag library for the season, so AprilTag localization and
+odometry in your TeamCode give the field positions you'd get on the real field. The SDK 12.0 that
+TeamCode builds against has the tag libraries of CENTERSTAGE, INTO THE DEEP, DECODE and BIOBUZZ
+(`AprilTagGameDatabase.getDecodeTagLibrary()`...); `getCurrentGameTagLibrary()` is BIOBUZZ's.
+
+**Where robots start** comes from the season (`"start"` in its `season.json`, two spots per
+alliance). A robot file can give its own spot per season, `"start": {"biobuzz": [-1.2, -1.2, 0]}`
+(x, y in meters, heading in degrees). A plain `"start": [x, y, h]`, as robot files made before
+there were seasons have, is a BIOBUZZ spot; other seasons ignore it.
+
+### Adding a season
+
+When FIRST reveals a new game, copy a pack folder, say `seasons/biobuzz/` to `seasons/<game>/`,
+and describe the new field in its `season.json` (meters, in the season's field coordinates):
+
+| Key | What |
+|---|---|
+| `id`, `title`, `years`, `frame` | the game's name and how its field coordinates are set |
+| `field_m`, `tile_m`, `wall_height_m` | the perimeter's inside size, tile pitch, wall height |
+| `view` | where the audience and each alliance's drivers are (`"+x"`, `"-y"`...), for the cameras |
+| `start`, `symmetry` | each alliance's start spots; how one alliance's side maps onto the other's |
+| `structures` | boxes, bars and cylinders: `box_m` + `at_m` (+ `yaw_deg`, `pitch_deg`, `roll_deg`), `beam_m`, `cylinder_m`, each with `color`, `collide`, `visible`, `friction`. `"mirror": "y"` (or `"x"`) adds the other alliance's copy, reflected across that line, red and blue swapped |
+| `tape` | `rect_m` (outline or `"fill": true`), `line_m` polylines, `polygon_m` |
+| `field_tags` | AprilTags: id, `center_m`, `normal` (out of the face), `up` |
+| `movers` | parts that turn on a hinge: `name`, `pivot_m`, `axis`, `limits_rad`, `parts`, `tags`; with `mass_kg`, `com_m`, `inertia_kgm2` and `damping_nms` gravity, robots and game pieces move it (a GATE); without, only code does (the OBELISK). A mirrored mover has red or blue in its name, so its copy gets its own |
+| `game_pieces` | balls: `diameter_m`, `mass_kg`, `colors` with their counts, `bounce`, `friction` |
+| `robot`, `preload`, `staging` | how many pieces a robot may hold; its pre-load; where every piece starts (one at `at_m`, several evenly along `line_m`, or waiting in an `area`) |
+| `alliance_areas`, `human_player` | the areas outside the field; the human player's buttons (`zone_m`, `wall`, `key`) |
+
+What data can't say goes in Java in the same folder, package `<game>`, named by `"code"`: a
+`SeasonCode` that can add shapes worked out from the data (`describe`) and a `SeasonGame` for the
+match (`restage`, `beforeStep`, `act` for the human player, `stats` for the top bar). BIOBUZZ's
+HIVES, their tipping and its staging rules are in `seasons/biobuzz/`. The simulator compiles the packs with itself (`gradlew build`). FIRST publishes the
+Competition Manual, the field drawings and a STEP model of the whole field at kickoff: the numbers
+for `season.json` come from there.
 
 ## The edit → simulate → robot loop
 
@@ -269,7 +326,7 @@ Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 | `imu` | name and how the Control Hub is mounted (`logo`, `usb`, same words as `RevHubOrientationOnRobot`) |
 | `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` for the 3D model |
 | `io` | simulated bus latency (default 1 ms per hub command, 2.5 ms per I2C read) |
-| `start` | starting pose `[x, y, heading]` on the field |
+| `start` | optional starting pose instead of the season's spot, per season: `{"biobuzz": [x, y, heading]}`; a plain `[x, y, heading]` is a BIOBUZZ spot |
 | `cad` | optional: the robot's CAD model, see below |
 
 Motor models come from vendor datasheets: goBILDA 5203 (all ratios), REV HD Hex (spur and
@@ -417,8 +474,9 @@ the robot file's numbers and the 3D view says why.
 - **Physics** uses [ODE4j](https://github.com/tzaeschke/ode4j) at 1 kHz in real time. The robot
   is a chassis plus one body per wheel. Each mecanum wheel grips only along its roller axis, which
   is the standard way Gazebo models mecanum wheels, so strafing, wheel slip and pushing against
-  walls behave physically. The robot collides with the walls, the HIVE structure's A-frames and
-  the FLOWERS. Balls also hit the A-frame legs, the axle, the sign board and both HIVES' CELLS.
+  walls behave physically. The robot and the game pieces collide with the walls and the season's
+  structures: on BIOBUZZ the HIVE structure's A-frames and the FLOWERS, and for balls also the
+  A-frame legs, the axle, the sign board and both HIVES' CELLS.
 - **Motors** follow their torque-speed curve, sag the battery under load, and BRAKE/FLOAT
   correctly. The **hub firmware** implements `RUN_WITHOUT_ENCODER`, `RUN_USING_ENCODER`
   (velocity PIDF), `RUN_TO_POSITION`, `STOP_AND_RESET_ENCODER`, `setVelocity`, PIDF tuning,
@@ -428,7 +486,7 @@ the robot file's numbers and the 3D view says why.
   orientation), goBILDA Pinpoint (its own odometry from your offsets, resolution and directions),
   SparkFun OTOS, REV 2m distance (raycast), REV Color Sensor V3 (tape and tiles under it), REV
   touch sensor / digital channel, and battery voltage.
-- **Game pieces**: the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
+- **Game pieces** (BIOBUZZ): the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
   as Competition Manual section 10.3.1 sets them up: 4 POLLEN in each FLOWER, 4 in each GARDEN and
   4 pre-loaded in each simulated robot; the absent robots' pre-loads sit in the middle of their
   LOADING ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
@@ -534,6 +592,7 @@ Station page loads.
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
 | `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |
+| `seasons/` | One season pack per FTC game: its `season.json` and its Java ([Seasons](#seasons)) |
 
 ## License
 

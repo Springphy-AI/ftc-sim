@@ -58,6 +58,35 @@ def unpackOcct = tasks.register('unpackOcct', Sync) {
 sourceSets.main.resources.srcDir(occtWebDir)
 tasks.named('processResources') { dependsOn unpackOcct }
 
+// Season packs: seasons/<id>/ holds the game's season.json and, for what data can't say, Java in
+// package <id>. The Java is compiled into the simulator; the season.json files are read from
+// seasons/ when it is there, and are also built in (with a list of them) for an installed copy.
+def seasonsDir = rootProject.file('seasons')
+sourceSets.main.java.srcDir(seasonsDir)
+def seasonsOut = layout.buildDirectory.dir('generated/seasons')
+def copySeasons = tasks.register('copySeasons') {
+    description = "Builds the season packs' season.json files, and a list of them, into the simulator."
+    inputs.files(fileTree(seasonsDir) { include '*/season.json' })
+    outputs.dir(seasonsOut)
+    doLast {
+        def out = new File(seasonsOut.get().asFile, 'seasons')
+        out.deleteDir()
+        out.mkdirs()
+        def ids = []
+        seasonsDir.eachDir { d ->
+            def json = new File(d, 'season.json')
+            if (json.isFile()) {
+                ids << d.name
+                new File(out, d.name).mkdirs()
+                new File(out, "${d.name}/season.json").bytes = json.bytes
+            }
+        }
+        new File(out, 'index.txt').text = ids.sort().join('\n') + '\n'
+    }
+}
+sourceSets.main.resources.srcDir(seasonsOut)
+tasks.named('processResources') { dependsOn copySeasons }
+
 dependencies {
     implementation project(':sdk')
     implementation 'org.ode4j:core:0.5.4'          // rigid-body physics (pure-Java port of ODE)

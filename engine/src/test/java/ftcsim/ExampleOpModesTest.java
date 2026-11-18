@@ -16,8 +16,9 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
+import biobuzz.BiobuzzGame;
+import biobuzz.HiveBody;
 import ftcsim.physics.FieldModel;
-import ftcsim.physics.HiveBody;
 import ftcsim.runner.TeamCodeCompiler;
 import ftcsim.sim.GameElements;
 import ftcsim.sim.Simulator;
@@ -141,7 +142,7 @@ class ExampleOpModesTest {
     @Test
     void launcherSpinsUpRumblesAndShootsIntoTheHiveCell() throws Exception {
         Simulator sim = start();
-        HiveBody red = sim.rig().world.hives.get(0);
+        HiveBody red = BiobuzzGame.of(sim.elements()).hive("red");
         assertEquals("red", red.start.alliance());
         // In line with the red HIVE on the audience side, facing its open CELL (the rear wall): the
         // near end of the range the TeleOp documents, the middle, and backed against the audience wall
@@ -181,7 +182,7 @@ class ExampleOpModesTest {
             waitForRest(sim, firstTwo);
             for (int i = 0; i < 2; i++) {
                 GameElements.Ball b = firstTwo.get(i);
-                String cell = read(sim, () -> sim.elements().cellOf(b));
+                String cell = read(sim, () -> BiobuzzGame.of(sim.elements()).cellOf(b));
                 System.out.printf("y %.1f: shot %d at %s, in CELL: %s%n", y, i + 1, read(sim, () -> b.position().toString()), cell);
                 assertEquals("red audience", cell, "from y = " + y + ", shot " + (i + 1) + " lands in the red HIVE's open CELL");
             }

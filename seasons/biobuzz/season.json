@@ -1,5 +1,16 @@
 {
+ "id": "biobuzz",
+ "title": "BIOBUZZ presented by RTX",
+ "years": "2026-27",
+ "code": "biobuzz.Biobuzz",
  "frame": "origin on the tiles at the field centre; +x toward the blue alliance wall, +y away from the audience, z up",
+ "view": {
+  "audience": "-y",
+  "alliance_walls": {
+   "red": "-x",
+   "blue": "+x"
+  }
+ },
  "field_m": [
   3.6576,
   3.6576
@@ -7,6 +18,245 @@
  "tile_m": 0.6096,
  "wall_height_m": 0.305,
  "alliance": "red",
+ "symmetry": "rotate",
+ "partner": "mirror_y",
+ "start": {
+  "red": [
+   [
+    -1.55,
+    -0.3,
+    0
+   ],
+   [
+    -1.55,
+    0.3,
+    0
+   ]
+  ],
+  "blue": [
+   [
+    1.55,
+    0.3,
+    180
+   ],
+   [
+    1.55,
+    -0.3,
+    180
+   ]
+  ]
+ },
+ "robot": {
+  "capacity": 4
+ },
+ "preload": {
+  "piece": "pollen",
+  "colors": [
+   "yellow",
+   "yellow",
+   "yellow",
+   "yellow"
+  ]
+ },
+ "game_pieces": {
+  "pollen": {
+   "shape": "sphere",
+   "diameter_m": 0.071,
+   "mass_kg": 0.022,
+   "colors": {
+    "yellow": 40
+   },
+   "bounce": 0.35,
+   "friction": 0.6
+  },
+  "nectar": {
+   "shape": "sphere",
+   "diameter_m": 0.091,
+   "mass_kg": 0.037,
+   "colors": {
+    "red": 8,
+    "blue": 8
+   },
+   "rgb": {
+    "red": "#d8343a",
+    "blue": "#2f6fe0"
+   },
+   "bounce": 0.35,
+   "friction": 0.6
+  }
+ },
+ "alliance_areas": {
+  "red": {
+   "x_m": [
+    -3.2038,
+    -1.9538
+   ],
+   "y_m": [
+    -1.4,
+    1.4
+   ]
+  },
+  "blue": {
+   "x_m": [
+    1.9538,
+    3.2038
+   ],
+   "y_m": [
+    -1.4,
+    1.4
+   ]
+  }
+ },
+ "structures": [
+  {
+   "name": "A-frame (red side)",
+   "box_m": [
+    0.06,
+    1.06,
+    0.35
+   ],
+   "at_m": [
+    -0.628,
+    0,
+    0.175
+   ],
+   "visible": false,
+   "mirror": "x"
+  },
+  {
+   "name": "axle",
+   "box_m": [
+    1.32,
+    0.036,
+    0.036
+   ],
+   "at_m": [
+    0,
+    0,
+    1.1165
+   ],
+   "friction": 0.25,
+   "visible": false
+  },
+  {
+   "name": "axle",
+   "cylinder_m": {
+    "from": [
+     -0.66,
+     0,
+     1.1165
+    ],
+    "to": [
+     0.66,
+     0,
+     1.1165
+    ],
+    "radius": 0.018
+   },
+   "color": "aluminum",
+   "collide": false
+  },
+  {
+   "name": "A-frame leg (red side)",
+   "beam_m": {
+    "from": [
+     -0.628,
+     -0.5,
+     0.02
+    ],
+    "to": [
+     -0.628,
+     0,
+     1.1565
+    ],
+    "width": 0.045
+   },
+   "color": "steel",
+   "friction": 0.25,
+   "mirror": "x"
+  },
+  {
+   "name": "A-frame leg (red side)",
+   "beam_m": {
+    "from": [
+     -0.628,
+     0.5,
+     0.02
+    ],
+    "to": [
+     -0.628,
+     0,
+     1.1565
+    ],
+    "width": 0.045
+   },
+   "color": "steel",
+   "friction": 0.25,
+   "mirror": "x"
+  },
+  {
+   "name": "A-frame base (red side)",
+   "beam_m": {
+    "from": [
+     -0.628,
+     -0.53,
+     0.025
+    ],
+    "to": [
+     -0.628,
+     0.53,
+     0.025
+    ],
+    "width": 0.05
+   },
+   "color": "steel",
+   "collide": false,
+   "mirror": "x"
+  },
+  {
+   "name": "A-frame crossbar (red side)",
+   "beam_m": {
+    "from": [
+     -0.628,
+     -0.39,
+     0.33
+    ],
+    "to": [
+     -0.628,
+     0.39,
+     0.33
+    ],
+    "width": 0.035
+   },
+   "color": "steel",
+   "collide": false,
+   "mirror": "x"
+  }
+ ],
+ "human_player": [
+  {
+   "id": "red-nectar",
+   "label": "+ Red NECTAR",
+   "key": "KeyN",
+   "title": "Human player: put one red NECTAR from the ALLIANCE AREA into the red LOADING ZONE (key N)",
+   "alliance": "red",
+   "piece": "nectar",
+   "color": "red",
+   "zone": "loading_zones/red",
+   "wall": "-x"
+  },
+  {
+   "id": "blue-nectar",
+   "label": "+ Blue NECTAR",
+   "key": "KeyM",
+   "title": "Human player: put one blue NECTAR from the ALLIANCE AREA into the blue LOADING ZONE (key M)",
+   "alliance": "blue",
+   "piece": "nectar",
+   "color": "blue",
+   "zone": "loading_zones/blue",
+   "wall": "+x"
+  }
+ ],
  "loading_zones": {
   "red": {
    "x_m": [
@@ -926,23 +1176,6 @@
      -1.0
     ]
    }
-  }
- },
- "scoring_elements": {
-  "pollen": {
-   "diameter_m": 0.071,
-   "mass_kg": 0.022,
-   "color": "yellow",
-   "count": 40
-  },
-  "nectar": {
-   "diameter_m": 0.091,
-   "mass_kg": 0.037,
-   "colors": [
-    "red",
-    "blue"
-   ],
-   "count_per_color": 8
   }
  },
  "structure": {

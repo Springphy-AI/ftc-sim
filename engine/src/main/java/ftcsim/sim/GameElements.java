@@ -12,7 +12,6 @@ import org.ode4j.ode.DGeom;
 import org.ode4j.ode.DMass;
 import org.ode4j.ode.OdeHelper;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import ftcsim.cad.Geom3;
@@ -22,61 +21,72 @@ import ftcsim.physics.FieldModel;
 import ftcsim.physics.Mechanism;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.physics.ServoUnit;
+import ftcsim.season.SeasonCode;
+import ftcsim.season.SeasonGame;
 
 /**
- * The BIOBUZZ SCORING ELEMENTS: 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm),
- * staged as Competition Manual section 10.3.1 describes, plus how each robot's intake, feeder and
- * launcher handle them. Every method must be called on the physics thread.
+ * The season's game pieces (season.json "game_pieces"), and how each robot's intake, feeder and
+ * launcher handle them. Where the pieces start a match, what the human player does with them and
+ * what is counted belong to the season ({@link SeasonGame}). Every method must be called on the
+ * physics thread.
  *
- * <p>A ball is in one of three states:
+ * <p>A piece is in one of three states:
  * <ul>
  *   <li>{@code FREE}: a rigid sphere in the physics world. It rolls, bounces, is pushed by the
- *       robot and other balls, and can land in (or bounce off) a HIVE CELL.</li>
- *   <li>{@code HELD}: inside the robot (pre-load or picked up by the intake). It rides along and
- *       does not collide. At most {@link #ROBOT_CAPACITY} at once (rule G407).</li>
- *   <li>{@code STAGED}: parked where the field holds it and the simulator does not model the holder
- *       as a container: stacked in a FLOWER, or in the ALLIANCE AREA waiting for the human
- *       player.</li>
+ *       robots and other pieces, and lands in (or bounces off) the field's structures.</li>
+ *   <li>{@code HELD}: inside a robot (pre-load or picked up by the intake). It rides along and
+ *       does not collide. At most the season's robot capacity at once.</li>
+ *   <li>{@code STAGED}: parked where the simulator does not model what holds it, such as an
+ *       ALLIANCE AREA where it waits for the human player ({@link Ball#area()}).</li>
  * </ul>
  */
 public final class GameElements {
 
-    /** G407: a ROBOT may not simultaneously CONTROL more than 4 SCORING ELEMENTS. */
-    public static final int ROBOT_CAPACITY = 4;
-    /** 10.3.1: every ROBOT starts the MATCH with 4 pre-loaded POLLEN. */
-    public static final int PRELOAD = 4;
-
     public enum State {FREE, HELD, STAGED}
 
-    /** One POLLEN or NECTAR. */
+    /** One game piece: a ball. */
     public static final class Ball {
         public final int id;
-        public final String kind;      // pollen, nectar
-        public final String color;     // yellow, red, blue
+        /** The kind of game piece (season.json "game_pieces" key): "pollen", "artifact"... */
+        public final String kind;
+        /** Its color name ("yellow", "purple"...). */
+        public final String color;
+        /** Its color as 0xRRGGBB, for drawing. */
+        public final int rgb;
         public final double radius;
         final double mass;
         /** 1/2 rho Cd A: air drag force = dragFactor * speed^2. */
         final double dragFactor;
+        final double rollingResistance;
         final DBody body;
         final DGeom geom;
         PhysicsWorld.Material material;
         State state = State.FREE;
         /** Where a STAGED ball sits (world frame). */
         final double[] stagedAt = new double[3];
+        /** The alliance whose ALLIANCE AREA a STAGED ball waits in, or null. */
+        String area;
 
-        Ball(int id, String kind, String color, double radius, double mass, DBody body, DGeom geom) {
+        Ball(int id, PieceType t, String color, int rgb, DBody body, DGeom geom) {
             this.id = id;
-            this.kind = kind;
+            this.kind = t.name;
             this.color = color;
-            this.radius = radius;
-            this.mass = mass;
-            this.dragFactor = 0.5 * AIR_DENSITY * DRAG_COEFFICIENT * Math.PI * radius * radius;
+            this.rgb = rgb;
+            this.radius = t.radius;
+            this.mass = t.mass;
+            this.dragFactor = 0.5 * AIR_DENSITY * t.dragCoefficient * Math.PI * radius * radius;
+            this.rollingResistance = t.rollingResistance;
             this.body = body;
             this.geom = geom;
         }
 
         public State state() {
             return state;
+        }
+
+        /** The alliance whose ALLIANCE AREA this ball waits in for the human player, or null. */
+        public String area() {
+            return state == State.STAGED ? area : null;
         }
 
         public DVector3C position() {
@@ -88,11 +98,12 @@ public final class GameElements {
         }
     }
 
-    // In the air: quadratic drag. POLLEN and NECTAR are perforated plastic balls; Cd ~0.5 is an estimate.
+    /** One kind of game piece, from season.json "game_pieces". */
+    private record PieceType(String name, double radius, double mass, double bounce, double friction,
+                             double dragCoefficient, double rollingResistance) {
+    }
+
     private static final double AIR_DENSITY = 1.2;               // kg/m^3
-    private static final double DRAG_COEFFICIENT = 0.5;
-    // On the foam tiles: rolling resistance, a force of ROLLING_RESISTANCE * m * g against the motion.
-    private static final double ROLLING_RESISTANCE = 0.04;
     private static final double GRAVITY = 9.81;
     // Intake: a ball is pulled in when its center is in this box in front of the roller (robot frame).
     private static final double INTAKE_REACH_M = 0.07;
@@ -199,10 +210,14 @@ public final class GameElements {
     private final PhysicsWorld world;
     private final List<Ball> balls = new ArrayList<>();
     private final List<Holder> robots = new ArrayList<>();
+    /** At most this many pieces inside a robot at once (season.json "robot": "capacity"). */
+    private final int capacity;
+    /** The season's staging, human player and counting. */
+    private final SeasonGame game;
 
-    /** The alliance of a single simulated robot (the field file's {@code alliance}, red by default). */
+    /** The alliance of a single simulated robot (season.json {@code alliance}, red by default). */
     public static String homeAlliance(FieldModel field) {
-        return field.json.has("alliance") ? field.json.get("alliance").getAsString() : "red";
+        return field.season.homeAlliance;
     }
 
     /** Game pieces for a field with one robot, on the home alliance. */
@@ -214,26 +229,39 @@ public final class GameElements {
     public GameElements(FieldModel field, List<RobotRig> rigs, List<String> alliances) {
         this.field = field;
         this.world = rigs.get(0).world;
+        this.capacity = field.season.robotCapacity;
         for (int i = 0; i < rigs.size(); i++) robots.add(new Holder(rigs.get(i), alliances.get(i)));
 
-        JsonObject se = field.json.getAsJsonObject("scoring_elements");
-        JsonObject pollen = se.getAsJsonObject("pollen");
-        JsonObject nectar = se.getAsJsonObject("nectar");
-        double pr = pollen.get("diameter_m").getAsDouble() / 2, pm = pollen.get("mass_kg").getAsDouble();
-        double nr = nectar.get("diameter_m").getAsDouble() / 2, nm = nectar.get("mass_kg").getAsDouble();
-        int pollenCount = pollen.get("count").getAsInt();
-        int nectarPerColor = nectar.get("count_per_color").getAsInt();
-        for (int i = 0; i < pollenCount; i++) balls.add(create("pollen", "yellow", pr, pm));
-        for (String c : new String[]{"red", "blue"}) {
-            for (int i = 0; i < nectarPerColor; i++) balls.add(create("nectar", c, nr, nm));
+        // "game_pieces": {"pollen": {"shape": "sphere", "diameter_m": .., "mass_kg": .., "colors": {"yellow": 40}}}
+        JsonObject pieces = field.json.has("game_pieces") ? field.json.getAsJsonObject("game_pieces") : new JsonObject();
+        for (String name : pieces.keySet()) {
+            JsonObject p = pieces.getAsJsonObject(name);
+            String shape = p.has("shape") ? p.get("shape").getAsString() : "sphere";
+            if (!"sphere".equals(shape)) {
+                throw new IllegalArgumentException("game piece \"" + name + "\" is a " + shape + "; only spheres are simulated so far");
+            }
+            PieceType t = new PieceType(name, p.get("diameter_m").getAsDouble() / 2, p.get("mass_kg").getAsDouble(),
+                    p.has("bounce") ? p.get("bounce").getAsDouble() : 0.35, p.has("friction") ? p.get("friction").getAsDouble() : 0.6,
+                    p.has("drag_coefficient") ? p.get("drag_coefficient").getAsDouble() : 0.5,
+                    p.has("rolling_resistance") ? p.get("rolling_resistance").getAsDouble() : 0.04);
+            JsonObject colors = p.getAsJsonObject("colors");
+            // "rgb": {"red": "#d8343a"}: this piece's own shade of a color, if not the palette's.
+            JsonObject rgb = p.has("rgb") ? p.getAsJsonObject("rgb") : new JsonObject();
+            for (String c : colors.keySet()) {
+                int n = colors.get(c).getAsInt();
+                int shade = field.color(rgb.has(c) ? rgb.get(c).getAsString() : c);
+                for (int i = 0; i < n; i++) balls.add(create(t, c, shade));
+            }
         }
+        this.game = field.season.code.newGame(this);
         restage();
     }
 
-    private Ball create(String kind, String color, double r, double mass) {
+    private Ball create(PieceType t, String color, int rgb) {
+        double r = t.radius, mass = t.mass;
         DBody body = OdeHelper.createBody(world.world);
         DMass m = OdeHelper.createMass();
-        // Hollow polyethylene shell: I = 2/3 m r^2.
+        // Hollow plastic shell: I = 2/3 m r^2.
         double i = 2.0 / 3.0 * mass * r * r;
         m.setParameters(mass, 0, 0, 0, i, i, i, 0, 0, 0);
         body.setMass(m);
@@ -248,9 +276,9 @@ public final class GameElements {
         DGeom geom = OdeHelper.createSphere(world.space, r);
         geom.setBody(body);
         PhysicsWorld.Material mat = new PhysicsWorld.Material("ball");
-        mat.mu = mat.mu2 = 0.6;
-        mat.bounce = 0.35;
-        Ball b = new Ball(balls.size(), kind, color, r, mass, body, geom);
+        mat.mu = mat.mu2 = t.friction;
+        mat.bounce = t.bounce;
+        Ball b = new Ball(balls.size(), t, color, rgb, body, geom);
         mat.owner = b;
         b.material = mat;
         world.register(geom, mat, PhysicsWorld.CAT_BALL, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
@@ -258,107 +286,28 @@ public final class GameElements {
         return b;
     }
 
-    // ---- staging (Competition Manual 10.3.1) ---------------------------------------------------
+    // ---- staging -------------------------------------------------------------------------------
 
     /**
-     * Puts every SCORING ELEMENT where it starts a MATCH:
-     * <ul>
-     *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in each simulated robot. The
-     *       pre-loads of absent ROBOTS (each ALLIANCE has two) go in the center of their LOADING
-     *       ZONE against the perimeter wall (10.3.4).</li>
-     *   <li>NECTAR: 3 in each upward-facing CELL of its color (free balls, held by the CELL's
-     *       walls), 5 in each ALLIANCE AREA.</li>
-     * </ul>
-     * Both HIVES go back to their start position.
+     * Puts every game piece where it starts a MATCH, empties the robots and puts the field's
+     * moving parts back at their start ({@link SeasonGame#restage}).
      */
     public void restage() {
-        world.resetHives();
+        world.resetMovers();
         for (Holder r : robots) {
             r.held.clear();
             r.launched = 0;
             r.sinceIntake = r.sinceFeed = 1;
         }
-        List<Ball> pollen = new ArrayList<>(), red = new ArrayList<>(), blue = new ArrayList<>();
-        for (Ball b : balls) {
-            if ("pollen".equals(b.kind)) pollen.add(b);
-            else if ("red".equals(b.color)) red.add(b);
-            else blue.add(b);
-        }
-        int p = 0;
-        // FLOWERS: 4 stacked in each. The lowest sits in the 2.79 in hole of the bottom ring, on the
-        // tiles (9.7); the others rest on top of it. (The 1.25 in backstop is the guide at the top.)
-        JsonObject flowers = field.json.getAsJsonObject("flowers");
-        for (String name : flowers.keySet()) {
-            JsonObject f = flowers.getAsJsonObject(name);
-            JsonArray axis = f.getAsJsonArray("axis_m");
-            for (int i = 0; i < 4; i++) {
-                Ball b = pollen.get(p++);
-                stage(b, axis.get(0).getAsDouble(), axis.get(1).getAsDouble(), b.radius + i * 2 * b.radius);
-            }
-        }
-        // GARDENS: 4 in a row along the wall.
-        JsonObject gardens = field.json.getAsJsonObject("gardens");
-        for (String alliance : gardens.keySet()) {
-            JsonObject g = gardens.getAsJsonObject(alliance);
-            double x0 = g.getAsJsonArray("x_m").get(0).getAsDouble(), x1 = g.getAsJsonArray("x_m").get(1).getAsDouble();
-            double y0 = g.getAsJsonArray("y_m").get(0).getAsDouble(), y1 = g.getAsJsonArray("y_m").get(1).getAsDouble();
-            boolean wallAtLowY = Math.abs(y0 + field.half) < Math.abs(y1 - field.half);
-            for (int i = 0; i < 4; i++) {
-                Ball b = pollen.get(p++);
-                double x = x0 + (x1 - x0) * (i + 0.5) / 4;
-                double y = wallAtLowY ? -field.half + b.radius + 0.002 : field.half - b.radius - 0.002;
-                free(b, x, y, b.radius, 0, 0, 0);
-            }
-        }
-        // Each simulated robot's pre-load.
-        for (Holder r : robots) {
-            for (int i = 0; i < PRELOAD; i++) hold(r, pollen.get(p++));
-        }
-        // Absent robots' pre-loads: two ROBOTS per ALLIANCE, minus the ones simulated.
-        JsonObject zones = field.json.getAsJsonObject("loading_zones");
-        for (String alliance : zones.keySet()) {
-            int absent = 2 - (int) robots.stream().filter(r -> r.alliance.equals(alliance)).count();
-            if (absent <= 0) continue;
-            JsonObject z = zones.getAsJsonObject(alliance);
-            double x0 = z.getAsJsonArray("x_m").get(0).getAsDouble(), x1 = z.getAsJsonArray("x_m").get(1).getAsDouble();
-            double yc = (z.getAsJsonArray("y_m").get(0).getAsDouble() + z.getAsJsonArray("y_m").get(1).getAsDouble()) / 2;
-            double wallSign = Math.abs(x0 + field.half) < Math.abs(x1 - field.half) ? -1 : 1;
-            int n = absent * PRELOAD, rows = n / 2;
-            for (int i = 0; i < n; i++) {
-                Ball b = pollen.get(p++);
-                double d = 2 * b.radius + 0.002;
-                double x = wallSign * (field.half - b.radius - 0.002 - (i % 2) * d);
-                double y = yc + (i / 2 - (rows - 1) / 2.0) * d;
-                free(b, x, y, b.radius, 0, 0, 0);
-            }
-        }
-        // Any POLLEN left over (a field file with a different count) waits beside the field.
-        for (int k = 0; p < pollen.size(); k++) stage(pollen.get(p++), 0, -field.half - 0.25 - 0.08 * k, 0.04);
-
-        // NECTAR: 3 in each upward-facing CELL of its color, the rest in the ALLIANCE AREA. The CELL
-        // is a physical container: its NECTAR lie side by side against the closed inner end.
-        for (String alliance : new String[]{"red", "blue"}) {
-            List<Ball> nec = "red".equals(alliance) ? red : blue;
-            int n = 0;
-            FieldModel.Hive hive = field.hives.stream().filter(h -> h.alliance().equals(alliance)).findFirst().orElseThrow();
-            // Side by side against the closed inner end, resting on the CELL floor.
-            double sign = "rear".equals(hive.upCell()) ? 1 : -1;
-            for (int i = 0; i < 3 && n < nec.size(); i++) {
-                Ball b = nec.get(n++);
-                double[] w = hive.toWorld((i - 1) * (2 * b.radius + 0.01), sign * (field.cellInner + b.radius + 0.002),
-                        field.cellFloor + b.radius + 0.001);
-                free(b, w[0], w[1], w[2], 0, 0, 0);
-            }
-            double wall = "red".equals(alliance) ? -1 : 1;
-            for (int i = 0; n < nec.size(); i++) {
-                Ball b = nec.get(n++);
-                stage(b, wall * (field.half + 0.35), wall * (-0.4 + i * 0.12), b.radius);
-            }
-        }
+        for (Ball b : balls) b.area = null;
+        game.restage();
     }
 
-    private void stage(Ball b, double x, double y, double z) {
+    /** Parks a ball where nothing simulated holds it (it doesn't collide), waiting in {@code area}'s ALLIANCE AREA or null. */
+    public void stage(Ball b, double x, double y, double z, String area) {
+        for (Holder r : robots) r.held.remove(b);
         b.state = State.STAGED;
+        b.area = area;
         b.stagedAt[0] = x;
         b.stagedAt[1] = y;
         b.stagedAt[2] = z;
@@ -369,8 +318,19 @@ public final class GameElements {
         b.geom.disable();
     }
 
+    /** Parks a ball where nothing simulated holds it. */
+    public void stage(Ball b, double x, double y, double z) {
+        stage(b, x, y, z, null);
+    }
+
+    /** Puts a ball inside robot {@code robot} (a pre-load), behind the ones already there. */
+    public void hold(int robot, Ball b) {
+        hold(robots.get(robot), b);
+    }
+
     private void hold(Holder r, Ball b) {
         b.state = State.HELD;
+        b.area = null;
         b.body.setLinearVel(0, 0, 0);
         b.body.setAngularVel(0, 0, 0);
         b.body.disable();
@@ -395,7 +355,7 @@ public final class GameElements {
 
     // ---- the robots' intakes, feeders and launchers --------------------------------------------
 
-    /** Runs before each physics step: intake pick-up and eject, feeding the launcher. */
+    /** Runs before each physics step: intake pick-up and eject, feeding the launcher, the season's own work. */
     public void beforeStep(double dt) {
         applyAirAndRolling();
         for (Holder r : robots) {
@@ -404,6 +364,7 @@ public final class GameElements {
             if (r.intake != null) runIntake(r);
             if (r.feeder != null && r.launcher != null) runFeeder(r);
         }
+        game.beforeStep(dt);
     }
 
     /** After robot {@code index} was swapped for another description: the balls inside stay inside. */
@@ -425,7 +386,7 @@ public final class GameElements {
             double horizontal = Math.hypot(vx, vy);
             if (b.body.getPosition().get2() < b.radius + 0.003 && horizontal > 1e-4) {
                 // Full force above 2 cm/s, fading to zero below so a ball comes to rest without jitter.
-                double k = ROLLING_RESISTANCE * b.mass * GRAVITY / Math.max(horizontal, 0.02);
+                double k = b.rollingResistance * b.mass * GRAVITY / Math.max(horizontal, 0.02);
                 b.body.addForce(-k * vx, -k * vy, 0);
             }
         }
@@ -440,7 +401,7 @@ public final class GameElements {
         double front = c.lengthM / 2 + 0.04;   // the roller, as drawn in the 3D view
         CadPart roller = r.intakePart;
         if (omega > 0) {
-            if (held.size() >= ROBOT_CAPACITY) return;
+            if (held.size() >= capacity) return;
             double[] toRoller = roller == null ? null : Geom3.inverse(roller.transform());   // once per step
             for (Ball b : balls) {
                 if (b.state != State.FREE) continue;
@@ -537,43 +498,50 @@ public final class GameElements {
 
     // ---- the human player ------------------------------------------------------------------------
 
-    /** NECTAR of this color still waiting in its ALLIANCE AREA (outside the field). */
-    public int waitingNectar(String color) {
+    /**
+     * The first ball waiting in {@code alliance}'s ALLIANCE AREA of this kind and color (null
+     * for any), or null.
+     */
+    public Ball waiting(String alliance, String kind, String color) {
+        for (Ball b : balls) if (waits(b, alliance, kind, color)) return b;
+        return null;
+    }
+
+    private static boolean waits(Ball b, String alliance, String kind, String color) {
+        return b.state == State.STAGED && alliance.equals(b.area) && (kind == null || kind.equals(b.kind))
+                && (color == null || color.equals(b.color));
+    }
+
+    /** How many balls of this kind and color (null for any) wait in {@code alliance}'s ALLIANCE AREA. */
+    public int waitingCount(String alliance, String kind, String color) {
         int n = 0;
-        for (Ball b : balls) if ("nectar".equals(b.kind) && color.equals(b.color) && b.state == State.STAGED) n++;
+        for (Ball b : balls) if (waits(b, alliance, kind, color)) n++;
         return n;
     }
 
     /**
-     * The human player puts one NECTAR of this color ("red" or "blue") from its ALLIANCE AREA onto
-     * the field, at rest in that alliance's LOADING ZONE: the first free spot along the alliance
-     * wall, clear of other balls and the robots; past the zone's inner edge if the zone is full.
+     * The human player puts a ball onto the field, at rest in the zone x0..x1, y0..y1: the first
+     * free spot along the zone's {@code wall} side ("+x", "-x", "+y" or "-y", normally the
+     * perimeter wall it touches), clear of other balls and the robots, working inward; past the
+     * zone's inner edge if the zone is full.
      *
-     * @return false if none of that color is waiting or there is no free spot
+     * @return false if there is no free spot
      */
-    public boolean introduceNectar(String color) {
-        Ball b = null;
-        for (Ball x : balls) {
-            if ("nectar".equals(x.kind) && color.equals(x.color) && x.state == State.STAGED) {
-                b = x;
-                break;
-            }
-        }
-        if (b == null) return false;
-        JsonObject z = field.json.getAsJsonObject("loading_zones").getAsJsonObject(color);
-        if (z == null) return false;
-        double x0 = z.getAsJsonArray("x_m").get(0).getAsDouble(), x1 = z.getAsJsonArray("x_m").get(1).getAsDouble();
-        double y0 = z.getAsJsonArray("y_m").get(0).getAsDouble(), y1 = z.getAsJsonArray("y_m").get(1).getAsDouble();
-        double wallSign = Math.abs(x0 + field.half) < Math.abs(x1 - field.half) ? -1 : 1;
-        double yc = (y0 + y1) / 2, halfLen = (y1 - y0) / 2, r = b.radius, step = 2 * r + 0.01;
+    public boolean introduce(Ball b, double x0, double x1, double y0, double y1, String wall) {
+        boolean alongY = wall.endsWith("x");        // columns run along y, stepping in from an x wall
+        double sign = wall.startsWith("-") ? -1 : 1;
+        double a0 = alongY ? y0 : x0, a1 = alongY ? y1 : x1;
+        double edge = alongY ? (sign > 0 ? x1 : x0) : (sign > 0 ? y1 : y0);
+        double ac = (a0 + a1) / 2, halfLen = (a1 - a0) / 2, r = b.radius, step = 2 * r + 0.01;
         // Columns from the wall inward; in each, spots from the zone's middle outward.
         for (int col = 0; col < 8; col++) {
-            double x = wallSign * (field.half - r - 0.003 - col * step);
+            double across = edge - sign * (r + 0.003 + col * step);
             for (int k = 0; k <= 2 * (int) (halfLen / step) + 1; k++) {
-                double y = yc + (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * step;
-                if (Math.abs(y - yc) > halfLen - r) continue;
+                double along = ac + (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * step;
+                if (Math.abs(along - ac) > halfLen - r) continue;
+                double x = alongY ? across : along, y = alongY ? along : across;
                 if (spotIsFree(x, y, r)) {
-                    free(b, x, y, r, 0, 0, 0);
+                    throwBall(b, x, y, r, 0, 0, 0);
                     return true;
                 }
             }
@@ -581,7 +549,8 @@ public final class GameElements {
         return false;
     }
 
-    private boolean spotIsFree(double x, double y, double r) {
+    /** Whether a ball of radius r could rest at (x, y) on the tiles without touching another ball or a robot. */
+    public boolean spotIsFree(double x, double y, double r) {
         for (Ball o : balls) {
             if (o.state != State.FREE) continue;
             DVector3C p = o.body.getPosition();
@@ -596,39 +565,40 @@ public final class GameElements {
         return true;
     }
 
-    /**
-     * Free balls inside each CELL, keyed "red rear", "red audience", "blue rear", "blue audience".
-     * This is just where the balls are, not a MATCH score.
-     */
-    public Map<String, Integer> cellCounts() {
-        Map<String, Integer> out = new LinkedHashMap<>();
-        for (FieldModel.Hive h : field.hives) {
-            out.put(h.alliance() + " rear", 0);
-            out.put(h.alliance() + " audience", 0);
-        }
-        List<FieldModel.Hive> hives = world.currentHives();
-        for (Ball b : balls) {
-            if (b.state != State.FREE) continue;
-            DVector3C p = b.body.getPosition();
-            String cell = field.cellAt(p.get0(), p.get1(), p.get2(), hives);
-            if (cell != null) out.merge(cell, 1, Integer::sum);
-        }
-        return out;
-    }
-
-    /** The CELL a ball is in ("red audience"...), or null. */
-    public String cellOf(Ball b) {
-        if (b.state != State.FREE) return null;
-        DVector3C p = b.body.getPosition();
-        List<FieldModel.Hive> hives = world.currentHives();
-        return field.cellAt(p.get0(), p.get1(), p.get2(), hives);
-    }
-
     // ---- views ---------------------------------------------------------------------------------
 
     public List<Ball> balls() {
         return balls;
     }
+
+    public FieldModel field() {
+        return field;
+    }
+
+    public PhysicsWorld world() {
+        return world;
+    }
+
+    /** The season's game on this field ({@link SeasonCode#newGame}). */
+    public SeasonGame game() {
+        return game;
+    }
+
+    /** At most this many pieces inside a robot at once. */
+    public int capacity() {
+        return capacity;
+    }
+
+    /** How many robots are on the field. */
+    public int robotCount() {
+        return robots.size();
+    }
+
+    /** Robot {@code robot}'s alliance, "red" or "blue". */
+    public String alliance(int robot) {
+        return robots.get(robot).alliance;
+    }
+
 
     /** Balls inside the first robot. */
     public int heldCount() {
@@ -655,6 +625,7 @@ public final class GameElements {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("kind", b.kind);
             m.put("color", b.color);
+            m.put("rgb", b.rgb);
             m.put("r", b.radius);
             out.add(m);
         }

@@ -64,7 +64,5 @@
       { "name": "hood", "parts": ["Hood"], "joint": "revolute", "axis_part": "Hood Pivot", "reversed": true,
         "device": "hood", "ratio": 0.2, "limits": [-35, 35], "mass_kg": 0.15 }
     ]
-  },
-
-  "start": [-1.55, -0.30, 0]
+  }
 }

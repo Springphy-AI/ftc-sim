@@ -111,8 +111,16 @@ public final class RobotRig {
     record TouchMount(RobotConfig.Device device, DigitalPort port) {
     }
 
+    /** A robot at its start spot for station 1 of the season's home alliance. */
     public RobotRig(RobotConfig config, PhysicsWorld world) {
-        this(config, world, config.start);
+        this(config, world, defaultStart(config, world));
+    }
+
+    private static double[] defaultStart(RobotConfig config, PhysicsWorld world) {
+        double[] own = config.startFor(world.field.season.id);
+        if (own != null) return own;
+        double[] s = world.field.season.startSpot(world.field.season.homeAlliance, 1);
+        return s != null ? s : new double[]{0, 0, 0};
     }
 
     /** A robot in {@code world} (which may hold other robots too), placed at {@code start} (x, y, heading°). */

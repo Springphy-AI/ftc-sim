@@ -47,6 +47,7 @@ import ftcsim.physics.RobotBody;
 import ftcsim.physics.ServoUnit;
 import ftcsim.runner.OpModeInfo;
 import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.season.Season;
 import ftcsim.sim.Simulator.DsState;
 
 /**
@@ -118,21 +119,25 @@ public final class SimRobot {
     }
 
     /**
-     * Where this robot starts. The robot file's {@code start} is the first spot of the home
-     * alliance; the second spot mirrors it across the field's center line (or sits beside it when
-     * it is on that line), and the other alliance's spots are the same rotated half a turn, as
-     * the field is.
+     * Where this robot starts: the season's spot for its alliance and station (season.json
+     * "start"). A robot file can give its own spot for a season ({@code "start"}): that is where
+     * it starts at station 1 of the home alliance; at the other alliance's station 1 it starts at
+     * the same spot by the field's symmetry, and at station 2 at the partner spot the season
+     * derives from it (or the season's own station 2 spot).
      */
     double[] startPose(RobotConfig cfg) {
-        double x = cfg.start[0], y = cfg.start[1], h = cfg.start[2];
-        if (station == 2) y = Math.abs(y) >= 0.3 ? -y : y + 0.65;
-        if (!alliance.equals(GameElements.homeAlliance(sim.field))) {
-            x = -x;
-            y = -y;
-            h += 180;
+        Season season = sim.field.season;
+        double[] own = cfg.startFor(season.id);
+        double[] p = null;
+        if (own != null) {
+            p = own.clone();
+            if (station == 2) p = season.partnerOf(p);
+            if (p != null && !alliance.equals(season.homeAlliance)) p = season.otherAlliance(p);
         }
-        h = ((h + 180) % 360 + 360) % 360 - 180;
-        return new double[]{x, y, h};
+        if (p == null) p = season.startSpot(alliance, station);
+        if (p == null) p = new double[]{0, 0, 0};
+        p[2] = ((p[2] + 180) % 360 + 360) % 360 - 180;
+        return p;
     }
 
     private void applyIo(RobotConfig config) {

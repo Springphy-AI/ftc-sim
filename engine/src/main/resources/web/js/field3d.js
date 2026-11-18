@@ -1,14 +1,12 @@
-// 3D view of the BIOBUZZ field and the simulated robots (Three.js, z-up, meters).
+// 3D view of the season's field and the simulated robots (Three.js, z-up, meters). The field
+// comes from the simulator as plain shapes (FieldModel.describe): tape on the tiles, boxes and
+// cylinders, AprilTags, and moving parts that turn on a hinge by the angles in the state stream.
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 
 const COLORS = {
-  tile: '#50555c', seam: '#3a3e44', red: '#d23a3f', blue: '#2f6fe0',
-  aluminum: 0xb9c0c8, frame: 0x2b2f35, flower: 0x2fa84f, gold: 0xd9a52b,
+  tile: '#50555c', seam: '#3a3e44', aluminum: 0xb9c0c8, frame: 0x2b2f35,
 };
-
-// SCORING ELEMENTS: yellow POLLEN, red and blue NECTAR.
-const BALL_COLORS = { yellow: 0xf4d23c, red: 0xd8343a, blue: 0x2f6fe0 };
 // Side plates of robots on each alliance, when there is more than one robot to tell apart.
 const ALLIANCE_PLATES = { red: '#b3261e', blue: '#1e4fb3' };
 
@@ -80,13 +78,39 @@ function disposeTree(root) {
   });
 }
 
-const CAMERAS = {
-  audience: { pos: [0, -4.5, 2.8], target: [0, -0.15, 0.25] },
-  overhead: { pos: [0, -0.001, 6.4], target: [0, 0, 0] },
-  driver: { pos: [-3.75, 0, 1.7], target: [0.2, 0, 0.2] },
-};
+const DIRECTIONS = { '+x': [1, 0], '-x': [-1, 0], '+y': [0, 1], '-y': [0, -1] };
+
+/** Camera presets for where this season's audience and home-alliance drivers are. */
+function cameraPresets(season) {
+  const [ax, ay] = DIRECTIONS[season?.audience] ?? DIRECTIONS['-y'];
+  const [dx, dy] = DIRECTIONS[season?.allianceWalls?.[season?.home ?? 'red']] ?? DIRECTIONS['-x'];
+  return {
+    audience: { pos: [ax * 4.5, ay * 4.5, 2.8], target: [ax * 0.15, ay * 0.15, 0.25] },
+    overhead: { pos: [ax * 0.001, ay * 0.001, 6.4], target: [0, 0, 0] },
+    driver: { pos: [dx * 3.75, dy * 3.75, 1.7], target: [-dx * 0.2, -dy * 0.2, 0.2] },
+  };
+}
 
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _one = new THREE.Vector3(1, 1, 1);
+
+/** One geometry (positions and normals) from several; frees them. */
+function mergeGeometries(parts) {
+  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  let n = 0;
+  for (const g of flat) n += g.attributes.position.count;
+  const position = new Float32Array(n * 3), normal = new Float32Array(n * 3);
+  let at = 0;
+  for (const g of flat) {
+    position.set(g.attributes.position.array, at * 3);
+    normal.set(g.attributes.normal.array, at * 3);
+    at += g.attributes.position.count;
+  }
+  for (const g of new Set([...parts, ...flat])) g.dispose();
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  return out;
+}
 
 export class FieldView {
   constructor(canvas) {
@@ -124,6 +148,7 @@ export class FieldView {
     this.scene.add(this.ballGroup);
     this.balls = [];
     this.mode = 'audience';
+    this.cameras = cameraPresets(null);
     this.camTween = null;
     this.placing = null;
     this.ghost = this.makeGhost();
@@ -150,22 +175,33 @@ export class FieldView {
 
   // ---- field -------------------------------------------------------------------------------
 
-  setField(field) {
+  /** The season's field (FieldModel.describe) and where its audience and drivers are (Season.describe). */
+  setField(field, season) {
+    const presets = cameraPresets(season);
+    const moved = JSON.stringify(presets) !== JSON.stringify(this.cameras);
+    this.cameras = presets;
+    if (moved && this.mode !== 'follow') this.setCameraMode(this.mode, true);
+    // hello comes again whenever a robot changes: the same field stays drawn as it is.
+    const key = JSON.stringify(field);
+    if (key === this.fieldKey) return;
+    this.fieldKey = key;
+    disposeTree(this.fieldGroup);
+    this._tagMat = this._tagTex = null;   // freed with the old field
     this.fieldGroup.clear();
-    this.hivePivots = {};
+    this.movers = [];
     this.field = field;
-    const half = field.field_m[0] / 2;
+    const half = field.half;
     this.half = half;
     const g = this.fieldGroup;
 
-    // Venue floor and alliance areas
+    // Venue floor and the alliance areas around the field
     const venue = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 1 }));
     venue.position.z = -0.003;
     venue.receiveShadow = true;
     g.add(venue);
-    for (const [sign, color] of [[-1, 0x4a1c1f], [1, 0x1b2a52]]) {
-      const area = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 2.8), new THREE.MeshStandardMaterial({ color, roughness: 1 }));
-      area.position.set(sign * (half + 0.75), 0, -0.002);
+    for (const a of field.areas ?? []) {
+      const area = new THREE.Mesh(new THREE.PlaneGeometry(a.x[1] - a.x[0], a.y[1] - a.y[0]), new THREE.MeshStandardMaterial({ color: a.rgb, roughness: 1 }));
+      area.position.set((a.x[0] + a.x[1]) / 2, (a.y[0] + a.y[1]) / 2, -0.002);
       area.receiveShadow = true;
       g.add(area);
     }
@@ -176,26 +212,25 @@ export class FieldView {
     tiles.receiveShadow = true;
     g.add(tiles);
 
-    this.addWalls(half, field.wall_height_m);
-    for (const x of [-0.628, 0.628]) this.addAFrame(x);
-    // Axle and sign board
-    const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.32, 16), new THREE.MeshStandardMaterial({ color: COLORS.aluminum, metalness: 0.6, roughness: 0.4 }));
-    axle.rotation.z = Math.PI / 2;
-    axle.position.set(0, 0, field.hives.red.pivot_m[2]);
-    g.add(axle);
-    const sb = field.structure?.sign_board;
-    if (sb) {
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(...sb.size_m), new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.6 }));
-      sign.position.set(...sb.centre_m);
-      sign.castShadow = true;
-      g.add(sign);
+    this.addWalls(half, field.wallHeight);
+    const materials = new Map();
+    for (const mesh of this.solids(field.solids ?? [], materials)) g.add(mesh);
+    for (const t of field.tags ?? []) g.add(this.tag(t));
+    // Moving parts: drawn in their own frame inside a group that turns about the hinge axis.
+    for (const m of field.movers ?? []) {
+      const pivot = new THREE.Group();
+      pivot.position.set(...m.pivot);
+      const axis = new THREE.Vector3(...m.axis);
+      pivot.quaternion.setFromAxisAngle(axis, m.start);
+      for (const mesh of this.solids(m.solids, materials)) pivot.add(mesh);
+      for (const t of m.tags) pivot.add(this.tag(t));
+      g.add(pivot);
+      this.movers.push({ pivot, axis });
     }
-    for (const alliance of Object.keys(field.hives)) this.addHive(field, alliance);
-    for (const name of Object.keys(field.flowers)) this.addFlower(field.flowers[name], field.structure?.flower_top);
   }
 
   floorTexture(field) {
-    const N = 2048, half = field.field_m[0] / 2, tile = field.tile_m;
+    const N = 2048, half = field.half, tile = field.tile;
     const c = document.createElement('canvas');
     c.width = c.height = N;
     const ctx = c.getContext('2d');
@@ -210,32 +245,86 @@ export class FieldView {
     }
     ctx.strokeStyle = COLORS.seam;
     ctx.lineWidth = 3;
-    for (let v = -half; v <= half + 1e-6; v += tile) {
+    for (let k = 0; k * tile <= 2 * half + 1e-6; k++) {
+      const v = -half + k * tile;
       ctx.beginPath(); ctx.moveTo(px(v), 0); ctx.lineTo(px(v), N); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, py(v)); ctx.lineTo(N, py(v)); ctx.stroke();
     }
-    const tape = (field.structure?.tape_m ?? 0.0254) / (2 * half) * N;
-    const zone = (z, color, filled) => {
-      const x0 = px(z.x_m[0]), x1 = px(z.x_m[1]), y0 = py(z.y_m[1]), y1 = py(z.y_m[0]);
-      ctx.fillStyle = ctx.strokeStyle = color;
-      if (filled) ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-      else { ctx.lineWidth = tape; ctx.strokeRect(x0 + tape / 2, y0 + tape / 2, x1 - x0 - tape, y1 - y0 - tape); }
-    };
-    for (const [a, z] of Object.entries(field.loading_zones)) zone(z, a === 'red' ? COLORS.red : COLORS.blue, false);
-    for (const [a, z] of Object.entries(field.gardens)) zone(z, a === 'red' ? COLORS.red : COLORS.blue, true);
+    const css = (rgb) => `#${rgb.toString(16).padStart(6, '0')}`;
+    for (const t of field.tape ?? []) {
+      const p = t.points;
+      ctx.fillStyle = ctx.strokeStyle = css(t.rgb);
+      ctx.beginPath();
+      ctx.moveTo(px(p[0]), py(p[1]));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(px(p[i]), py(p[i + 1]));
+      if (t.kind === 'area') {
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.lineWidth = t.width / (2 * half) * N;
+        ctx.lineCap = 'butt';
+        ctx.stroke();
+      }
+    }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     return tex;
   }
 
-  beam(a, b, t, material) {
-    const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
-    const len = va.distanceTo(vb);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(t, t, len), material);
-    m.position.copy(va).add(vb).multiplyScalar(0.5);
-    m.lookAt(vb);
-    m.castShadow = true;
+  /**
+   * Boxes and cylinders of the field (center c, size, rot row-major from their axes to the
+   * world's), merged into one mesh per material: a FLOWER's rings alone are dozens of bars.
+   */
+  solids(list, materials) {
+    const groups = new Map();
+    for (const s of list) {
+      const key = `${s.rgb}/${s.opacity ?? 1}`;
+      if (!groups.has(key)) groups.set(key, { first: s, parts: [] });
+      let geo;
+      if (s.shape === 'box') {
+        geo = new THREE.BoxGeometry(s.size[0], s.size[1], s.size[2]);
+      } else {
+        const r = s.size[0];
+        geo = new THREE.CylinderGeometry(r, r, s.size[1], r < 0.01 ? 6 : r < 0.05 ? 14 : 28);
+        geo.rotateX(Math.PI / 2);   // its axis along z, as in the simulator
+      }
+      const R = s.rot;
+      geo.applyMatrix4(new THREE.Matrix4().set(R[0], R[1], R[2], s.c[0], R[3], R[4], R[5], s.c[1], R[6], R[7], R[8], s.c[2], 0, 0, 0, 1));
+      groups.get(key).parts.push(geo);
+    }
+    const out = [];
+    for (const [key, { first, parts }] of groups) {
+      let mat = materials.get(key);
+      if (!mat) {
+        const see = (first.opacity ?? 1) < 1;
+        mat = new THREE.MeshStandardMaterial({
+          color: first.rgb, roughness: see ? 0.2 : 0.55, metalness: see ? 0 : 0.25,
+          transparent: see, opacity: first.opacity ?? 1, depthWrite: !see, side: see ? THREE.DoubleSide : THREE.FrontSide,
+        });
+        materials.set(key, mat);
+      }
+      const mesh = new THREE.Mesh(mergeGeometries(parts), mat);
+      if ((first.opacity ?? 1) >= 1) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+      out.push(mesh);
+    }
+    return out;
+  }
+
+  /** An AprilTag, drawn on its face (the black square is size; its white margin goes around it). */
+  tag(t) {
+    this._tagMat ??= new THREE.MeshBasicMaterial({ map: this.tagTexture(), side: THREE.DoubleSide });
+    const full = t.size * 10 / 8;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(full, full), this._tagMat);
+    const n = t.normal, r = t.right, u = t.up;
+    m.matrixAutoUpdate = false;
+    // The plane's x, y and z (its face) along the tag's right, up and normal, a hair in front of its mount.
+    m.matrix.set(r[0], u[0], n[0], t.c[0] + n[0] * 0.001, r[1], u[1], n[1], t.c[1] + n[1] * 0.001,
+      r[2], u[2], n[2], t.c[2] + n[2] * 0.001, 0, 0, 0, 1);
+    m.name = `tag ${t.id}`;
     return m;
   }
 
@@ -262,113 +351,23 @@ export class FieldView {
     }
   }
 
-  addAFrame(x) {
-    const g = this.fieldGroup;
-    const mat = new THREE.MeshStandardMaterial({ color: 0x8d949c, metalness: 0.5, roughness: 0.5 });
-    const top = this.field.hives.red.pivot_m[2] + 0.04;
-    g.add(this.beam([x, -0.5, 0.02], [x, 0, top], 0.045, mat));
-    g.add(this.beam([x, 0.5, 0.02], [x, 0, top], 0.045, mat));
-    g.add(this.beam([x, -0.53, 0.025], [x, 0.53, 0.025], 0.05, mat));
-    g.add(this.beam([x, -0.39, 0.33], [x, 0.39, 0.33], 0.035, mat));
-  }
-
-  addHive(field, alliance) {
-    const hive = field.hives[alliance];
-    const cells = field.cells;
-    const color = alliance === 'red' ? COLORS.red : COLORS.blue;
-    const pivot = new THREE.Group();
-    pivot.position.set(...hive.pivot_m);
-    pivot.rotation.x = hive.stops_rad[`${hive.start_up}_up`];
-    this.fieldGroup.add(pivot);
-    this.hivePivots[alliance] = pivot;   // turned by updateState as the HIVE tips
-
-    const hw = cells.half_width_m, f = cells.floor_z_m, wall = cells.wall_height_m, peak = cells.peak_height_m;
-    const depth = cells.along_arm_m[1] - cells.along_arm_m[0];
-    const shape = new THREE.Shape();
-    shape.moveTo(-hw, f); shape.lineTo(hw, f); shape.lineTo(hw, f + wall); shape.lineTo(0, f + peak); shape.lineTo(-hw, f + wall); shape.closePath();
-    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
-    geo.rotateX(Math.PI / 2);                 // extrusion now runs along -y
-    geo.translate(0, -cells.along_arm_m[0], 0);
-    // The CELL is a tube open at its outer end: draw the sides (group 1) but not the end caps
-    // (group 0), then close only the inner end.
-    const innerEnd = new THREE.ShapeGeometry(shape);
-    innerEnd.rotateX(Math.PI / 2);
-    innerEnd.translate(0, -cells.along_arm_m[0], 0);
-    const shell = new THREE.MeshStandardMaterial({ color: 0xe6ebf0, transparent: true, opacity: 0.32, roughness: 0.2, side: THREE.DoubleSide, depthWrite: false });
-    const noCaps = new THREE.MeshBasicMaterial({ visible: false });
-    const edge = new THREE.LineBasicMaterial({ color });
-    for (const flip of [false, true]) {          // audience cell (-y), then rear cell (+y)
-      const cell = new THREE.Group();
-      cell.add(new THREE.Mesh(geo, [noCaps, shell]));
-      cell.add(new THREE.Mesh(innerEnd, shell));
-      cell.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edge));
-      if (flip) cell.rotation.z = Math.PI;
-      pivot.add(cell);
-    }
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2 * cells.along_arm_m[1], 0.03), new THREE.MeshStandardMaterial({ color: 0x5b6169, metalness: 0.4 }));
-    arm.position.z = f - 0.02;
-    pivot.add(arm);
-    // AprilTags under the cells
-    const tagMat = new THREE.MeshBasicMaterial({ map: this.tagTexture(), side: THREE.DoubleSide });
-    const size = field.apriltags.size_m;
-    for (const [id, t] of Object.entries(field.apriltags.tags)) {
-      if (t.hive !== alliance) continue;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), tagMat);
-      m.position.set(...t.center_m);
-      m.position.z -= 0.001;
-      m.name = `tag ${id}`;
-      pivot.add(m);
-    }
-  }
-
   tagTexture() {
     if (this._tagTex) return this._tagTex;
     const c = document.createElement('canvas');
     c.width = c.height = 80;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 80, 80);
-    ctx.fillStyle = '#000'; ctx.fillRect(10, 10, 60, 60);
+    ctx.fillStyle = '#000'; ctx.fillRect(8, 8, 64, 64);
     ctx.fillStyle = '#fff';
-    for (let i = 0; i < 16; i++) if ((i * 7 + 3) % 3) ctx.fillRect(20 + (i % 4) * 10, 20 + Math.floor(i / 4) * 10, 10, 10);
+    for (let i = 0; i < 16; i++) if ((i * 7 + 3) % 3) ctx.fillRect(16 + (i % 4) * 12, 16 + Math.floor(i / 4) * 12, 12, 12);
     this._tagTex = new THREE.CanvasTexture(c);
     this._tagTex.magFilter = THREE.NearestFilter;
     return this._tagTex;
   }
 
-  addFlower(flower, top) {
-    const [x, y] = flower.axis_m;
-    const h = flower.opening_height_m;
-    const grp = new THREE.Group();
-    grp.position.set(x, y, 0);
-    const bars = new THREE.MeshStandardMaterial({ color: COLORS.flower, roughness: 0.5 });
-    for (let i = 0; i < 6; i++) {
-      const a = i / 6 * Math.PI * 2;
-      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, h, 6), bars);
-      bar.rotation.x = Math.PI / 2;
-      bar.position.set(Math.cos(a) * 0.055, Math.sin(a) * 0.055, h / 2);
-      bar.castShadow = true;
-      grp.add(bar);
-    }
-    for (const z of [0.12, 0.3]) {
-      const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.005, 6, 24), bars);
-      hoop.position.z = z;
-      grp.add(hoop);
-    }
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(top?.radius_m ?? 0.07, 0.012, 10, 32),
-      new THREE.MeshStandardMaterial({ color: COLORS.gold, metalness: 0.6, roughness: 0.35 }));
-    ring.position.z = h;
-    ring.castShadow = true;
-    grp.add(ring);
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.012, 24), new THREE.MeshStandardMaterial({ color: 0x24262a }));
-    base.rotation.x = Math.PI / 2;
-    base.position.z = 0.006;
-    grp.add(base);
-    this.fieldGroup.add(grp);
-  }
-
   // ---- scoring elements --------------------------------------------------------------------
 
-  /** One sphere per POLLEN / NECTAR, in the order the simulator streams their positions. */
+  /** One sphere per game piece, in the order the simulator streams their positions. */
   setBalls(list) {
     this.ballGroup.clear();
     this.balls = [];
@@ -376,7 +375,7 @@ export class FieldView {
     const mats = {};
     for (const b of list || []) {
       const geo = geos[b.r] ??= new THREE.SphereGeometry(b.r, 20, 14);
-      const mat = mats[b.color] ??= new THREE.MeshStandardMaterial({ color: BALL_COLORS[b.color] ?? 0xffffff, roughness: 0.45 });
+      const mat = mats[b.rgb] ??= new THREE.MeshStandardMaterial({ color: b.rgb ?? 0xffffff, roughness: 0.45 });
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
       m.receiveShadow = true;
@@ -631,10 +630,11 @@ export class FieldView {
   }
 
   updateState(s) {
-    if (s.hives && this.hivePivots) {
-      for (const [alliance, h] of Object.entries(s.hives)) {
-        const pivot = this.hivePivots[alliance];
-        if (pivot) pivot.rotation.x = h.phi;   // the HIVE tips
+    if (s.movers && this.movers) {
+      // The field's moving parts (a HIVE tipping, a GATE swinging) at their angle now.
+      for (let i = 0; i < this.movers.length && i < s.movers.length; i++) {
+        const m = this.movers[i];
+        m.pivot.quaternion.setFromAxisAngle(m.axis, s.movers[i]);
       }
     }
     for (let k = 0; k < this.robots.length && k < (s.robots?.length ?? 0); k++) {
@@ -685,7 +685,7 @@ export class FieldView {
     this.mode = mode;
     this.controls.enabled = mode !== 'follow' && !this.placing;
     if (mode === 'follow') { this.camTween = null; return; }
-    const preset = CAMERAS[mode];
+    const preset = this.cameras[mode];
     const to = { pos: new THREE.Vector3(...preset.pos), target: new THREE.Vector3(...preset.target) };
     if (instant) {
       this.camera.position.copy(to.pos);

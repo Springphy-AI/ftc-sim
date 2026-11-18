@@ -24,7 +24,6 @@ public final class CameraWorld {
     /** Rendering at this many samples per pixel side, then averaging, gives smooth edges. */
     static final int SUPERSAMPLE = 2;
     private static final int BACKGROUND = 0x2a2d31;
-    private static final Map<String, Integer> BALL_COLORS = Map.of("yellow", 0xf4d23c, "red", 0xd8343a, "blue", 0x2f6fe0);
 
     /**
      * One robot at one moment. {@code pos} is the world position of the point {@code chassisZ}
@@ -36,10 +35,10 @@ public final class CameraWorld {
     }
 
     /**
-     * Where everything was at {@code nanos} ({@link System#nanoTime()}). {@code hiveTilts}: each
-     * HIVE's tilt about its axle (rad, field JSON order), or null for their starting tilts.
+     * Where everything was at {@code nanos} ({@link System#nanoTime()}). {@code moverAngles}: the
+     * angle of each moving part of the field (rad, FieldModel order), or null for their start angles.
      */
-    record Snapshot(long nanos, RobotView[] robots, double[] balls, double[] radii, int[] colors, double[] hiveTilts) {
+    record Snapshot(long nanos, RobotView[] robots, double[] balls, double[] radii, int[] colors, double[] moverAngles) {
     }
 
     private final FieldScene field;
@@ -62,18 +61,18 @@ public final class CameraWorld {
         this.field = new FieldScene(field);
     }
 
-    /** The AprilTags printed on the field (world coordinates). */
+    /** The AprilTags printed on the field (world coordinates), the moving parts at their start angle. */
     public List<FieldTag> tags() {
         return field.tags;
     }
 
-    /** The AprilTags with the HIVES at these tilts (rad, field JSON order: red first). */
-    public List<FieldTag> tags(double[] hiveTilts) {
-        List<FieldTag> out = new ArrayList<>();
-        for (int i = 0; i < field.hives.size(); i++) {
-            FieldScene.Hive h = field.hives.get(i);
-            double tilt = hiveTilts != null && i < hiveTilts.length ? hiveTilts[i] : h.startTilt;
-            for (FieldTag t : h.localTags) out.add(h.tagAt(t, tilt));
+    /** The AprilTags with the field's moving parts at these angles (rad, FieldModel order; null: start angles). */
+    public List<FieldTag> tags(double[] moverAngles) {
+        List<FieldTag> out = new ArrayList<>(field.fixedTags);
+        for (int i = 0; i < field.movers.size(); i++) {
+            FieldScene.Mover m = field.movers.get(i);
+            double a = moverAngles != null && i < moverAngles.length ? moverAngles[i] : m.startAngle();
+            out.addAll(m.tagsAt(a));
         }
         return out;
     }
@@ -91,12 +90,12 @@ public final class CameraWorld {
     }
 
     /**
-     * Records the robots, balls and HIVE tilts; call on the physics thread after each step.
+     * Records the robots, balls and the field's moving parts; call on the physics thread after each step.
      *
-     * @param hiveTilts each HIVE's tilt about its axle (rad, field JSON order: red first), or
-     *                  null while the HIVES stay at their starting tilt
+     * @param moverAngles the angle of each moving part of the field (rad, FieldModel order: a
+     *                    HIVE's tilt about its axle...), or null while they stay at their start angle
      */
-    public void update(List<RobotRig> rigs, GameElements elements, double[] hiveTilts) {
+    public void update(List<RobotRig> rigs, GameElements elements, double[] moverAngles) {
         if (latest != null && System.nanoTime() - recordUntil > 0) {   // no camera is looking
             historyStale = true;
             return;
@@ -119,7 +118,7 @@ public final class CameraWorld {
                 int[] colors = new int[list.size()];
                 for (int i = 0; i < list.size(); i++) {
                     radii[i] = list.get(i).radius;
-                    colors[i] = BALL_COLORS.getOrDefault(list.get(i).color, 0xffffff);
+                    colors[i] = list.get(i).rgb;
                 }
                 ballsSeen = list;
                 ballRadii = radii;
@@ -127,7 +126,7 @@ public final class CameraWorld {
             }
         }
         Snapshot snap = new Snapshot(System.nanoTime(), robots, balls, elements != null ? ballRadii : new double[0],
-                elements != null ? ballColors : new int[0], hiveTilts == null ? null : hiveTilts.clone());
+                elements != null ? ballColors : new int[0], moverAngles == null ? null : moverAngles.clone());
         synchronized (history) {
             if (historyStale) {   // recording paused: what is kept is from before, not a second ago
                 java.util.Arrays.fill(history, null);
@@ -194,10 +193,10 @@ public final class CameraWorld {
         // Pixel centers: low-res u maps to high-res s * (u + 0.5) - 0.5.
         r.setCamera(worldToCamera, position, fx * s, fy * s, s * (cx + 0.5) - 0.5, s * (cy + 0.5) - 0.5);
         List<Scene.Tri> tris = new ArrayList<>(field.scene.tris);
-        double[] tilts = snap != null ? snap.hiveTilts() : null;
-        for (int i = 0; i < field.hives.size(); i++) {
-            FieldScene.Hive hive = field.hives.get(i);
-            tris.addAll(hive.at(tilts != null && i < tilts.length ? tilts[i] : hive.startTilt));
+        double[] angles = snap != null ? snap.moverAngles() : null;
+        for (int i = 0; i < field.movers.size(); i++) {
+            FieldScene.Mover m = field.movers.get(i);
+            tris.addAll(m.at(angles != null && i < angles.length ? angles[i] : m.startAngle()));
         }
         double[] spheres = new double[0];
         if (snap != null) {

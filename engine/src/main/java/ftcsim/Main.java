@@ -14,8 +14,8 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import ftcsim.physics.FieldModel;
 import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.season.Season;
 import ftcsim.server.WebServer;
 import ftcsim.sim.SimRobot;
 import ftcsim.sim.Simulator;
@@ -24,7 +24,7 @@ import ftcsim.sim.Simulator;
  * FTC simulator entry point.
  *
  * <pre>
- *   ftc-sim [--project DIR] [--robot FILE] [--port N] [--no-browser]
+ *   ftc-sim [--season NAME] [--project DIR] [--robot FILE] [--port N] [--no-browser]
  *           [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
  * </pre>
  *
@@ -32,8 +32,9 @@ import ftcsim.sim.Simulator;
  * TeamCode/src/main/java (and the SDK samples folder) and rebuilds whenever you save.
  * More robots (up to 4) share the field: --project2 / --robot2 / --alliance2 set up robot 2, and so
  * on; a robot without its own project or robot file uses robot 1's.
- * Defaults can be kept in sim.properties next to this program (project=..., robot=..., port=...,
- * robots=..., project2=..., robot2=..., alliance2=...).
+ * --season picks the game (a folder in seasons/, or the path of one); BIOBUZZ by default.
+ * Defaults can be kept in sim.properties next to this program (season=..., project=..., robot=...,
+ * port=..., robots=..., project2=..., robot2=..., alliance2=...).
  */
 public final class Main {
 
@@ -58,6 +59,7 @@ public final class Main {
             alliance[k] = props.getProperty("alliance" + k);
             if (project[k] != null || robot[k] != null || alliance[k] != null) count = k;
         }
+        String season = props.getProperty("season", Season.DEFAULT);
         int robots = Integer.parseInt(props.getProperty("robots", "1"));
         int port = Integer.parseInt(props.getProperty("port", "8080"));
         boolean openBrowser = Boolean.parseBoolean(props.getProperty("open_browser", "true"));
@@ -81,6 +83,7 @@ public final class Main {
                 continue;
             }
             switch (args[i]) {
+                case "--season", "-s" -> season = args[++i];
                 case "--project", "-p" -> project[1] = args[++i];
                 case "--robot", "-r" -> robot[1] = args[++i];
                 case "--alliance" -> alliance[1] = args[++i];
@@ -139,9 +142,18 @@ public final class Main {
             specs.add(new Simulator.RobotSpec(robotFile, new TeamCodeCompiler(pr.roots(), robotWork), pr.label(), alliance[k]));
         }
 
+        Season game;
+        try {
+            game = Season.load(season, home.resolve("seasons"));
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
+            System.exit(2);
+            return;
+        }
+        System.out.println("Season: " + game);
         Simulator sim;
         try {
-            sim = new Simulator(FieldModel.loadBiobuzz(), robotsDir, specs);
+            sim = new Simulator(game.field, robotsDir, specs);
         } catch (IllegalArgumentException e) {
             System.err.println(e.getMessage());
             System.exit(2);
@@ -229,9 +241,11 @@ public final class Main {
 
     private static void usage() {
         System.out.println("""
-                Usage: ftc-sim [--project DIR] [--robot FILE] [--port N] [--no-browser]
+                Usage: ftc-sim [--season NAME] [--project DIR] [--robot FILE] [--port N] [--no-browser]
                                [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
 
+                  --season NAME     the game to play: a season in seasons/ (%s), or the path
+                                    of a season folder; default %s
                   --project DIR     your FtcRobotController project (uses DIR/TeamCode/src/main/java)
                   --robot FILE      robot description, default robots/mecanum.json
                   --port N          web port, default 8080
@@ -245,8 +259,9 @@ public final class Main {
                   --allianceK A     robot K's alliance, red or blue
                                     (default: robot 1 red, robot 2 blue, robot 3 red, robot 4 blue)
 
-                Defaults can also be set in sim.properties (project=, robot=, port=, open_browser=,
-                robots=, project2=, robot2=, alliance2=, ...).""");
+                Defaults can also be set in sim.properties (season=, project=, robot=, port=, open_browser=,
+                robots=, project2=, robot2=, alliance2=, ...).""".formatted(
+                String.join(", ", Season.available(Paths.get("").toAbsolutePath().resolve("seasons"))), Season.DEFAULT));
     }
 
     private static void open(String url) {

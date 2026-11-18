@@ -560,7 +560,7 @@ class CadImportTest {
         Files.write(CadMeshFile.cacheFor(step), CadMeshFile.encode("slide.step", CadMeshFile.sha256(step), "test", parts));
         String json = Files.readString(Path.of("robots/mecanum.json"))
                 .replace("{ \"type\": \"motor\", \"name\": \"intake\"", "{ \"type\": \"motor\", \"name\": \"lift\", \"motor\": \"goBILDA 5203 435rpm\" },\n    { \"type\": \"motor\", \"name\": \"intake\"")
-                .replace("\n  \"start\":", """
+                .replace("\n  \"io\":", """
                           "cad": {
                             "file": "slide.step",
                             "links": [
@@ -570,7 +570,7 @@ class CadImportTest {
                                 "axis_dir": [0, 0, 1], "mimic": "stage1", "limits": [0, 300], "mass_kg": 0.2 }
                             ]
                           },
-                          "start":""");
+                          "io":""");
         Files.writeString(dir.resolve("robot.json"), json);
         RobotConfig cfg = RobotConfig.load(dir.resolve("robot.json"));
         assertEquals(CadState.Status.READY, cfg.cadState.status, cfg.cadState.message);
@@ -617,7 +617,7 @@ class CadImportTest {
         Files.writeString(step, "ISO-10303-21; the triangles below stand in for the conversion of " + name);
         Files.write(CadMeshFile.cacheFor(step), CadMeshFile.encode(step.getFileName().toString(), CadMeshFile.sha256(step), "test", parts));
         String json = Files.readString(Path.of("robots/mecanum.json"))
-                .replace("\n  \"start\":", "\n  \"cad\": " + cad.replace("FILE", name + ".step") + ",\n  \"start\":");
+                .replace("\n  \"io\":", "\n  \"cad\": " + cad.replace("FILE", name + ".step") + ",\n  \"io\":");
         Files.writeString(dir.resolve(name + ".json"), json);
         RobotConfig cfg = RobotConfig.load(dir.resolve(name + ".json"));
         assertEquals(CadState.Status.READY, cfg.cadState.status, cfg.cadState.message);

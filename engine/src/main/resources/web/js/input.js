@@ -11,8 +11,6 @@ const KEY_BUTTONS = {
 };
 const KEY_CAPTURE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyC',
   ...Object.keys(KEY_BUTTONS)]);
-// Every key the page uses: driving, plus N and M for the human player (main.js).
-const PAGE_KEYS = new Set([...KEY_CAPTURE, 'KeyN', 'KeyM']);
 // Inputs you type into; the keys stay theirs. A checkbox, slider or dropdown doesn't take text.
 const TEXT_INPUTS = new Set(['text', 'search', 'email', 'password', 'url', 'tel', 'number']);
 const SLOTS = [1, 2];
@@ -85,6 +83,11 @@ export class InputManager {
   }
 
   /** Whether keys pressed in {@code target} are text being typed (and not for driving). */
+  /** The season's human player keys (main.js): like the driving keys, a focused dropdown lets go of them. */
+  setPageKeys(codes) {
+    this.pageKeys = new Set([...KEY_CAPTURE, ...codes]);
+  }
+
   typingIn(target) {
     if (!target) return false;
     if (target.isContentEditable || target.tagName === 'TEXTAREA') return true;
@@ -98,7 +101,7 @@ export class InputManager {
     // keys: arrows and letters change a dropdown's choice (a robot file, an OpMode). It lets go
     // instead, and the key drives.
     const tag = e.target?.tagName;
-    if (down && (tag === 'SELECT' || tag === 'INPUT') && PAGE_KEYS.has(e.code)) {
+    if (down && (tag === 'SELECT' || tag === 'INPUT') && (this.pageKeys ?? KEY_CAPTURE).has(e.code)) {
       e.preventDefault();
       e.target.blur();
     }

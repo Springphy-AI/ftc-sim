@@ -28,9 +28,9 @@ import ftcsim.hal.GamepadEffects;
 import ftcsim.hal.SimLog;
 import ftcsim.hal.VisionNatives;
 import ftcsim.physics.FieldModel;
-import ftcsim.physics.HiveBody;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.season.SeasonGame;
 import ftcsim.vision.CameraWorld;
 
 /**
@@ -67,7 +67,7 @@ public final class Simulator {
     final FieldModel field;
     final Path robotsDir;
     final PhysicsWorld world;
-    /** POLLEN and NECTAR, in the same physics world as the robots. */
+    /** The season's game pieces, in the same physics world as the robots. */
     final GameElements elements;
     /** What the robots' webcams see. */
     final CameraWorld cameras;
@@ -254,10 +254,8 @@ public final class Simulator {
                 rtfSteps++;
             }
             if (n > 0) {
-                // Cameras see each HIVE at its current tilt (field JSON order, red first).
-                double[] tilts = new double[world.hives.size()];
-                for (int i = 0; i < tilts.length; i++) tilts[i] = world.hives.get(i).angle();
-                cameras.update(rigs, elements, tilts);
+                // Cameras see the field's moving parts (a HIVE that tipped...) where they are now.
+                cameras.update(rigs, elements, world.moverAngles());
             }
             if (now - rtfWindowStart > 1_000_000_000L) {
                 realTimeFactor = rtfSteps * DT / ((now - rtfWindowStart) / 1e9);
@@ -321,10 +319,10 @@ public final class Simulator {
                 for (SimRobot r : robots) r.stopOpMode();
                 return;
             }
-            // The human player: one NECTAR from the ALLIANCE AREA into that alliance's LOADING ZONE.
-            case "nectar" -> {
-                String color = msg.has("color") ? msg.get("color").getAsString() : "";
-                if ("red".equals(color) || "blue".equals(color)) post(() -> elements.introduceNectar(color));
+            // The human player: one of the season's buttons (a game piece into the LOADING ZONE...).
+            case "action" -> {
+                String id = msg.has("id") ? msg.get("id").getAsString() : "";
+                post(() -> elements.game().act(id));
                 return;
             }
             default -> {
@@ -377,11 +375,22 @@ public final class Simulator {
 
     // ---- outgoing messages ----------------------------------------------------------------------
 
-    /** The field, the robot files to choose from, the game pieces and every robot on the field. */
+    /** The season and its field, the robot files to choose from, the game pieces and every robot on the field. */
     public String helloJson() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "hello");
-        m.put("field", field.json);
+        m.put("season", field.season.describe());
+        m.put("field", field.describe());
+        List<Map<String, Object>> actions = new ArrayList<>();
+        for (SeasonGame.Action a : elements.game().actions()) {
+            Map<String, Object> o = new LinkedHashMap<>();
+            o.put("id", a.id());
+            o.put("label", a.label());
+            if (a.key() != null) o.put("key", a.key());
+            if (a.title() != null) o.put("title", a.title());
+            actions.add(o);
+        }
+        m.put("actions", actions);
         m.put("robotFiles", robotFiles());
         m.put("balls", elements.describe());
         m.put("robots", robots.stream().map(SimRobot::describe).collect(Collectors.toList()));
@@ -430,13 +439,10 @@ public final class Simulator {
         m.put("rtf", realTimeFactor);
         m.put("robots", rs);
         m.put("balls", elements.positions());
-        m.put("cells", elements.cellCounts());
-        Map<String, Object> hives = new LinkedHashMap<>();
-        for (HiveBody h : world.hives) {
-            hives.put(h.start.alliance(), Map.of("phi", Math.round(h.angle() * 1e4) / 1e4, "tips", h.tips(), "up", h.upCell()));
-        }
-        m.put("hives", hives);
-        m.put("nectarWaiting", Map.of("red", elements.waitingNectar("red"), "blue", elements.waitingNectar("blue")));
+        double[] angles = world.moverAngles();
+        for (int i = 0; i < angles.length; i++) angles[i] = Math.round(angles[i] * 1e4) / 1e4;
+        m.put("movers", angles);
+        m.put("game", elements.game().status());
         output.broadcastState(GSON.toJson(m));
     }
 

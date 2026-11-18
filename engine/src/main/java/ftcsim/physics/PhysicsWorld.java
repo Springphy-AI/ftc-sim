@@ -9,6 +9,7 @@ import org.ode4j.math.DMatrix3;
 import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3;
 import org.ode4j.math.DVector3C;
+import org.ode4j.ode.DAABBC;
 import org.ode4j.ode.DBody;
 import org.ode4j.ode.DContact;
 import org.ode4j.ode.DContactBuffer;
@@ -23,9 +24,10 @@ import org.ode4j.ode.OdeConstants;
 import org.ode4j.ode.OdeHelper;
 
 /**
- * The rigid-body world (ODE4j): floor, perimeter walls, the HIVE structure (A-frames, axle, sign
- * board), the two HIVES on their pivots ({@link HiveBody}), the FLOWERS, plus whatever bodies are
- * added (one or more robots, the game pieces). Every method must be called on the physics thread.
+ * The rigid-body world (ODE4j): floor, perimeter walls, the season's structures and the parts of
+ * the field that turn on hinges ({@link HingeBody}), all from the {@link FieldModel}, plus whatever
+ * bodies are added (one or more robots, the game pieces). Every method must be called on the
+ * physics thread.
  */
 public final class PhysicsWorld {
 
@@ -70,8 +72,8 @@ public final class PhysicsWorld {
     private final Map<DGeom, Material> materials = new IdentityHashMap<>();
     /** Contacts on each robot's chassis during the last step (for touch sensors). */
     private final Map<DBody, List<ChassisContact>> chassisContacts = new IdentityHashMap<>();
-    /** The red and blue HIVES, in biobuzz-field.json order. */
-    public final List<HiveBody> hives = new ArrayList<>();
+    /** The field's moving parts, in FieldModel order. */
+    public final List<HingeBody> movers = new ArrayList<>();
 
     public PhysicsWorld(FieldModel field) {
         synchronized (PhysicsWorld.class) {
@@ -102,27 +104,18 @@ public final class PhysicsWorld {
         addStaticBox("wall", -h - t / 2, 0, wh / 2, t, len, wh);
         addStaticBox("wall", 0, h + t / 2, wh / 2, len, t, wh);
         addStaticBox("wall", 0, -h - t / 2, wh / 2, len, t, wh);
-        for (FieldModel.Box b : field.boxes) {
-            addStaticBox("structure", b.cx(), b.cy(), b.cz(), b.sx(), b.sy(), b.sz());
-        }
-        for (FieldModel.Panel p : field.panels) {
-            DGeom box = OdeHelper.createBox(space, p.size()[0], p.size()[1], p.size()[2]);
-            box.setPosition(p.center()[0], p.center()[1], p.center()[2]);
-            double[] m = p.rot();
-            box.setRotation(new DMatrix3(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]));
-            // Aluminum and polycarbonate: smoother than the tiles. The ball sets the bounce.
+        // The season's structures, then its moving parts.
+        for (FieldModel.Solid sd : field.solids) {
+            if (!sd.collide()) continue;
+            DGeom g = geom(space, sd);
+            g.setPosition(sd.center()[0], sd.center()[1], sd.center()[2]);
+            double[] m = sd.rot();
+            g.setRotation(new DMatrix3(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]));
             Material mat = new Material("structure");
-            mat.mu = mat.mu2 = 0.25;
-            register(box, mat, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
+            mat.mu = mat.mu2 = sd.friction();
+            register(g, mat, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
         }
-        for (FieldModel.Hive hive : field.hives) hives.add(new HiveBody(this, hive, field.hivePanels));
-        for (FieldModel.Post p : field.posts) {
-            DGeom c = OdeHelper.createCylinder(space, p.radius(), p.height());
-            c.setPosition(p.cx(), p.cy(), p.height() / 2);
-            Material m = new Material("structure");
-            m.mu = m.mu2 = 0.3;
-            register(c, m, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
-        }
+        for (FieldModel.Mover m : field.movers) movers.add(new HingeBody(this, m));
     }
 
     private void addStaticBox(String kind, double x, double y, double z, double sx, double sy, double sz) {
@@ -158,15 +151,81 @@ public final class PhysicsWorld {
         return l == null ? List.of() : l;
     }
 
-    /** Both HIVES back at their start position. */
-    public void resetHives() {
-        for (HiveBody h : hives) h.reset();
+    /** Every moving part of the field back at its start, at rest. */
+    public void resetMovers() {
+        for (HingeBody m : movers) m.reset();
     }
 
-    /** Both HIVES at their current tilt, for CELL geometry. */
-    public List<FieldModel.Hive> currentHives() {
-        List<FieldModel.Hive> out = new ArrayList<>();
-        for (HiveBody h : hives) out.add(h.current());
+    /** The moving part with this name (FieldModel.Mover#name), or null. */
+    public HingeBody mover(String name) {
+        for (HingeBody m : movers) if (m.mover.name().equals(name)) return m;
+        return null;
+    }
+
+    /** The collision shape of a field shape (box, or cylinder along its own z), not yet placed. */
+    static DGeom geom(DSpace space, FieldModel.Solid s) {
+        return s.shape() == FieldModel.Shape.BOX
+                ? OdeHelper.createBox(space, s.size()[0], s.size()[1], s.size()[2])
+                : OdeHelper.createCylinder(space, s.size()[0], s.size()[1]);
+    }
+
+    /**
+     * Wakes every body whose bounds come within {@code margin} of {@code box} (min x, max x,
+     * min y, max y, min z, max z), except {@code self}, then the bodies touching those, and so on:
+     * a row of balls resting against a GATE all start rolling when it opens. Waking also restarts
+     * a body's countdown to sleep (ODE auto-disable), so a ball that was barely moving doesn't
+     * fall asleep before it gets going.
+     */
+    void wakeNear(double[] box, DBody self, double margin) {
+        List<double[]> frontier = new ArrayList<>();
+        frontier.add(new double[]{box[0] - margin, box[1] + margin, box[2] - margin, box[3] + margin, box[4] - margin, box[5] + margin});
+        List<DGeom> others = new ArrayList<>();
+        for (DGeom g : materials.keySet()) {
+            DBody b = g.getBody();
+            if (b != null && b != self && g.isEnabled()) others.add(g);
+        }
+        java.util.Set<DBody> woken = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        while (!frontier.isEmpty() && !others.isEmpty()) {
+            List<double[]> next = new ArrayList<>();
+            for (int i = others.size() - 1; i >= 0; i--) {
+                DGeom g = others.get(i);
+                if (woken.contains(g.getBody())) {   // woken with another geom of its body
+                    others.remove(i);
+                    continue;
+                }
+                double[] o = bounds(List.of(g), 0);
+                for (double[] f : frontier) {
+                    if (o[1] < f[0] || o[0] > f[1] || o[3] < f[2] || o[2] > f[3] || o[5] < f[4] || o[4] > f[5]) continue;
+                    g.getBody().enable();
+                    woken.add(g.getBody());
+                    others.remove(i);
+                    next.add(bounds(List.of(g), 0.005));
+                    break;
+                }
+            }
+            frontier = next;
+        }
+    }
+
+    /** The bounding box of these geoms, grown by {@code margin}: min x, max x, min y, max y, min z, max z. */
+    static double[] bounds(List<DGeom> geoms, double margin) {
+        double[] box = {Double.MAX_VALUE, -Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE};
+        for (DGeom g : geoms) {
+            DAABBC b = g.getAABB();
+            box[0] = Math.min(box[0], b.getMin0() - margin);
+            box[1] = Math.max(box[1], b.getMax0() + margin);
+            box[2] = Math.min(box[2], b.getMin1() - margin);
+            box[3] = Math.max(box[3], b.getMax1() + margin);
+            box[4] = Math.min(box[4], b.getMin2() - margin);
+            box[5] = Math.max(box[5], b.getMax2() + margin);
+        }
+        return box;
+    }
+
+    /** Each moving part's angle, in FieldModel order. */
+    public double[] moverAngles() {
+        double[] out = new double[movers.size()];
+        for (int i = 0; i < out.length; i++) out[i] = movers.get(i).angle();
         return out;
     }
 
@@ -180,7 +239,7 @@ public final class PhysicsWorld {
     public void step(double dt) {
         steps++;
         for (List<ChassisContact> l : chassisContacts.values()) l.clear();
-        for (HiveBody h : hives) h.beforeStep();
+        for (HingeBody m : movers) m.beforeStep();
         space.collide(null, this::nearCallback);
         world.quickStep(dt);
         contactGroup.empty();

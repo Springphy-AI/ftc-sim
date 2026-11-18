@@ -11,6 +11,9 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.ode4j.math.DVector3C;
 
+import biobuzz.BiobuzzGame;
+import biobuzz.Hive;
+import biobuzz.HiveLayout;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.Latency;
 import ftcsim.hal.ServoPort;
@@ -61,7 +64,7 @@ class GameElementsTest {
         assertEquals(16, count(balls, "yellow", State.STAGED));
         assertEquals(20, count(balls, "yellow", State.FREE));
         assertEquals(4, count(balls, "yellow", State.HELD));
-        assertEquals(GameElements.PRELOAD, s.elements.heldCount());
+        assertEquals(4, s.elements.heldCount());
         // NECTAR: 3 free in the up CELL (held by its walls) + 5 staged in the ALLIANCE AREA.
         assertEquals(3, count(balls, "red", State.FREE));
         assertEquals(5, count(balls, "red", State.STAGED));
@@ -69,10 +72,10 @@ class GameElementsTest {
         assertEquals(5, count(balls, "blue", State.STAGED));
         // Red NECTAR: 3 in the red HIVE's raised (audience) CELL, the others outside the field.
         List<Ball> red = balls.stream().filter(b -> b.color.equals("red")).collect(Collectors.toList());
-        assertEquals(3, red.stream().filter(b -> "red audience".equals(s.elements.cellOf(b))).count());
+        assertEquals(3, red.stream().filter(b -> "red audience".equals(BiobuzzGame.of(s.elements).cellOf(b))).count());
         assertEquals(5, red.stream().filter(b -> b.position().get0() < -1.83).count());
         List<Ball> blue = balls.stream().filter(b -> b.color.equals("blue")).collect(Collectors.toList());
-        assertEquals(3, blue.stream().filter(b -> "blue rear".equals(s.elements.cellOf(b))).count());
+        assertEquals(3, blue.stream().filter(b -> "blue rear".equals(BiobuzzGame.of(s.elements).cellOf(b))).count());
     }
 
     @Test
@@ -80,7 +83,7 @@ class GameElementsTest {
         Setup s = setup("mecanum.json");
         s.run(2.0);
         for (Ball b : s.elements.balls()) {
-            if (b.state() != State.FREE || s.elements.cellOf(b) != null) continue;
+            if (b.state() != State.FREE || BiobuzzGame.of(s.elements).cellOf(b) != null) continue;
             DVector3C p = b.position();
             assertEquals(b.radius, p.get2(), 0.004, "ball " + b.id + " should rest on the floor");
             assertTrue(Math.abs(p.get0()) < 1.8288 && Math.abs(p.get1()) < 1.8288, "ball " + b.id + " inside the walls");
@@ -121,7 +124,7 @@ class GameElementsTest {
             ballAt(s, b, 0.27, -0.3);
             s.run(0.3);
         }
-        assertEquals(GameElements.ROBOT_CAPACITY, s.elements.heldCount());
+        assertEquals(s.elements.capacity(), s.elements.heldCount());
         s.rig.motors.get("intake").port.power = 0;
 
         // Spin the flywheel, then feed.
@@ -144,14 +147,14 @@ class GameElementsTest {
     void nectarStaysInTheUpwardFacingCells() throws Exception {
         Setup s = setup("mecanum.json");
         s.run(3.0);
-        Map<String, Integer> cells = s.elements.cellCounts();
-        // Red starts audience-side up, blue rear-side up (biobuzz-field.json "start_up").
+        Map<String, Integer> cells = BiobuzzGame.of(s.elements).cellCounts();
+        // Red starts audience-side up, blue rear-side up (season.json "start_up").
         assertEquals(3, cells.get("red audience"), "cells " + cells);
         assertEquals(3, cells.get("blue rear"), "cells " + cells);
         assertEquals(0, cells.get("red rear"));
         assertEquals(0, cells.get("blue audience"));
         for (Ball b : s.elements.balls()) {
-            if (s.elements.cellOf(b) == null) continue;
+            if (BiobuzzGame.of(s.elements).cellOf(b) == null) continue;
             assertTrue(Math.hypot(b.velocity().get0(), Math.hypot(b.velocity().get1(), b.velocity().get2())) < 0.01,
                     "NECTAR " + b.id + " settled in its CELL");
         }
@@ -160,16 +163,16 @@ class GameElementsTest {
     @Test
     void ballShotIntoTheOpenEndStaysInTheCell() throws Exception {
         Setup s = setup("mecanum.json");
-        FieldModel field = FieldModel.loadBiobuzz();
-        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        HiveLayout field = BiobuzzGame.of(s.elements).layout();
+        Hive red = field.hive("red");
         Ball ball = freePollen(s);
         // Aim just inside the open outer end of the red audience CELL, arriving from the audience
         // side on a falling arc, as a launched ball would.
         double[] target = red.toWorld(0, -(field.cellOuter - 0.04), field.cellFloor + 0.12);
         lob(s, ball, target, 0, -1.2, 0.2, 0.45);
         s.run(3.0);
-        assertEquals("red audience", s.elements.cellOf(ball), "ball at " + ball.position());
-        assertEquals(1 + 3, s.elements.cellCounts().get("red audience"));
+        assertEquals("red audience", BiobuzzGame.of(s.elements).cellOf(ball), "ball at " + ball.position());
+        assertEquals(1 + 3, BiobuzzGame.of(s.elements).cellCounts().get("red audience"));
     }
 
     @Test
@@ -181,17 +184,17 @@ class GameElementsTest {
         // open only at its outer end, so this one must not get in.
         s.elements.throwBall(ball, -1.3, -0.31, 0.5, 1.7, 0, 4.0);
         s.run(3.0);
-        assertEquals(null, s.elements.cellOf(ball), "bounced off the CELL's side wall, at " + ball.position());
+        assertEquals(null, BiobuzzGame.of(s.elements).cellOf(ball), "bounced off the CELL's side wall, at " + ball.position());
         assertTrue(ball.position().get2() < 0.1, "fell to the tiles, z " + ball.position().get2());
         assertTrue(ball.position().get0() < -0.55, "on the red side of the HIVE, x " + ball.position().get0());
-        assertEquals(3, s.elements.cellCounts().get("red audience"), "the NECTAR in the CELL are still there");
+        assertEquals(3, BiobuzzGame.of(s.elements).cellCounts().get("red audience"), "the NECTAR in the CELL are still there");
     }
 
     @Test
     void ballLandingOnTheRoofBouncesOff() throws Exception {
         Setup s = setup("mecanum.json");
-        FieldModel field = FieldModel.loadBiobuzz();
-        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        HiveLayout field = BiobuzzGame.of(s.elements).layout();
+        Hive red = field.hive("red");
         Ball ball = freePollen(s);
         double mid = (field.cellInner + field.cellOuter) / 2;
         double[] ridge = red.toWorld(0.05, -mid, field.cellFloor + field.cellPeak);
@@ -199,7 +202,7 @@ class GameElementsTest {
         boolean gotIn = false;
         for (int i = 0; i < 60; i++) {
             s.run(0.05);
-            if (s.elements.cellOf(ball) != null) gotIn = true;
+            if (BiobuzzGame.of(s.elements).cellOf(ball) != null) gotIn = true;
         }
         assertTrue(!gotIn, "a ball dropped on the roof must not fall through into the CELL");
         assertTrue(ball.position().get2() < 0.1, "it slides off and ends on the tiles, z " + ball.position().get2());
@@ -208,16 +211,16 @@ class GameElementsTest {
     @Test
     void ballInTheDownwardFacingCellRollsOut() throws Exception {
         Setup s = setup("mecanum.json");
-        FieldModel field = FieldModel.loadBiobuzz();
-        FieldModel.Hive red = field.hives.stream().filter(h -> h.alliance().equals("red")).findFirst().orElseThrow();
+        HiveLayout field = BiobuzzGame.of(s.elements).layout();
+        Hive red = field.hive("red");
         Ball ball = freePollen(s);
         double mid = (field.cellInner + field.cellOuter) / 2;
         double[] p = red.toWorld(0, mid, field.cellFloor + ball.radius + 0.002);
         s.elements.throwBall(ball, p[0], p[1], p[2], 0, 0, 0);
         s.run(0.05);
-        assertEquals("red rear", s.elements.cellOf(ball), "starts inside the down CELL");
+        assertEquals("red rear", BiobuzzGame.of(s.elements).cellOf(ball), "starts inside the down CELL");
         s.run(3.0);
-        assertEquals(null, s.elements.cellOf(ball), "rolls out of the open, lower end");
+        assertEquals(null, BiobuzzGame.of(s.elements).cellOf(ball), "rolls out of the open, lower end");
     }
 
     @Test
@@ -225,15 +228,15 @@ class GameElementsTest {
         Setup s = setup("mecanum.json");
         FieldModel field = FieldModel.loadBiobuzz();
         for (String color : new String[]{"red", "blue"}) {
-            assertEquals(5, s.elements.waitingNectar(color));
-            for (int i = 0; i < 5; i++) assertTrue(s.elements.introduceNectar(color), color + " NECTAR " + (i + 1));
-            assertEquals(0, s.elements.waitingNectar(color));
-            assertTrue(!s.elements.introduceNectar(color), "no 6th " + color + " NECTAR");
+            assertEquals(5, BiobuzzGame.of(s.elements).waitingNectar(color));
+            for (int i = 0; i < 5; i++) assertTrue(BiobuzzGame.of(s.elements).introduceNectar(color), color + " NECTAR " + (i + 1));
+            assertEquals(0, BiobuzzGame.of(s.elements).waitingNectar(color));
+            assertTrue(!BiobuzzGame.of(s.elements).introduceNectar(color), "no 6th " + color + " NECTAR");
         }
         s.run(2.0);
         var zones = field.json.getAsJsonObject("loading_zones");
         for (Ball b : s.elements.balls()) {
-            if (!b.kind.equals("nectar") || s.elements.cellOf(b) != null) continue;
+            if (!b.kind.equals("nectar") || BiobuzzGame.of(s.elements).cellOf(b) != null) continue;
             assertEquals(State.FREE, b.state(), "NECTAR " + b.id + " is on the field");
             var z = zones.getAsJsonObject(b.color);
             double x = b.position().get0(), y = b.position().get1();
@@ -244,8 +247,8 @@ class GameElementsTest {
             assertTrue(Math.hypot(b.velocity().get0(), b.velocity().get1()) < 0.01, "at rest (placed clear of other balls)");
         }
         s.elements.restage();
-        assertEquals(5, s.elements.waitingNectar("red"));
-        assertEquals(5, s.elements.waitingNectar("blue"));
+        assertEquals(5, BiobuzzGame.of(s.elements).waitingNectar("red"));
+        assertEquals(5, BiobuzzGame.of(s.elements).waitingNectar("blue"));
     }
 
     private static Ball freePollen(Setup s) {

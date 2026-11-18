@@ -1,17 +1,11 @@
-package ftcsim.physics;
+package biobuzz;
 
-import java.util.List;
-
-import org.ode4j.math.DMatrix3;
-import org.ode4j.ode.DBody;
-import org.ode4j.ode.DGeom;
-import org.ode4j.ode.DHingeJoint;
-import org.ode4j.ode.DMass;
-import org.ode4j.ode.OdeHelper;
+import ftcsim.physics.HingeBody;
 
 /**
- * One HIVE as a rigid body on its pivot: the two CELLS and their arm, hinged about the x axis
- * with stops at the two stable positions (+-30 degrees).
+ * One HIVE on its pivot: the two CELLS and their arm, a {@link HingeBody} turning about the x axis
+ * with stops at the two stable positions (+-30 degrees), plus which CELL faces up and how many
+ * times it has tipped.
  *
  * <p>The real HIVE is bi-stable (Competition Manual 9.6.2): it holds either position until enough
  * POLLEN or NECTAR land in the upward-facing CELL. Here that comes from where its mass sits. The
@@ -40,72 +34,30 @@ public final class HiveBody {
     /** The damper, as a viscous torque against the swing, N m per rad/s. */
     static final double DAMPING_NMS = 0.35;
     /** Radius of gyration about the pivot axis, for the moment of inertia (cells ~0.39 m out). */
-    private static final double GYRATION_M = 0.40;
+    static final double GYRATION_M = 0.40;
 
-    /** The HIVE at its start position (biobuzz-field.json "start_up"). */
-    public final FieldModel.Hive start;
+    /** The HIVE at its start position (season.json "start_up"). */
+    public final Hive start;
+    private final HingeBody body;
     private final double stop;
-    private final DBody body;
-    private final DHingeJoint hinge;
     private String upCell;
     private int tips;
 
-    HiveBody(PhysicsWorld w, FieldModel.Hive start, List<FieldModel.Panel> panels) {
+    HiveBody(HingeBody body, Hive start) {
+        this.body = body;
         this.start = start;
         this.stop = Math.abs(start.phi());
-        body = OdeHelper.createBody(w.world);
-        DMass m = OdeHelper.createMass();
-        double ixx = MASS_KG * GYRATION_M * GYRATION_M;
-        m.setParameters(MASS_KG, 0, 0, 0, ixx, 0.3 * ixx, ixx, 0, 0, 0);
-        body.setMass(m);
-        body.setAutoDisableFlag(false);
-        body.setLinearDamping(0);
-        body.setAngularDamping(0);
-        setPose(0);
-
-        // Body origin = center of mass, COM_ABOVE_PIVOT_M above the pivot in the hive frame.
-        for (FieldModel.Panel p : panels) {
-            DGeom g = OdeHelper.createBox(w.space, p.size()[0], p.size()[1], p.size()[2]);
-            g.setBody(body);
-            g.setOffsetPosition(p.center()[0], p.center()[1], p.center()[2] - COM_ABOVE_PIVOT_M);
-            double[] r = p.rot();
-            g.setOffsetRotation(new DMatrix3(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]));
-            PhysicsWorld.Material mat = new PhysicsWorld.Material("hive");
-            mat.mu = mat.mu2 = 0.25;
-            mat.owner = this;
-            w.register(g, mat, PhysicsWorld.CAT_STATIC, PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL | PhysicsWorld.CAT_BALL);
-        }
-
-        // The hinge measures its angle from the pose it is created in, so create it level.
-        hinge = OdeHelper.createHingeJoint(w.world);
-        hinge.attach(body, null);
-        hinge.setAnchor(start.px(), start.py(), start.pz());
-        hinge.setAxis(1, 0, 0);
-        hinge.setParamLoStop(-stop);
-        hinge.setParamHiStop(stop);
-        hinge.setParamBounce(0);
         reset();
     }
 
-    /** Back to the start position, at rest, tip count cleared. */
-    public void reset() {
-        setPose(start.phi());
+    /** Tip count cleared, the start CELL up (the body itself is put back with the field's other moving parts). */
+    void reset() {
         upCell = start.upCell();
         tips = 0;
     }
 
-    private void setPose(double phi) {
-        double[] p = start.at(phi).toWorld(0, 0, COM_ABOVE_PIVOT_M);
-        double c = Math.cos(phi), s = Math.sin(phi);
-        body.setPosition(p[0], p[1], p[2]);
-        body.setRotation(new DMatrix3(1, 0, 0, 0, c, -s, 0, s, c));
-        body.setLinearVel(0, 0, 0);
-        body.setAngularVel(0, 0, 0);
-    }
-
-    /** Damper torque and tip bookkeeping; call before each physics step. */
+    /** Tip bookkeeping; call before each physics step. */
     void beforeStep() {
-        body.addTorque(-DAMPING_NMS * hinge.getAngleRate(), 0, 0);
         double phi = angle();
         // A TIP: the HIVE has swung all the way over and settled against the other stop.
         if ("audience".equals(upCell) && phi > stop - 0.02) {
@@ -119,7 +71,7 @@ public final class HiveBody {
 
     /** Tilt about the pivot, radians: negative = audience CELL up, positive = rear CELL up. */
     public double angle() {
-        return hinge.getAngle();
+        return body.angle();
     }
 
     /** "audience" or "rear": the CELL facing up, as of the last stop the HIVE settled on. */
@@ -133,7 +85,7 @@ public final class HiveBody {
     }
 
     /** The HIVE at its current tilt, for geometry (where the CELLS are now). */
-    public FieldModel.Hive current() {
+    public Hive current() {
         return start.at(angle());
     }
 }
