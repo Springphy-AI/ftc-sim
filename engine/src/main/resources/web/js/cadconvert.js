@@ -117,12 +117,13 @@ const started = new Set();
 
 /**
  * Converts robot {@code index}'s STEP file if the hello message says it needs it. Only once per
- * file version per page; {@code report(text, done, failed)} shows progress.
+ * file version per page; {@code report(text, done, failed)} shows progress, naming the robot when
+ * {@code several} robots are on the field.
  */
-export async function convertIfNeeded(index, cad, report) {
+export async function convertIfNeeded(index, cad, report, several = true) {
   if (!cad || cad.status !== 'convert' || !cad.source || started.has(cad.sha256)) return;
   started.add(cad.sha256);
-  const label = `Robot ${index + 1}: ${cad.file}`;
+  const label = `${several ? `Robot ${index + 1}: ` : ''}${cad.file}`;
   try {
     report(`${label}: reading the STEP file…`);
     const res = await fetch(cad.source);

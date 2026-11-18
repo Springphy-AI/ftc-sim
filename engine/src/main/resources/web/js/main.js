@@ -129,7 +129,7 @@ function checkCad() {
       convertIfNeeded(i, r.cad, (text, done, failed) => {
         if (done && !failed && performance.now() - importShownAt < 3000) return;   // what it found is showing
         cadNotice(text, failed ? 'err' : (done ? 'ok' : ''), done && !failed ? 6000 : 0);
-      });
+      }, robots.length > 1);
     }
     if (r.cad.status === 'ready' && imported && imported.robot === i && imported.file === r.robotFile) {
       // What the simulator worked out by itself, and where to go from here.
