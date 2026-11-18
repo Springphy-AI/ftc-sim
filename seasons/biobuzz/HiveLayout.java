@@ -78,7 +78,13 @@ public final class HiveLayout {
                 out.add(panel(cell + "roof", sx * hw / 2 + nx * t / 2, y, f + (wall + peak) / 2 + nz * t / 2,
                         slope + t, depth, t, sx > 0 ? Math.atan2(rise, hw) : -Math.atan2(rise, hw), shell, opacity));
             }
-            out.add(panel(cell + "inner end", 0, side * (cellInner - t / 2), f + peak / 2, 2 * hw + 2 * t, t, peak + t, 0, shell, opacity));
+            // The closed inner end: a box to collide with (its top corners stick out past the
+            // roof, hidden), drawn as the CELL's own five-sided shape.
+            out.add(FieldModel.box(cell + "inner end", new double[]{0, side * (cellInner - t / 2), f + peak / 2},
+                    new double[]{2 * hw + 2 * t, t, peak + t}, null, shell, opacity, true, false, 0.25));
+            double[] pentagon = {-hw - t, f - t, hw + t, f - t, hw + t, f + wall, 0, f + peak + t, -hw - t, f + wall};
+            out.add(FieldModel.prism(cell + "inner end", new double[]{0, side * (cellInner - t / 2), 0}, pentagon, t,
+                    FieldModel.rotX(Math.PI / 2), shell, opacity));
         }
         out.add(panel("HIVE arm", 0, 0, f - 0.02, 0.05, 2 * cellOuter, 0.03, 0, armColor, 1));
         return out;

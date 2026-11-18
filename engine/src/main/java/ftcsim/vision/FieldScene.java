@@ -131,6 +131,28 @@ final class FieldScene {
                 : Material.flat(s.rgb()));
         if (s.shape() == FieldModel.Shape.BOX) {
             target.box(s.center(), s.size()[0], s.size()[1], s.size()[2], s.rot(), m);
+        } else if (s.shape() == FieldModel.Shape.PRISM) {
+            // Its two faces (fans over the convex outline) and the sides between them.
+            double[] o = s.outline();
+            int n = o.length / 2;
+            double h = s.size()[0] / 2;
+            double[][] top = new double[n][], bottom = new double[n][];
+            for (int i = 0; i < n; i++) {
+                top[i] = FieldModel.mul(s.rot(), new double[]{o[2 * i], o[2 * i + 1], h});
+                bottom[i] = FieldModel.mul(s.rot(), new double[]{o[2 * i], o[2 * i + 1], -h});
+                for (int k = 0; k < 3; k++) {
+                    top[i][k] += s.center()[k];
+                    bottom[i][k] += s.center()[k];
+                }
+            }
+            for (int i = 1; i + 1 < n; i++) {
+                target.tri(top[0], top[i], top[i + 1], m);
+                target.tri(bottom[0], bottom[i + 1], bottom[i], m);
+            }
+            for (int i = 0; i < n; i++) {
+                int j = (i + 1) % n;
+                target.quad(bottom[i], bottom[j], top[j], top[i], m);
+            }
         } else {
             double r = s.size()[0];
             double[][] ends = s.axisEnds();

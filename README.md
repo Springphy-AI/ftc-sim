@@ -187,7 +187,7 @@ and describe the new field in its `season.json` (meters, in the season's field c
 | `field_m`, `tile_m`, `wall_height_m` | the perimeter's inside size, tile pitch, wall height |
 | `view` | where the audience and each alliance's drivers are (`"+x"`, `"-y"`...), for the cameras |
 | `start`, `symmetry` | each alliance's start spots; how one alliance's side maps onto the other's |
-| `structures` | boxes, bars and cylinders: `box_m` + `at_m` (+ `yaw_deg`, `pitch_deg`, `roll_deg`), `beam_m`, `cylinder_m`, each with `color`, `collide`, `visible`, `friction`. `"mirror": "y"` (or `"x"`) adds the other alliance's copy, reflected across that line, red and blue swapped |
+| `structures` | boxes, bars and cylinders: `box_m` + `at_m` (+ `yaw_deg`, `pitch_deg`, `roll_deg`), `beam_m`, `cylinder_m`, each with `color`, `collide`, `visible`, `friction`; `prism_m` (a convex `outline` made `length` thick) is only drawn, for a shape a box can't show. `"mirror": "y"` (or `"x"`) adds the other alliance's copy, reflected across that line, red and blue swapped |
 | `tape` | `rect_m` (outline or `"fill": true`), `line_m` polylines, `polygon_m` |
 | `field_tags` | AprilTags: id, `center_m`, `normal` (out of the face), `up` |
 | `movers` | parts that turn on a hinge: `name`, `pivot_m`, `axis`, `limits_rad`, `parts`, `tags`; with `mass_kg`, `com_m`, `inertia_kgm2` and `damping_nms` gravity, robots and game pieces move it (a GATE); without, only code does (the OBELISK). A mirrored mover has red or blue in its name, so its copy gets its own |

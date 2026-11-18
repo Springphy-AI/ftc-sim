@@ -284,6 +284,15 @@ export class FieldView {
       let geo;
       if (s.shape === 'box') {
         geo = new THREE.BoxGeometry(s.size[0], s.size[1], s.size[2]);
+      } else if (s.shape === 'prism') {
+        // a convex outline in its x-y plane, size[0] thick along its z, centered
+        const shape = new THREE.Shape();
+        const o = s.outline;
+        shape.moveTo(o[0], o[1]);
+        for (let i = 2; i < o.length; i += 2) shape.lineTo(o[i], o[i + 1]);
+        shape.closePath();
+        geo = new THREE.ExtrudeGeometry(shape, { depth: s.size[0], bevelEnabled: false });
+        geo.translate(0, 0, -s.size[0] / 2);
       } else {
         const r = s.size[0];
         geo = new THREE.CylinderGeometry(r, r, s.size[1], r < 0.01 ? 6 : r < 0.05 ? 14 : 28);

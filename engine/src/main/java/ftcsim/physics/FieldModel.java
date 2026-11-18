@@ -23,21 +23,29 @@ import ftcsim.season.Season;
  */
 public final class FieldModel {
 
-    public enum Shape {BOX, CYLINDER}
+    public enum Shape {BOX, CYLINDER, PRISM}
 
     /**
      * A solid part of the field. {@code size} is the full size along the shape's own axes for a
-     * BOX, or {radius, length} for a CYLINDER, whose axis is its own z. {@code rot} is row-major,
-     * from the shape's axes to the world's. {@code collide}: robots and game pieces hit it;
-     * {@code visible}: drawn (the 3D view and the webcams). A shape can be one without the other:
-     * a simple collision box under a detailed drawing.
+     * BOX, {radius, length} for a CYLINDER, whose axis is its own z, or {length} for a PRISM: the
+     * convex polygon {@code outline} (x, y pairs in the shape's own x-y plane) made {@code length}
+     * thick along its z. {@code rot} is row-major, from the shape's axes to the world's.
+     * {@code collide}: robots and game pieces hit it; {@code visible}: drawn (the 3D view and the
+     * webcams). A shape can be one without the other: a simple collision box under a detailed
+     * drawing. A PRISM is only drawn.
      */
     public record Solid(String name, Shape shape, double[] center, double[] size, double[] rot,
-                        int rgb, double opacity, boolean collide, boolean visible, double friction) {
+                        int rgb, double opacity, boolean collide, boolean visible, double friction, double[] outline) {
+
+        public Solid {
+            if (shape == Shape.PRISM && collide) {
+                throw new IllegalArgumentException("\"" + name + "\" is a prism, which is only drawn: give it \"collide\": false and a box to collide with");
+            }
+        }
 
         /** This shape moved by a rigid transform: rotation {@code r} (row-major) then translation {@code t}. */
         public Solid transformed(double[] r, double[] t) {
-            return new Solid(name, shape, add(mul(r, center), t), size, mul3(r, rot), rgb, opacity, collide, visible, friction);
+            return new Solid(name, shape, add(mul(r, center), t), size, mul3(r, rot), rgb, opacity, collide, visible, friction, outline);
         }
 
         /** The two ends of a cylinder's axis. */
@@ -212,6 +220,8 @@ public final class FieldModel {
      *   {"beam_m": {"from": [x, y, z], "to": [x, y, z], "width": 0.04}}     (a square bar)
      *   {"cylinder_m": {"from": [...], "to": [...], "radius": 0.07}}
      *   {"cylinder_m": {"radius": 0.07, "height": 0.5}, "at_m": [x, y, 0]}   (upright, standing at z)
+     *   {"prism_m": {"outline": [[x, y], ...], "length": 0.01}, "at_m": [...], "roll_deg": 90}
+     *                                         (a convex polygon made thick; drawn only)
      * </pre>
      * plus "name", "color", "opacity", "collide" (default true), "visible" (default true) and
      * "friction" (default 0.3).
@@ -223,14 +233,22 @@ public final class FieldModel {
         boolean collide = !o.has("collide") || o.get("collide").getAsBoolean();
         boolean visible = !o.has("visible") || o.get("visible").getAsBoolean();
         double friction = o.has("friction") ? o.get("friction").getAsDouble() : 0.3;
-        if (o.has("box_m")) {
-            double[] size = vec(o.getAsJsonArray("box_m"));
+        if (o.has("box_m") || o.has("prism_m")) {
             double[] at = vec(o.getAsJsonArray("at_m"));
             double[] rot = o.has("rot") ? vec9(o.getAsJsonArray("rot"))
                     : o.has("yaw_deg") ? rotZ(Math.toRadians(o.get("yaw_deg").getAsDouble())) : IDENTITY;
             if (o.has("pitch_deg")) rot = mul3(rot, rotY(Math.toRadians(o.get("pitch_deg").getAsDouble())));
             if (o.has("roll_deg")) rot = mul3(rot, rotX(Math.toRadians(o.get("roll_deg").getAsDouble())));
-            return new Solid(name, Shape.BOX, at, size, rot, rgb, opacity, collide, visible, friction);
+            if (o.has("box_m")) return new Solid(name, Shape.BOX, at, vec(o.getAsJsonArray("box_m")), rot, rgb, opacity, collide, visible, friction, null);
+            JsonObject p = o.getAsJsonObject("prism_m");
+            JsonArray pts = p.getAsJsonArray("outline");
+            double[] outline = new double[pts.size() * 2];
+            for (int i = 0; i < pts.size(); i++) {
+                outline[2 * i] = pts.get(i).getAsJsonArray().get(0).getAsDouble();
+                outline[2 * i + 1] = pts.get(i).getAsJsonArray().get(1).getAsDouble();
+            }
+            return new Solid(name, Shape.PRISM, at, new double[]{p.get("length").getAsDouble()}, rot, rgb, opacity,
+                    o.has("collide") && o.get("collide").getAsBoolean(), visible, friction, outline);
         }
         if (o.has("beam_m")) {
             JsonObject b = o.getAsJsonObject("beam_m");
@@ -252,7 +270,7 @@ public final class FieldModel {
             }
             return cylinder(name, a, b, r, rgb, opacity, collide, visible, friction);
         }
-        throw new IllegalArgumentException("structure \"" + name + "\" needs box_m, beam_m or cylinder_m");
+        throw new IllegalArgumentException("structure \"" + name + "\" needs box_m, beam_m, cylinder_m or prism_m");
     }
 
     private void addSolidJson(List<Solid> into, JsonObject o) {
@@ -266,7 +284,7 @@ public final class FieldModel {
                              boolean collide, boolean visible, double friction) {
         double[] d = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
         double len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        return new Solid(name, Shape.BOX, mid(a, b), new double[]{w, h, len}, frameAlong(d), rgb, opacity, collide, visible, friction);
+        return new Solid(name, Shape.BOX, mid(a, b), new double[]{w, h, len}, frameAlong(d), rgb, opacity, collide, visible, friction, null);
     }
 
     /** A cylinder from {@code a} to {@code b}. */
@@ -274,13 +292,21 @@ public final class FieldModel {
                                  boolean collide, boolean visible, double friction) {
         double[] d = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
         double len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        return new Solid(name, Shape.CYLINDER, mid(a, b), new double[]{r, len}, frameAlong(d), rgb, opacity, collide, visible, friction);
+        return new Solid(name, Shape.CYLINDER, mid(a, b), new double[]{r, len}, frameAlong(d), rgb, opacity, collide, visible, friction, null);
     }
 
     /** An upright or tilted box, axis-aligned when {@code rot} is null. */
     public static Solid box(String name, double[] center, double[] size, double[] rot, int rgb, double opacity,
                             boolean collide, boolean visible, double friction) {
-        return new Solid(name, Shape.BOX, center, size, rot == null ? IDENTITY : rot, rgb, opacity, collide, visible, friction);
+        return new Solid(name, Shape.BOX, center, size, rot == null ? IDENTITY : rot, rgb, opacity, collide, visible, friction, null);
+    }
+
+    /**
+     * A convex polygon ({@code outline}: x, y pairs in its own x-y plane) made {@code length}
+     * thick along its own z, centered on {@code center}; drawn only.
+     */
+    public static Solid prism(String name, double[] center, double[] outline, double length, double[] rot, int rgb, double opacity) {
+        return new Solid(name, Shape.PRISM, center, new double[]{length}, rot == null ? IDENTITY : rot, rgb, opacity, false, true, 0, outline);
     }
 
     /**
@@ -403,8 +429,10 @@ public final class FieldModel {
         double[] r = s.rot().clone();
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) r[3 * i + j] = f[i] * s.rot()[3 * i + j] * f[j];
         int rgb = s.rgb() == palette.get("red") ? palette.get("blue") : s.rgb() == palette.get("blue") ? palette.get("red") : s.rgb();
+        double[] outline = s.outline() == null ? null : s.outline().clone();
+        if (outline != null) for (int i = 0; i < outline.length; i++) outline[i] *= f[i % 2];   // its own x, y by the same reflection
         return new Solid(swapAlliance(s.name()), s.shape(), mulDiag(f, s.center()), s.size(), r, rgb, s.opacity(),
-                s.collide(), s.visible(), s.friction());
+                s.collide(), s.visible(), s.friction(), outline);
     }
 
     private Tape mirror(Tape t, String axis) {
@@ -535,6 +563,7 @@ public final class FieldModel {
             o.put("rot", s.rot());
             o.put("rgb", s.rgb());
             if (s.opacity() < 1) o.put("opacity", s.opacity());
+            if (s.outline() != null) o.put("outline", s.outline());
             out.add(o);
         }
         return out;
