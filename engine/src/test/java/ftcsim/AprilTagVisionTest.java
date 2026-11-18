@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
@@ -19,6 +21,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagGameDatabase;
 import org.firstinspires.ftc.vision.apriltag.AprilTagLibrary;
+import org.firstinspires.ftc.vision.apriltag.AprilTagPoseRaw;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +45,28 @@ import ftcsim.vision.SimCamera;
  * match where the simulator put the camera and the tags.
  */
 class AprilTagVisionTest {
+
+    /**
+     * How far a solved tag position may be from the truth, per axis. On rendered frames (no lens
+     * distortion or noise) the positions solved at about 0.7 m come within 2 mm; the test prints
+     * every error to 0.1 mm, so the log shows whether that still holds. The limit leaves room for
+     * the detector as built for another platform (MSVC on Windows, gcc on Linux), while a real error
+     * in the camera model or in where the tags are fails it.
+     */
+    private static final double POSITION_TOLERANCE_M = 0.005;
+    /**
+     * The RED SCORING cluster's origin is not a tag: it lies 0.28 m from tag 30 through FIRST's
+     * inch-rounded offsets and is solved at 0.88 m from 3 of the 4 tags, so a small rotation error
+     * moves it more (observed: under 1 mm). The check is that FIRST's layout and the field agree.
+     */
+    private static final double CLUSTER_ORIGIN_TOLERANCE_M = 0.010;
+    /**
+     * How far a solved tag orientation may be from the truth: the angle of the rotation between the
+     * two (observed: up to 1.7 degrees; a small tag pins down its tilt less well than its place).
+     * Unlike the bearing, which follows from the position, this checks what the position doesn't: a
+     * tag drawn turned or mirrored, or axes in another convention, is off by tens of degrees.
+     */
+    private static final double ORIENTATION_TOLERANCE_DEG = 3.0;
 
     private Simulator sim;
     private VisionPortal portal;
@@ -96,15 +121,49 @@ class AprilTagVisionTest {
         throw new AssertionError("no tag " + id + " on the field");
     }
 
-    /** The tag's center as FIRST's ftcPose reports it: x right, y forward, z up from the camera (m). */
-    private static double[] expectedFtcXyz(SimCamera camera, FieldTag tag) {
-        double[][] pose = camera.currentPose();
+    /**
+     * The tag's center as FIRST's ftcPose reports it (x right, y forward, z up from the camera, in
+     * meters), from where the camera was when the detection's frame was taken: the frame shows the
+     * world {@code latency_ms} ago, and the robot may still be settling.
+     */
+    private static double[] expectedFtcXyz(SimCamera camera, FieldTag tag, AprilTagDetection d) {
+        double[][] pose = camera.poseAt(d.frameAcquisitionNanoTime);
         double[] p = pose[0], r = pose[1], c = tag.center();
         double dx = c[0] - p[0], dy = c[1] - p[1], dz = c[2] - p[2];
         double X = r[0] * dx + r[1] * dy + r[2] * dz;     // camera right
         double Y = r[3] * dx + r[4] * dy + r[5] * dz;     // camera down
         double Z = r[6] * dx + r[7] * dy + r[8] * dz;     // camera forward
         return new double[]{X, Z, -Y};
+    }
+
+    /** Checks a solved position against the truth per axis, and prints the errors to 0.1 mm. */
+    private static void assertFtcXyz(String what, double[] want, double x, double y, double z, double tolerance) {
+        double[] got = {x, y, z};
+        System.out.printf(Locale.US, "%s: x=%.4f y=%.4f z=%.4f m, error x %+.1f y %+.1f z %+.1f mm (limit %.0f mm)%n", what,
+                x, y, z, (x - want[0]) * 1000, (y - want[1]) * 1000, (z - want[2]) * 1000, tolerance * 1000);
+        String[] axis = {"x", "y", "z"};
+        for (int k = 0; k < 3; k++) assertEquals(want[k], got[k], tolerance, what + " " + axis[k]);
+    }
+
+    /**
+     * Checks the solved orientation (the rotation from the tag's axes to the camera's, OpenCV's
+     * convention: tag x right, y down, z into the tag) against the tag's true orientation as seen
+     * from where the camera was for that frame, and prints the angle between them.
+     */
+    private static void assertOrientation(String what, SimCamera camera, FieldTag tag, AprilTagDetection d) {
+        double[] r = camera.poseAt(d.frameAcquisitionNanoTime)[1];
+        double[][] tagAxes = {tag.right(), {-tag.up()[0], -tag.up()[1], -tag.up()[2]}, {-tag.normal()[0], -tag.normal()[1], -tag.normal()[2]}};
+        AprilTagPoseRaw raw = d.rawPose;
+        double trace = 0;   // trace of expected^T * solved
+        for (int col = 0; col < 3; col++) {
+            for (int row = 0; row < 3; row++) {
+                double want = r[row * 3] * tagAxes[col][0] + r[row * 3 + 1] * tagAxes[col][1] + r[row * 3 + 2] * tagAxes[col][2];
+                trace += want * raw.R.get(row, col);
+            }
+        }
+        double angle = Math.toDegrees(Math.acos(Math.max(-1, Math.min(1, (trace - 1) / 2))));
+        System.out.printf(Locale.US, "%s: orientation off by %.2f deg (limit %.1f)%n", what, angle, ORIENTATION_TOLERANCE_DEG);
+        assertTrue(angle <= ORIENTATION_TOLERANCE_DEG, what + " orientation off by " + angle + " deg");
     }
 
     @Test
@@ -126,7 +185,7 @@ class AprilTagVisionTest {
         List<AprilTagDetection> detections = waitForDetections(processor, 20000);
         assertEquals(VisionPortal.CameraState.STREAMING, portal.getCameraState());
         assertFalse(detections.isEmpty(), "FIRST's AprilTag processor detects tags in the simulated image");
-        int checked = 0;
+        Set<Integer> checked = new TreeSet<>();
         for (AprilTagDetection d : detections) {
             assertTrue(d instanceof AprilTagSingleDetection, "tags from a plain library are single detections");
             AprilTagSingleDetection s = (AprilTagSingleDetection) d;
@@ -136,17 +195,13 @@ class AprilTagVisionTest {
                 continue;
             }
             assertNotNull(s.metadata, "tag " + s.id + " is in the library");
-            double[] want = expectedFtcXyz(camera, tag(s.id));
-            System.out.printf(Locale.US, "tag %d: ftcPose x=%.3f y=%.3f z=%.3f (expected %.3f %.3f %.3f) yaw=%.1f range=%.3f bearing=%.1f margin=%.0f%n",
-                    s.id, s.ftcPose.x, s.ftcPose.y, s.ftcPose.z, want[0], want[1], want[2], s.ftcPose.yaw, s.ftcPose.range,
-                    s.ftcPose.bearing, s.decisionMargin);
-            assertEquals(want[0], s.ftcPose.x, 0.02, "tag " + s.id + " x");
-            assertEquals(want[1], s.ftcPose.y, 0.03, "tag " + s.id + " y");
-            assertEquals(want[2], s.ftcPose.z, 0.02, "tag " + s.id + " z");
-            assertEquals(Math.toDegrees(Math.atan2(-want[0], want[1])), s.ftcPose.bearing, 1.5, "tag " + s.id + " bearing");
-            checked++;
+            System.out.printf(Locale.US, "tag %d: range %.4f m, decision margin %.0f%n", s.id, s.ftcPose.range, s.decisionMargin);
+            assertFtcXyz("tag " + s.id, expectedFtcXyz(camera, tag(s.id), s), s.ftcPose.x, s.ftcPose.y, s.ftcPose.z, POSITION_TOLERANCE_M);
+            assertOrientation("tag " + s.id, camera, tag(s.id), s);
+            checked.add(s.id);
         }
-        assertTrue(checked >= 2, "sees at least two of the red rear CELL's tags, saw " + checked);
+        // From here, tags 30, 31 and 33 are in full view (32 is partly hidden by the CELL's frame).
+        assertTrue(checked.containsAll(Set.of(30, 31, 33)), "sees tags 30, 31 and 33, saw " + checked);
     }
 
     /**
@@ -182,13 +237,11 @@ class AprilTagVisionTest {
         double[] origin = new double[3];
         for (int k = 0; k < 3; k++) origin[k] = t30.center()[k] - (ox * t30.right()[k] + oy * down[k] + oz * into[k]);
         FieldTag originAsTag = new FieldTag(-1, origin, t30.right(), t30.up(), t30.normal(), 0);
-        double[] want = expectedFtcXyz(camera, originAsTag);
         double in = 0.0254;
-        System.out.printf(Locale.US, "RED SCORING %d%%: ftcPose x=%.3f y=%.3f z=%.3f m (expected %.3f %.3f %.3f)%n", red.percentClusterFound,
-                red.ftcPose.x * in, red.ftcPose.y * in, red.ftcPose.z * in, want[0], want[1], want[2]);
-        assertEquals(want[0], red.ftcPose.x * in, 0.03, "cluster origin x");
-        assertEquals(want[1], red.ftcPose.y * in, 0.04, "cluster origin y");
-        assertEquals(want[2], red.ftcPose.z * in, 0.03, "cluster origin z");
+        System.out.printf(Locale.US, "RED SCORING: %d%% of the cluster found%n", red.percentClusterFound);
+        assertFtcXyz("cluster origin", expectedFtcXyz(camera, originAsTag, red), red.ftcPose.x * in, red.ftcPose.y * in, red.ftcPose.z * in,
+                CLUSTER_ORIGIN_TOLERANCE_M);
+        assertOrientation("cluster", camera, originAsTag, red);
     }
 
     /**
@@ -235,11 +288,7 @@ class AprilTagVisionTest {
             Thread.sleep(50);
         }
         assertNotNull(seen, "tag 35 is where the tipped HIVE put it");
-        double[] want = expectedFtcXyz(camera, t35);
-        System.out.printf(Locale.US, "tipped tag 35: ftcPose x=%.3f y=%.3f z=%.3f (expected %.3f %.3f %.3f)%n",
-                seen.ftcPose.x, seen.ftcPose.y, seen.ftcPose.z, want[0], want[1], want[2]);
-        assertEquals(want[0], seen.ftcPose.x, 0.02);
-        assertEquals(want[1], seen.ftcPose.y, 0.03);
-        assertEquals(want[2], seen.ftcPose.z, 0.02);
+        assertFtcXyz("tipped tag 35", expectedFtcXyz(camera, t35, seen), seen.ftcPose.x, seen.ftcPose.y, seen.ftcPose.z, POSITION_TOLERANCE_M);
+        assertOrientation("tipped tag 35", camera, t35, seen);
     }
 }

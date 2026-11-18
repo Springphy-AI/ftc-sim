@@ -506,7 +506,8 @@ The suite includes:
   refer to exists in the simulator, so a missing stand-in can't surface as a `NoSuchMethodError`
   in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
 - `AprilTagVisionTest`: FIRST's `AprilTagProcessor` on the simulated webcam finds the HIVE's tags,
-  the poses it solves match where the camera and tags really are to about a millimeter, and the
+  the positions it solves match where the camera and tags really are within 2 mm (the test prints
+  each error, and fails beyond 5 mm) and their orientations within 2 degrees, and the
   `RED SCORING` cluster origin it reports sits at the CELL opening. `CameraStreamTest`: the live
   view reaches the Driver Station page.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to

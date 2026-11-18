@@ -45,6 +45,14 @@ public final class SimCamera implements CameraBackend {
         return pose(world.latest());
     }
 
+    /**
+     * Where the camera was at {@code nanos} (System.nanoTime()), as {@link #currentPose()}: for a
+     * frame, the moment {@link #capture} returned, which VisionPortal passes on to processors.
+     */
+    public double[][] poseAt(long nanos) {
+        return pose(world.at(nanos));
+    }
+
     /** fx, fy, cx, cy of the lens at a resolution. */
     public double[] lens(int width, int height) {
         return intrinsics(width, height);
