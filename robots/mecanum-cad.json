@@ -1,0 +1,70 @@
+{
+  "name": "Mecanum robot from CAD (STEP)",
+  "description": "The mecanum robot of mecanum.json, built from a STEP file: it looks like its CAD, its mass properties and collision shape come from the CAD, and the hood is a rigid body on its servo. Copy it, point cad.file at your own STEP export and list your moving parts in cad.links.",
+
+  "chassis": {
+    "length_m": 0.4572,
+    "width_m": 0.4572,
+    "frame_height_m": 0.09,
+    "ground_clearance_m": 0.025,
+    "mass_kg": 13.0,
+    "color": "#b3261e"
+  },
+
+  "drive": {
+    "type": "mecanum",
+    "wheel_diameter_mm": 104,
+    "wheelbase_m": 0.336,
+    "track_width_m": 0.35,
+    "motor": "goBILDA 5203 312rpm",
+    "external_gear_ratio": 1.0,
+    "motors": {
+      "front_left": "front_left_drive",
+      "front_right": "front_right_drive",
+      "back_left": "back_left_drive",
+      "back_right": "back_right_drive"
+    },
+    "left_side_mirrored": true,
+    "traction_mu": 0.9,
+    "roller_mu": 0.04
+  },
+
+  "imu": { "name": "imu", "logo": "UP", "usb": "FORWARD" },
+
+  "devices": [
+    { "type": "motor", "name": "intake", "motor": "goBILDA 5203 1150rpm", "role": "intake",
+      "load": { "kind": "roller", "inertia": 0.0002 } },
+    { "type": "motor", "name": "launcher", "motor": "goBILDA 5203 6000rpm", "role": "launcher",
+      "load": { "kind": "flywheel", "inertia": 0.0003 } },
+    { "type": "servo", "name": "hood", "range_deg": 300, "speed_deg_per_sec": 450, "role": "hood" },
+    { "type": "crservo", "name": "feeder", "rpm": 50, "role": "feeder" },
+
+    { "type": "pinpoint", "name": "pinpoint", "x_pod_offset_mm": -84, "y_pod_offset_mm": -168, "pod": "4bar" },
+    { "type": "otos", "name": "sensor_otos", "x_m": 0.0, "y_m": 0.0, "yaw_deg": 0 },
+    { "type": "distance", "name": "sensor_distance", "x_m": 0.2286, "y_m": 0.0, "z_m": 0.08, "yaw_deg": 0 },
+    { "type": "color", "name": "sensor_color", "x_m": 0.16, "y_m": 0.0, "z_m": 0.015 },
+    { "type": "touch", "name": "sensor_touch", "x_m": 0.2286, "y_m": 0.12, "z_m": 0.06 },
+    { "type": "digital_touch", "name": "digitalTouch", "x_m": 0.2286, "y_m": -0.12, "z_m": 0.06 },
+    { "type": "webcam", "name": "Webcam 1", "model": "Logitech C920", "x_m": 0.2, "y_m": 0.0, "z_m": 0.3, "pitch_deg": 20 }
+  ],
+
+  "io": { "command_ms": 1.0, "i2c_ms": 2.5 },
+
+  "cad": {
+    "file": "cad/biobuzz-bot.step",
+    "forward": "+y",
+    "up": "+z",
+    "links": [
+      { "name": "intake roller", "parts": ["Intake Roller", "Intake Shaft"], "joint": "continuous",
+        "axis_part": "Intake Shaft", "device": "intake", "mass_kg": 0.15 },
+      { "name": "flywheel", "parts": ["Flywheel*"], "joint": "continuous",
+        "axis_part": "Flywheel Shaft", "device": "launcher", "mass_kg": 0.25 },
+      { "name": "feeder", "parts": ["Feeder*"], "joint": "continuous",
+        "axis_part": "Feeder Shaft", "device": "feeder", "mass_kg": 0.05 },
+      { "name": "hood", "parts": ["Hood"], "joint": "revolute", "axis_part": "Hood Pivot", "reversed": true,
+        "device": "hood", "ratio": 0.2, "limits": [-35, 35], "mass_kg": 0.15 }
+    ]
+  },
+
+  "start": [-1.55, -0.30, 0]
+}

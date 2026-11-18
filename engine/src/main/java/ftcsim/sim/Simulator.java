@@ -232,7 +232,8 @@ public final class Simulator {
             while ((task = physicsTasks.poll()) != null) {
                 try {
                     task.run();
-                } catch (RuntimeException e) {
+                } catch (RuntimeException | OutOfMemoryError | StackOverflowError e) {
+                    // One failed task (changing a robot, say) must not stop the field for every robot.
                     RobotLog.ee("Simulator", e, "physics task failed");
                 }
             }

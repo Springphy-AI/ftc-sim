@@ -44,6 +44,9 @@ public final class PhysicsWorld {
         public double bounce = 0.05;
         /** What the geom belongs to (a robot, a ball). Geoms with the same owner never collide. */
         public Object owner;
+        /** Until world step {@link #passThroughUntil}, this geom goes through geoms owned by {@code passThrough}. */
+        public Object passThrough;
+        public long passThroughUntil;
 
         public Material(String kind) {
             this.kind = kind;
@@ -167,7 +170,15 @@ public final class PhysicsWorld {
         return out;
     }
 
+    /** World steps taken so far. */
+    public long steps() {
+        return steps;
+    }
+
+    private long steps;
+
     public void step(double dt) {
+        steps++;
         for (List<ChassisContact> l : chassisContacts.values()) l.clear();
         for (HiveBody h : hives) h.beforeStep();
         space.collide(null, this::nearCallback);
@@ -184,6 +195,9 @@ public final class PhysicsWorld {
         Material m1 = materials.get(g1), m2 = materials.get(g2);
         if (m1 == null || m2 == null) return;
         if (m1.owner != null && m1.owner == m2.owner) return;   // two parts of the same robot
+        // A ball the robot just launched or spat out leaves through the robot's own hood and ramps.
+        if (m1.passThrough != null && m1.passThrough == m2.owner && steps < m1.passThroughUntil) return;
+        if (m2.passThrough != null && m2.passThrough == m1.owner && steps < m2.passThroughUntil) return;
         int n = OdeHelper.collide(g1, g2, MAX_CONTACTS, contacts.getGeomBuffer());
         if (n == 0) return;
         List<ChassisContact> on1 = "chassis".equals(m1.kind) ? chassisContacts.get(b1) : null;

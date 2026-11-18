@@ -133,7 +133,7 @@ class SampleOpModesTest {
         assertNotNull(err);
         assertTrue(err.contains("Unable to find a hardware device with name \"left_drive\" and type DcMotor"), err);
         assertTrue(err.startsWith("User code threw an uncaught exception: IllegalArgumentException"), err);
-        assertTrue(err.contains("but tank.json does"), "points at the robot file that has left_drive: " + err);
+        assertTrue(err.contains("but tank.json "), "points at the robot file that has left_drive: " + err);
         waitFor(sim, Simulator.DsState.IDLE, 3000);
         assertTrue(sim.dsJson().contains("\"fixRobot\":\"tank.json\""), "offers the one-click switch: " + sim.dsJson());
 

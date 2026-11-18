@@ -4,6 +4,7 @@
 import { FieldView } from './field3d.js';
 import { InputManager } from './input.js';
 import { DriverStation } from './ds.js';
+import { convertIfNeeded } from './cadconvert.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -96,6 +97,30 @@ ds.onDsChange((i, st) => {
   if (robots[i] && st.robotFile) robots[i].robotFile = st.robotFile;
 });
 
+// ---- CAD models: conversion progress and problems --------------------------------------------
+let cadNoticeTimer = null;
+function cadNotice(text, kind = '', hideAfterMs = 0) {
+  const el = $('cadNotice');
+  clearTimeout(cadNoticeTimer);
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.className = 'cad-notice' + (kind ? ' ' + kind : '');
+  if (hideAfterMs) cadNoticeTimer = setTimeout(() => { el.hidden = true; }, hideAfterMs);
+}
+
+/** After a hello: converts STEP files that need it, and says what's wrong with CAD that can't be used. */
+function checkCad() {
+  const problems = [];
+  robots.forEach((r, i) => {
+    if (!r.cad) return;
+    if (r.cad.status === 'error') problems.push(`Robot ${i + 1}: ${r.cad.message} (drawn from the robot file's numbers instead)`);
+    if (r.cad.status === 'convert') {
+      convertIfNeeded(i, r.cad, (text, done, failed) => cadNotice(text, failed ? 'err' : (done ? 'ok' : ''), done && !failed ? 6000 : 0));
+    }
+  });
+  if (problems.length) cadNotice(problems.join('\n'), 'err');
+}
+
 function setConnection(ok, text) {
   $('conn').className = 'conn ' + (ok ? 'ok' : 'bad');
   $('connText').textContent = text;
@@ -118,6 +143,7 @@ function onMessage(msg) {
       ds.setMulti(robots.length > 1 && locked === null);
       input.setRobots(robots.length, current, locked === null ? null : current);
       showRobot(current);
+      checkCad();
       break;
     }
     case 'state': {

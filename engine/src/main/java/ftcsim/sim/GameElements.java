@@ -15,6 +15,8 @@ import org.ode4j.ode.OdeHelper;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import ftcsim.cad.Geom3;
+import ftcsim.cad.RobotModel;
 import ftcsim.config.RobotConfig;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.Mechanism;
@@ -57,6 +59,7 @@ public final class GameElements {
         final double dragFactor;
         final DBody body;
         final DGeom geom;
+        PhysicsWorld.Material material;
         State state = State.FREE;
         /** Where a STAGED ball sits (world frame). */
         final double[] stagedAt = new double[3];
@@ -114,6 +117,8 @@ public final class GameElements {
         final List<Ball> held = new ArrayList<>();
         Mechanism intake, launcher;
         ServoUnit feeder, hood;
+        /** The CAD roller and flywheel, or null. */
+        CadPart intakePart, launcherPart;
         double launcherWheelRadius;
         double sinceIntake = 1, sinceFeed = 1;
         int launched = 0;
@@ -137,7 +142,57 @@ public final class GameElements {
                 if ("hood".equals(s.device.role)) hood = s;
             }
             launcherWheelRadius = launcher == null ? 0 : launcher.device.load.wheelDiameterM / 2;
+            intakePart = intake == null ? null : cadPart(r, intake.device.name);
+            launcherPart = launcher == null ? null : cadPart(r, launcher.device.name);
+            CadPart fly = launcherPart;
+            if (fly != null) {
+                // The CAD flywheel's size across its axis.
+                double[] a = fly.group.axis, fb = fly.bounds;
+                double rad = 0;
+                for (int k = 0; k < 3; k++) if (Math.abs(a[k]) < 0.7) rad = Math.max(rad, (fb[k + 3] - fb[k]) / 2);
+                if (rad > 0.01) launcherWheelRadius = rad;
+            }
         }
+    }
+
+    /** A CAD roller or flywheel that a device turns, with its rest-pose bounds (robot frame). */
+    static final class CadPart {
+        final RobotRig rig;
+        final RobotModel.Group group;
+        /** The group whose pose the part's place follows: a roller's or flywheel's own spin doesn't move it. */
+        final int frame;
+        final double[] bounds;
+
+        CadPart(RobotRig rig, RobotModel.Group group, int index) {
+            this.rig = rig;
+            this.group = group;
+            this.frame = group.kind == RobotModel.Kind.SPINNER ? group.parentIndex : index;
+            this.bounds = group.bounds();
+        }
+
+        /** Where the part is now (world from rest geometry), however far it has turned on its axis. */
+        double[] transform() {
+            return rig.groupTransforms()[frame];
+        }
+
+        /** A world point in the group's rest-pose frame. */
+        double[] local(DVector3C world) {
+            return Geom3.apply(Geom3.inverse(transform()), new double[]{world.get0(), world.get1(), world.get2()});
+        }
+
+        DVector3 world(double[] rest) {
+            double[] w = Geom3.apply(transform(), rest);
+            return new DVector3(w[0], w[1], w[2]);
+        }
+    }
+
+    /** The CAD part a device turns, or null when the robot has no CAD model or the device drives none. */
+    static CadPart cadPart(RobotRig rig, String device) {
+        RobotModel m = rig.config.model();
+        if (m == null) return null;
+        RobotModel.Group g = m.drivenBy(device);
+        if (g == null || g.parts.isEmpty()) return null;
+        return new CadPart(rig, g, m.index(g));
     }
 
     private final FieldModel field;
@@ -197,6 +252,7 @@ public final class GameElements {
         mat.bounce = 0.35;
         Ball b = new Ball(balls.size(), kind, color, r, mass, body, geom);
         mat.owner = b;
+        b.material = mat;
         world.register(geom, mat, PhysicsWorld.CAT_BALL, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
                 | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL | PhysicsWorld.CAT_BALL);
         return b;
@@ -322,6 +378,12 @@ public final class GameElements {
         r.held.add(b);
     }
 
+    /** For a moment, the ball goes through the robot that let it go (its hood, ramps, side plates). */
+    private void passThrough(Ball b, RobotRig rig) {
+        b.material.passThrough = rig.body;
+        b.material.passThroughUntil = world.steps() + 300;
+    }
+
     private void free(Ball b, double x, double y, double z, double vx, double vy, double vz) {
         b.state = State.FREE;
         b.body.setPosition(x, y, z);
@@ -376,15 +438,28 @@ public final class GameElements {
         List<Ball> held = r.held;
         RobotConfig.Chassis c = rig.config.chassis;
         double front = c.lengthM / 2 + 0.04;   // the roller, as drawn in the 3D view
+        CadPart roller = r.intakePart;
         if (omega > 0) {
             if (held.size() >= ROBOT_CAPACITY) return;
+            double[] toRoller = roller == null ? null : Geom3.inverse(roller.transform());   // once per step
             for (Ball b : balls) {
                 if (b.state != State.FREE) continue;
-                DVector3 local = new DVector3();
-                rig.body.chassis.getPosRelPoint(b.body.getPosition(), local);
-                double heightAboveFloor = b.body.getPosition().get2();
-                if (local.get0() > c.lengthM / 2 - 0.02 && local.get0() < front + b.radius + INTAKE_REACH_M
-                        && Math.abs(local.get1()) < c.widthM * 0.41 && heightAboveFloor < 0.15) {
+                boolean caught;
+                if (roller != null) {
+                    // Within reach of the CAD roller, wherever it is now.
+                    DVector3C bp = b.body.getPosition();
+                    double[] q = Geom3.apply(toRoller, new double[]{bp.get0(), bp.get1(), bp.get2()});
+                    double m = b.radius + INTAKE_REACH_M;
+                    double[] rb = roller.bounds;
+                    caught = q[0] > rb[0] - m && q[0] < rb[3] + m && q[1] > rb[1] - m
+                            && q[1] < rb[4] + m && q[2] > rb[2] - m && q[2] < rb[5] + m;
+                } else {
+                    double[] local = rig.body.toRobotFrame(b.body.getPosition());
+                    double heightAboveFloor = b.body.getPosition().get2();
+                    caught = local[0] > c.lengthM / 2 - 0.02 && local[0] < front + b.radius + INTAKE_REACH_M
+                            && Math.abs(local[1]) < c.widthM * 0.41 && heightAboveFloor < 0.15;
+                }
+                if (caught) {
                     hold(r, b);
                     r.sinceIntake = 0;
                     return;
@@ -394,10 +469,17 @@ public final class GameElements {
             // Reversed: spit the last ball in back out over the roller.
             Ball b = held.remove(held.size() - 1);
             double x = front + b.radius + 0.03;
-            DVector3 p = rig.body.pointToWorld(x, 0, b.radius + 0.005);
+            DVector3 p;
+            if (roller != null) {
+                double[] rb = roller.bounds;
+                p = roller.world(new double[]{rb[3] + b.radius + 0.03, (rb[1] + rb[4]) / 2, (rb[2] + rb[5]) / 2});
+            } else {
+                p = rig.body.pointToWorld(x, 0, b.radius + 0.005);
+            }
             DVector3 v = rig.body.vectorToWorld(1.0, 0, 0);
             DVector3C rv = rig.body.chassis.getLinearVel();
             free(b, p.get0(), p.get1(), p.get2(), v.get0() + rv.get0(), v.get1() + rv.get1(), 0);
+            passThrough(b, rig);
             r.sinceIntake = 0;
         }
     }
@@ -413,10 +495,20 @@ public final class GameElements {
         RobotConfig.Chassis c = rig.config.chassis;
         double top = c.groundClearanceM + c.frameHeightM;
         double ex = LAUNCHER_X_M + 0.07 * Math.cos(elev), ez = top + LAUNCHER_ABOVE_TOP_M + 0.07 * Math.sin(elev);
-        DVector3 p = rig.body.pointToWorld(ex, 0, ez);
+        CadPart flywheel = r.launcherPart;
+        DVector3 p;
+        if (flywheel != null) {
+            // Leaves the CAD flywheel's rim along the launch direction.
+            double[] fb = flywheel.bounds;
+            double out = r.launcherWheelRadius + b.radius + 0.005;
+            p = flywheel.world(new double[]{(fb[0] + fb[3]) / 2 + out * Math.cos(elev), (fb[1] + fb[4]) / 2, (fb[2] + fb[5]) / 2 + out * Math.sin(elev)});
+        } else {
+            p = rig.body.pointToWorld(ex, 0, ez);
+        }
         DVector3 v = rig.body.vectorToWorld(speed * Math.cos(elev), 0, speed * Math.sin(elev));
         DVector3C rv = rig.body.chassis.getLinearVel();
         free(b, p.get0(), p.get1(), p.get2(), v.get0() + rv.get0(), v.get1() + rv.get1(), v.get2() + rv.get2());
+        passThrough(b, rig);
         r.sinceFeed = 0;
         r.launched++;
     }
@@ -496,11 +588,10 @@ public final class GameElements {
             if (p.get2() < 0.3 && Math.hypot(p.get0() - x, p.get1() - y) < r + o.radius + 0.005) return false;
         }
         // Every robot: test the spot in its chassis frame against its footprint plus a margin.
-        DVector3 local = new DVector3();
         for (Holder h : robots) {
-            h.rig.body.chassis.getPosRelPoint(x, y, r, local);
+            double[] local = h.rig.body.toRobotFrame(new DVector3(x, y, r));
             RobotConfig.Chassis c = h.rig.config.chassis;
-            if (Math.abs(local.get0()) < c.lengthM / 2 + 0.06 + r && Math.abs(local.get1()) < c.widthM / 2 + 0.03 + r) return false;
+            if (Math.abs(local[0]) < c.lengthM / 2 + 0.06 + r && Math.abs(local[1]) < c.widthM / 2 + 0.03 + r) return false;
         }
         return true;
     }

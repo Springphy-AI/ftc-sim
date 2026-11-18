@@ -216,6 +216,28 @@ class MultiRobotTest {
         sim.shutdown();
     }
 
+    /** A new robot file (a CAD import, a finished conversion) never swaps the robot under a running OpMode. */
+    @Test
+    void aRobotChangeWaitsForTheOpModeToStop() throws Exception {
+        Simulator sim = start(1);
+        SimRobot one = sim.robot(0);
+        var rig = one.rig();
+        sim.handle(cmd("init", 0, "\"opmode\":\"Basic: Omni Linear OpMode\""));
+        waitFor(one, Simulator.DsState.INIT, 2000);
+        one.requestLoad(Path.of("").toAbsolutePath().resolve("robots/tank.json"));
+        Thread.sleep(800);
+        assertSame(rig, one.rig(), "the OpMode keeps the robot it started with");
+        assertEquals("mecanum.json", one.robotFile().getFileName().toString());
+        sim.handle(cmd("stop", 0, ""));
+        waitFor(one, Simulator.DsState.IDLE, 3000);
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!one.robotFile().getFileName().toString().equals("tank.json") && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertEquals("tank.json", one.robotFile().getFileName().toString(), "changed once the OpMode stopped");
+        assertNotSame(rig, one.rig());
+        assertNull(one.lastError());
+        sim.shutdown();
+    }
+
     @Test
     void switchingOneRobotsDescriptionLeavesTheOtherAlone() throws Exception {
         Simulator sim = start(2);

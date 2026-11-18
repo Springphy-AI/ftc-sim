@@ -53,7 +53,9 @@ import ftcsim.physics.Mechanism;
 import ftcsim.physics.MotorUnit;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.physics.RobotBody;
+import ftcsim.physics.ServoJoint;
 import ftcsim.physics.ServoUnit;
+import ftcsim.cad.RobotModel;
 import ftcsim.vision.CameraWorld;
 
 /**
@@ -75,6 +77,8 @@ public final class RobotRig {
     public final Map<String, MotorUnit> motors = new LinkedHashMap<>();
     public final List<Mechanism> mechanisms = new ArrayList<>();
     public final List<ServoUnit> servos = new ArrayList<>();
+    /** Servos that drive CAD joints. */
+    public final List<ServoJoint> servoJoints = new ArrayList<>();
 
     private final ImuBackend imu;
     private final List<PinpointMount> pinpoints = new ArrayList<>();
@@ -125,6 +129,7 @@ public final class RobotRig {
             MotorPort port = alloc.motor(name, driveSpec);
             motors.put(name, new MotorUnit(port, driveSpec));
         }
+        List<RobotConfig.Device> motorDevices = new ArrayList<>();
         for (RobotConfig.Device d : config.devices) {
             switch (d.type) {
                 case "motor": {
@@ -132,7 +137,7 @@ public final class RobotRig {
                     MotorPort port = alloc.motor(d.name, spec);
                     MotorUnit unit = new MotorUnit(port, spec);
                     motors.put(d.name, unit);
-                    mechanisms.add(new Mechanism(d, unit));
+                    motorDevices.add(d);
                     break;
                 }
                 case "servo":
@@ -179,7 +184,44 @@ public final class RobotRig {
         imu = new ImuBackend(Rotations.fromQuaternion(q.w, q.x, q.y, q.z));
 
         body = new RobotBody(world, config, motors::get);
+        // Motors and servos that drive CAD joints act on the physics bodies; the rest as before.
+        RobotModel model = body.model;
+        for (RobotConfig.Device d : motorDevices) {
+            RobotModel.Group g = model == null ? null : model.drivenBy(d.name);
+            if (g != null && g.kind == RobotModel.Kind.LINK) {
+                mechanisms.add(new Mechanism(d, motors.get(d.name), body.link(model.index(g)), Double.NaN));
+            } else if (g != null && g.kind == RobotModel.Kind.SPINNER) {
+                mechanisms.add(new Mechanism(d, motors.get(d.name), null, g.axisInertia));
+            } else {
+                mechanisms.add(new Mechanism(d, motors.get(d.name)));
+            }
+        }
+        if (model != null) {
+            for (ServoUnit s : servos) {
+                RobotModel.Group g = model.drivenBy(s.device.name);
+                if (g != null && g.kind == RobotModel.Kind.LINK) servoJoints.add(new ServoJoint(s, body.link(model.index(g))));
+            }
+        }
         place(this.start[0], this.start[1], Math.toRadians(this.start[2]));
+    }
+
+    /**
+     * Where each part of the CAD model is (see {@link RobotBody#groupTransforms}), with rollers,
+     * flywheels and continuous servos turned by their mechanisms. Null without a CAD model.
+     */
+    public double[][] groupTransforms() {
+        RobotModel model = body.model;
+        if (model == null) return null;
+        return body.groupTransforms(i -> spinnerAngle(model.groups.get(i)));
+    }
+
+    private double spinnerAngle(RobotModel.Group g) {
+        if (g.device == null) return 0;
+        for (Mechanism m : mechanisms) if (m.device.name.equals(g.device)) return m.position();
+        for (ServoUnit s : servos) {
+            if (s.device.name.equals(g.device)) return g.servoCenter + Math.toRadians(s.angleDeg()) * g.ratio;
+        }
+        return 0;
     }
 
     /** Hands out hub ports in order: Control Hub first, then Expansion Hub 2. */
@@ -315,6 +357,7 @@ public final class RobotRig {
     /** Motors and servos act; call for every robot, then step the world once, then {@link #afterWorldStep}. */
     public void beforeWorldStep(double dt) {
         for (ServoUnit s : servos) s.step(dt);
+        for (ServoJoint j : servoJoints) j.step();
         for (Mechanism m : mechanisms) m.step(batteryVolts, dt);
         body.applyDrive(batteryVolts, dt);
     }
@@ -322,6 +365,7 @@ public final class RobotRig {
     /** Encoders, battery and sensors catch up with the world step. */
     public void afterWorldStep(double dt) {
         body.afterStep(dt);
+        for (Mechanism m : mechanisms) m.afterWorldStep(dt);
         updateBattery(dt);
         updateMotionSensors(dt);
         if (stepCount++ % 5 == 0) updateSlowSensors();

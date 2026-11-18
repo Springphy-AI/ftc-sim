@@ -1,0 +1,100 @@
+<?xml version="1.0"?>
+<!-- Example robot for the FTC simulator: a six-wheel tank with an arm and a two-servo claw,
+     written the way CAD URDF exporters (onshape-to-robot, fusion2urdf, sw_urdf_exporter) write it. -->
+<robot name="arm-bot">
+  <material name="aluminum"><color rgba="0.74 0.76 0.79 1"/></material>
+  <material name="blue"><color rgba="0.12 0.31 0.70 1"/></material>
+  <material name="dark"><color rgba="0.13 0.13 0.15 1"/></material>
+  <material name="tire"><color rgba="0.16 0.16 0.18 1"/></material>
+  <material name="yellow"><color rgba="0.96 0.76 0.10 1"/></material>
+
+  <link name="base_link">
+    <inertial><origin xyz="-0.03 0 0" rpy="0 0 0"/><mass value="8.3"/>
+      <inertia ixx="0.075" ixy="0" ixz="0" iyy="0.13" iyz="0" izz="0.19"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/frame.stl"/></geometry><material name="blue"/></visual>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/electronics.stl"/></geometry><material name="dark"/></visual>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/arm_tower.stl"/></geometry><material name="aluminum"/></visual>
+  </link>
+  <link name="left_front_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+  <link name="left_middle_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+  <link name="left_back_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+  <link name="right_front_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+  <link name="right_middle_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+  <link name="right_back_wheel">
+    <inertial><mass value="0.2"/><inertia ixx="0.00013" ixy="0" ixz="0" iyy="0.00026" iyz="0" izz="0.00013"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/wheel.stl"/></geometry><material name="tire"/></visual>
+  </link>
+
+  <link name="arm_link">
+    <inertial><origin xyz="0.175 0 0" rpy="0 0 0"/><mass value="0.5"/>
+      <inertia ixx="0.00006" ixy="0" ixz="0" iyy="0.0051" iyz="0" izz="0.0051"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/arm.stl"/></geometry><material name="aluminum"/></visual>
+  </link>
+  <link name="left_finger">
+    <inertial><origin xyz="0.04 0 0" rpy="0 0 0"/><mass value="0.04"/>
+      <inertia ixx="0.000004" ixy="0" ixz="0" iyy="0.000024" iyz="0" izz="0.000022"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/finger.stl"/></geometry><material name="yellow"/></visual>
+  </link>
+  <link name="right_finger">
+    <inertial><origin xyz="0.04 0 0" rpy="0 0 0"/><mass value="0.04"/>
+      <inertia ixx="0.000004" ixy="0" ixz="0" iyy="0.000024" iyz="0" izz="0.000022"/></inertial>
+    <visual><geometry><mesh filename="package://arm-bot/meshes/finger.stl"/></geometry><material name="yellow"/></visual>
+  </link>
+
+  <joint name="left_front_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="left_front_wheel"/>
+    <origin xyz="0.15 0.18 -0.0072" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <joint name="left_middle_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="left_middle_wheel"/>
+    <origin xyz="0.0 0.18 -0.0092" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <joint name="left_back_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="left_back_wheel"/>
+    <origin xyz="-0.15 0.18 -0.0072" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <joint name="right_front_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="right_front_wheel"/>
+    <origin xyz="0.15 -0.18 -0.0072" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <joint name="right_middle_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="right_middle_wheel"/>
+    <origin xyz="0.0 -0.18 -0.0092" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <joint name="right_back_wheel_axle" type="continuous">
+    <parent link="base_link"/><child link="right_back_wheel"/>
+    <origin xyz="-0.15 -0.18 -0.0072" rpy="0 0 0"/><axis xyz="0 1 0"/>
+  </joint>
+  <!-- The arm pivots on a shaft across the robot; positive turns it up. -->
+  <joint name="left_arm" type="revolute">
+    <parent link="base_link"/><child link="arm_link"/>
+    <origin xyz="0.11 0 0.21" rpy="0 0 0"/><axis xyz="0 -1 0"/>
+    <limit lower="-0.62" upper="2.1" effort="7" velocity="12"/>
+  </joint>
+  <!-- Claw fingers at the end of the arm; positive closes each one. -->
+  <joint name="left_hand" type="revolute">
+    <parent link="arm_link"/><child link="left_finger"/>
+    <origin xyz="0.35 0.045 0" rpy="0 0 0"/><axis xyz="0 0 -1"/>
+    <limit lower="-0.7" upper="0.5" effort="2" velocity="7"/>
+  </joint>
+  <joint name="right_hand" type="revolute">
+    <parent link="arm_link"/><child link="right_finger"/>
+    <origin xyz="0.35 -0.045 0" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <limit lower="-0.7" upper="0.5" effort="2" velocity="7"/>
+  </joint>
+</robot>

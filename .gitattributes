@@ -1,3 +1,13 @@
 *.bat text eol=crlf
 *.sh text eol=lf
 gradlew text eol=lf
+
+# CAD models stay byte-exact: a converted STEP mesh (.cadmesh) records its STEP file's SHA-256.
+*.step -text
+*.stp -text
+*.STEP -text
+*.STP -text
+*.cadmesh binary
+*.stl binary
+*.STL binary
+*.urdf text eol=lf

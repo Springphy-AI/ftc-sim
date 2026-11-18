@@ -12,11 +12,81 @@ const BALL_COLORS = { yellow: 0xf4d23c, red: 0xd8343a, blue: 0x2f6fe0 };
 // Side plates of robots on each alliance, when there is more than one robot to tell apart.
 const ALLIANCE_PLATES = { red: '#b3261e', blue: '#1e4fb3' };
 
+// CAD models by URL (each version of a robot's model has its own), turned into GPU meshes once
+// and shared by every robot drawn with it: { groups: [{ name, kind, parent, meshes: [{ geometry,
+// material }] }], box }. A version no robot uses any more is freed (see setRobots).
+const cadModels = new Map();
+
+/** Fetches and parses a robot's CAD model (FTCMODL1, see ModelExport.java) and builds its meshes. */
+function loadCadModel(url) {
+  if (!cadModels.has(url)) {
+    cadModels.set(url, fetch(url).then((res) => {
+      if (!res.ok) throw new Error(`CAD model ${res.status}`);
+      return res.arrayBuffer();
+    }).then((buf) => {
+      const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 8));
+      if (magic !== 'FTCMODL1') throw new Error('not a CAD model');
+      const len = new DataView(buf).getUint32(8, true);
+      const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 12, len)));
+      let off = 12 + len + ((4 - ((12 + len) % 4)) % 4);
+      const box = new THREE.Box3();
+      for (const g of header.groups) {
+        g.meshes = g.meshes.map((m) => {
+          const positions = new Float32Array(buf, off, m.vertices * 3);
+          off += m.vertices * 12;
+          const indices = new Uint32Array(buf, off, m.triangles * 3);
+          off += m.triangles * 12;
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+          geometry.computeVertexNormals();
+          geometry.computeBoundingBox();
+          box.union(geometry.boundingBox);
+          geometry.userData.cad = true;
+          const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color), metalness: 0.25, roughness: 0.6, side: THREE.DoubleSide });
+          material.userData.cad = true;
+          return { geometry, material };
+        });
+      }
+      return { groups: header.groups, box };
+    }).catch((e) => {
+      cadModels.delete(url);
+      throw e;
+    }));
+  }
+  return cadModels.get(url);
+}
+
+/** Frees a CAD model's GPU meshes. */
+function freeCadModel(model) {
+  for (const g of model.groups) {
+    for (const m of g.meshes) {
+      m.geometry.dispose();
+      m.material.dispose();
+    }
+  }
+}
+
+/** Frees the GPU buffers of a robot's own drawing (shared CAD meshes go with their model). */
+function disposeTree(root) {
+  root.traverse((o) => {
+    if (o.geometry && !o.geometry.userData.cad) o.geometry.dispose();
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) {
+      if (m.userData.cad) continue;
+      m.map?.dispose();
+      m.dispose();
+    }
+  });
+}
+
 const CAMERAS = {
   audience: { pos: [0, -4.5, 2.8], target: [0, -0.15, 0.25] },
   overhead: { pos: [0, -0.001, 6.4], target: [0, 0, 0] },
   driver: { pos: [-3.75, 0, 1.7], target: [0.2, 0, 0.2] },
 };
+
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _one = new THREE.Vector3(1, 1, 1);
 
 export class FieldView {
   constructor(canvas) {
@@ -320,11 +390,52 @@ export class FieldView {
 
   /** One model per robot on the field (the hello message's robots). */
   setRobots(list) {
-    for (const r of this.robots) this.scene.remove(r.group);
+    for (const r of this.robots) {
+      this.scene.remove(r.group);
+      disposeTree(r.group);
+    }
+    const used = new Set(list.map((r) => r.cad?.model).filter(Boolean));
+    for (const [url, model] of cadModels) {
+      if (used.has(url)) continue;
+      cadModels.delete(url);
+      model.then(freeCadModel, () => {});
+    }
     const several = list.length > 1;
     this.robots = list.map((r) => this.buildRobot(r.robot, r.wheels, r.wheelRadius, r.chassisZ,
       several ? { plate: ALLIANCE_PLATES[r.alliance], number: r.index + 1, alliance: r.alliance } : {}));
+    list.forEach((r, i) => { if (r.cad?.model) this.attachCad(this.robots[i], r.cad.model, r.chassisZ); });
     if (this.focus >= this.robots.length) this.focus = 0;
+  }
+
+  /**
+   * Replaces a robot's drawn-from-numbers model with its CAD model once that has loaded. Each
+   * group (base, links, rollers, wheels) is posed from the state stream's {@code links}.
+   */
+  attachCad(robot, url, chassisZ) {
+    loadCadModel(url).then(({ groups, box }) => {
+      if (!this.robots.includes(robot)) return;   // replaced meanwhile
+      const root = new THREE.Group();
+      root.position.set(0, 0, -chassisZ);         // robot-frame origin: the floor under its center
+      const objects = [];
+      for (const g of groups) {
+        const obj = new THREE.Group();
+        obj.matrixAutoUpdate = false;
+        for (const m of g.meshes) {
+          const mesh = new THREE.Mesh(m.geometry, m.material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          obj.add(mesh);
+        }
+        root.add(obj);
+        objects.push(obj);
+      }
+      for (const child of robot.group.children) if (child !== robot.tag) child.visible = false;
+      if (robot.tag) robot.tag.position.z = box.max.z - chassisZ + 0.12;
+      robot.group.add(root);
+      robot.cad = objects;
+      robot.wheels = [];        // the CAD wheels turn as groups
+      robot.mech = {};
+    }).catch((e) => console.warn('CAD model not shown:', e));
   }
 
   setFocus(i) {
@@ -481,14 +592,15 @@ export class FieldView {
       mech[d.name] = (v) => { pivot.rotation.z = side * (0.5 - v * 0.5); };
     }
 
+    let tag = null;
     if (opts.number) {
-      const tag = this.numberTag(opts.number, opts.alliance);
+      tag = this.numberTag(opts.number, opts.alliance);
       tag.position.set(0, 0, top + 0.55);
       group.add(tag);
     }
 
     this.scene.add(group);
-    return { group, wheels: wheelMeshes, mech, led, chassisZ, cfg };
+    return { group, wheels: wheelMeshes, mech, led, chassisZ, cfg, tag };
   }
 
   stripeTexture(a, b) {
@@ -533,6 +645,16 @@ export class FieldView {
       for (const [name, apply] of Object.entries(r.mech)) {
         const v = rs.mech?.[name];
         if (typeof v === 'number') apply(v);
+      }
+      if (r.cad && rs.links) {
+        // x, y, z, qw, qx, qy, qz per CAD group after the base, relative to the robot frame
+        for (let g = 1, k = 0; g < r.cad.length && k + 6 < rs.links.length; g++, k += 7) {
+          const L = rs.links;
+          _q.set(L[k + 4], L[k + 5], L[k + 6], L[k + 3]);
+          _p.set(L[k], L[k + 1], L[k + 2]);
+          r.cad[g].matrix.compose(_p, _q, _one);
+          r.cad[g].matrixWorldNeedsUpdate = true;
+        }
       }
     }
     if (s.balls) {

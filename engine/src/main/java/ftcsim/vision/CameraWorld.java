@@ -8,6 +8,8 @@ import java.util.Map;
 import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3C;
 
+import ftcsim.cad.MeshPart;
+import ftcsim.cad.RobotModel;
 import ftcsim.config.RobotConfig;
 import ftcsim.physics.FieldModel;
 import ftcsim.sim.GameElements;
@@ -24,8 +26,13 @@ public final class CameraWorld {
     private static final int BACKGROUND = 0x2a2d31;
     private static final Map<String, Integer> BALL_COLORS = Map.of("yellow", 0xf4d23c, "red", 0xd8343a, "blue", 0x2f6fe0);
 
-    /** One robot at one moment. {@code rot} is row-major world-from-robot; mounts are relative to the floor under it. */
-    record RobotView(double[] pos, double[] rot, double chassisZ, RobotConfig config) {
+    /**
+     * One robot at one moment. {@code pos} is the world position of the point {@code chassisZ}
+     * above the robot-frame origin, {@code rot} row-major world-from-robot; mounts are relative to
+     * the floor under it. {@code groups}: where each part of a CAD model is (world transforms of
+     * its rest-pose geometry, see RobotBody#groupTransforms), or null.
+     */
+    record RobotView(double[] pos, double[] rot, double chassisZ, RobotConfig config, double[][] groups) {
     }
 
     /**
@@ -97,11 +104,11 @@ public final class CameraWorld {
         RobotView[] robots = new RobotView[rigs.size()];
         for (int i = 0; i < robots.length; i++) {
             RobotRig rig = rigs.get(i);
-            DVector3C p = rig.body.position();
+            DVector3C p = rig.body.centerPosition();
             DMatrix3C r = rig.body.rotation();
             robots[i] = new RobotView(new double[]{p.get0(), p.get1(), p.get2()},
                     new double[]{r.get00(), r.get01(), r.get02(), r.get10(), r.get11(), r.get12(), r.get20(), r.get21(), r.get22()},
-                    rig.body.chassisRestZ(), rig.config);
+                    rig.body.chassisRestZ(), rig.config, rig.groupTransforms());
         }
         double[] balls = new double[0];
         if (elements != null) {
@@ -220,6 +227,8 @@ public final class CameraWorld {
 
     /** A robot's triangles at its pose: chassis frame, side plates in its color, and wheels. */
     private List<Scene.Tri> robotTris(RobotView rv) {
+        RobotModel model = rv.config().model();
+        if (model != null && rv.groups() != null) return cadTris(model, rv.groups(), rv.config());
         List<double[]> mesh;
         synchronized (robotMeshes) {
             mesh = robotMeshes.computeIfAbsent(rv.config(), CameraWorld::buildRobotMesh);
@@ -235,6 +244,34 @@ public final class CameraWorld {
                 v[k + 2] = p[2] + R[6] * x + R[7] * y + R[8] * z;
             }
             out.add(new Scene.Tri(v, null, Material.flat((int) t[9])));
+        }
+        return out;
+    }
+
+    /** A CAD robot's simplified triangles, each group where it is now. */
+    private static List<Scene.Tri> cadTris(RobotModel model, double[][] groups, RobotConfig cfg) {
+        List<double[]> cams = new ArrayList<>();
+        for (RobotConfig.Device d : cfg.devices) if ("webcam".equals(d.type)) cams.add(new double[]{d.xM, d.yM, d.zM});
+        List<List<MeshPart>> mesh = model.visionMesh(cams);
+        List<Scene.Tri> out = new ArrayList<>();
+        for (int g = 0; g < mesh.size() && g < groups.length; g++) {
+            double[] t = groups[g];
+            for (MeshPart m : mesh.get(g)) {
+                Material mat = Material.flat(m.rgb());
+                float[] p = m.positions();
+                int[] ix = m.indices();
+                for (int k = 0; k < ix.length; k += 3) {
+                    double[] v = new double[9];
+                    for (int c = 0; c < 3; c++) {
+                        int i = ix[k + c] * 3;
+                        double x = p[i], y = p[i + 1], z = p[i + 2];
+                        v[c * 3] = t[0] * x + t[1] * y + t[2] * z + t[9];
+                        v[c * 3 + 1] = t[3] * x + t[4] * y + t[5] * z + t[10];
+                        v[c * 3 + 2] = t[6] * x + t[7] * y + t[8] * z + t[11];
+                    }
+                    out.add(new Scene.Tri(v, null, mat));
+                }
+            }
         }
         return out;
     }

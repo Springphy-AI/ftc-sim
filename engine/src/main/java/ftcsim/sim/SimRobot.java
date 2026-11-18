@@ -1,5 +1,6 @@
 package ftcsim.sim;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -8,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 
@@ -23,6 +26,10 @@ import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.RobotLog;
 
+import ftcsim.cad.CadMeshFile;
+import ftcsim.cad.CadState;
+import ftcsim.cad.Geom3;
+import ftcsim.cad.RobotModel;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.CameraPreviews;
 import ftcsim.hal.GamepadAccess;
@@ -103,6 +110,7 @@ public final class SimRobot {
         applyIo(config);
         this.rig = new RobotRig(config, sim.world, startPose(config));
         rig.attachCameras(sim.cameras, index);
+        logCad(config);
         GamepadAccess.get().setUser(gamepad1, 1);
         GamepadAccess.get().setUser(gamepad2, 2);
         this.buildExecutor = Executors.newSingleThreadExecutor(r -> Simulator.daemon(r, "teamcode-build-" + (index + 1)));
@@ -401,15 +409,17 @@ public final class SimRobot {
         if (!m.find()) return null;
         String device = m.group(1);
         String current = robotFile.getFileName().toString();
-        List<String> others = new ArrayList<>();
+        List<String> others = new ArrayList<>(), fromCad = new ArrayList<>();
         for (String f : sim.robotFiles()) {
             if (f.equals(current)) continue;
             try {
-                if (RobotConfig.load(sim.robotsDir.resolve(f)).deviceNames().contains(device)) others.add(f);
+                RobotConfig c = RobotConfig.load(sim.robotsDir.resolve(f), false);
+                if (c.deviceNames().contains(device)) (c.cad == null ? others : fromCad).add(f);
             } catch (Exception ignored) {
                 // a broken robot file is reported when it is selected
             }
         }
+        others.addAll(fromCad);   // robots drawn from numbers first: they load at once
         String who = sim.robots().size() > 1 ? label() + " (" + current + ")" : "the simulated robot (" + current + ")";
         String start = "Simulator: " + who + " has no device named \"" + device + "\"";
         if (!others.isEmpty()) {
@@ -468,9 +478,70 @@ public final class SimRobot {
             if (!isIdle()) setError("Stop the OpMode before changing the robot.");
             return;
         }
-        sim.post(() -> {
+        requestLoad(file);
+    }
+
+    // ---- changing the robot -----------------------------------------------------------------------
+    // A robot file (another one, or the same one with a new CAD conversion) is read on a thread of
+    // its own: reading a big CAD model takes seconds, and the physics thread runs every robot. Only
+    // the swap runs on the physics thread, and only while no OpMode runs; if one started meanwhile,
+    // the robot changes when it stops.
+
+    /** The robot file to change to once no OpMode runs, or null. */
+    private final AtomicReference<Path> pendingLoad = new AtomicReference<>();
+    /** A robot file is being read or swapped in. */
+    private final AtomicBoolean loading = new AtomicBoolean();
+    private final ExecutorService loader = Executors.newSingleThreadExecutor(r -> Simulator.daemon(r, loaderName()));
+
+    /** Named when the loader thread starts (on first use, after the constructor). */
+    private String loaderName() {
+        return "robot-load-" + (index + 1);
+    }
+
+    /** Changes this robot to the one in {@code file} (again, if it is the current one) as soon as no OpMode runs. */
+    public void requestLoad(Path file) {
+        pendingLoad.set(file);
+        loadIfIdle();
+    }
+
+    /** Starts the pending change if no OpMode runs and no other change is under way. Any thread. */
+    private void loadIfIdle() {
+        if (pendingLoad.get() == null || !isIdle() || !loading.compareAndSet(false, true)) return;
+        Path file = pendingLoad.getAndSet(null);
+        if (file == null) {
+            loading.set(false);
+            return;
+        }
+        loader.execute(() -> {
+            RobotConfig cfg;
             try {
-                RobotConfig cfg = RobotConfig.load(file);
+                cfg = RobotConfig.load(file);
+            } catch (Exception | OutOfMemoryError | StackOverflowError e) {
+                loading.set(false);
+                sim.broadcast(sim.helloJson());
+                setError("Could not load robot " + file.getFileName() + ": " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+                return;
+            }
+            sim.post(() -> {
+                try {
+                    swapRobot(file, cfg);
+                } finally {
+                    loading.set(false);
+                }
+                loadIfIdle();   // a change asked for while this one was read
+            });
+        });
+    }
+
+    /** Puts the robot read from {@code file} where the current one is. Physics thread only. */
+    private void swapRobot(Path file, RobotConfig cfg) {
+        try {
+            synchronized (lock) {   // no INIT between the check and the swap
+                if (state != DsState.IDLE) {
+                    pendingLoad.compareAndSet(null, file);
+                    log("The robot changes to " + file.getFileName() + " when the OpMode stops.");
+                    return;
+                }
                 RobotRig previous = rig;
                 RobotRig next = new RobotRig(cfg, sim.world, startPose(cfg));
                 next.attachCameras(sim.cameras, index);
@@ -479,19 +550,82 @@ public final class SimRobot {
                 applyIo(cfg);
                 rig = next;
                 robotFile = file;
-                sim.broadcast(sim.helloJson());
-                synchronized (lock) {
-                    if (fixRobot != null) {   // the error was about the previous robot's devices
-                        lastError = null;
-                        fixRobot = null;
-                    }
-                    broadcastDsLocked();
+                if (fixRobot != null) {   // the error was about the previous robot's devices
+                    lastError = null;
+                    fixRobot = null;
                 }
-            } catch (Exception e) {
-                sim.broadcast(sim.helloJson());
-                setError("Could not load robot " + fileName + ": " + e.getMessage());
             }
-        });
+            logCad(cfg);
+            sim.broadcast(sim.helloJson());
+            broadcastDs();
+        } catch (Exception e) {
+            sim.broadcast(sim.helloJson());
+            setError("Could not load robot " + file.getFileName() + ": " + e.getMessage());
+        }
+    }
+
+    /** Every robot built from the STEP file {@code step}, except {@code except}, is rebuilt with it. */
+    private void reloadRobotsUsing(Path step, SimRobot except) {
+        Path want = step.toAbsolutePath().normalize();
+        for (SimRobot other : sim.robots()) {
+            if (other == except) continue;
+            CadState os = other.rig.config.cadState;
+            if (os != null && want.equals(os.file.toAbsolutePath().normalize())) {
+                other.pendingLoad.compareAndSet(null, other.robotFile);
+                other.loadIfIdle();
+            }
+        }
+    }
+
+    // ---- CAD ------------------------------------------------------------------------------------
+
+    /** Writes what reading the CAD model found to this robot's log. */
+    void logCad(RobotConfig cfg) {
+        CadState s = cfg.cadState;
+        if (s == null) return;
+        log("CAD " + s.status.name().toLowerCase() + ": " + s.message);
+        if (s.model != null) for (String n : s.model.notes) log("CAD: " + n);
+    }
+
+    /** The robot's CAD model as the 3D view loads it, or null. */
+    public byte[] cadModelBytes() {
+        RobotModel m = rig.config.model();
+        return m == null ? null : m.browserModel();
+    }
+
+    /** The STEP file a Driver Station page should convert, or null when nothing needs converting. */
+    public Path cadSource() {
+        CadState s = rig.config.cadState;
+        return s != null && s.status == CadState.Status.CONVERT ? s.file : null;
+    }
+
+    /**
+     * A Driver Station page converted this robot's STEP file: checks the mesh is of the STEP file as
+     * it is now, saves it next to it, and rebuilds the robot with it (once no OpMode runs).
+     *
+     * @return null when accepted, otherwise why not
+     */
+    public String acceptCadMesh(byte[] data) {
+        CadState s = rig.config.cadState;
+        if (s == null || !s.isStep() || s.cache == null) return "this robot has no STEP file";
+        try {
+            CadMeshFile.Header h = CadMeshFile.header(data);
+            if (!s.sha256.equals(h.sha256()) || !s.sha256.equals(CadMeshFile.sha256(s.file))) {
+                return "the STEP file changed while it was being converted";
+            }
+            CadMeshFile.read(data);   // every index and coordinate checks out
+            CadMeshFile.writeAtomically(s.cache, data);
+            log("CAD: saved " + h.parts() + " parts, " + h.triangles() + " triangles to " + s.cache.getFileName());
+        } catch (IOException | RuntimeException e) {
+            return "the converted mesh is not usable: " + e.getMessage();
+        }
+        // Every robot built from this STEP file (several robots can share one robot file).
+        reloadRobotsUsing(s.file, null);
+        return null;
+    }
+
+    private static double round5(double v) {
+        return Math.round(v * 1e5) / 1e5;
     }
 
     void setError(String message) {
@@ -533,6 +667,23 @@ public final class SimRobot {
         m.put("wheels", r.body.wheels.stream().map(w -> Map.of("key", w.key, "x", w.x, "y", w.y)).collect(Collectors.toList()));
         m.put("wheelRadius", r.body.wheelRadius);
         m.put("chassisZ", r.body.chassisRestZ());
+        CadState cs = r.config.cadState;
+        if (cs != null) {
+            Map<String, Object> cad = new LinkedHashMap<>();
+            cad.put("status", cs.status.name().toLowerCase());
+            cad.put("message", cs.message);
+            cad.put("file", cs.file.getFileName().toString());
+            if (cs.model != null) {
+                cad.put("model", "/cad/" + index + "/model?v=" + Integer.toHexString(System.identityHashCode(cs.model)));
+                cad.put("notes", cs.model.notes);
+            }
+            if (cs.status == CadState.Status.CONVERT) {
+                cad.put("source", "/cad/" + index + "/source?v=" + cs.sha256.substring(0, 12));
+                cad.put("upload", "/cad/" + index + "/mesh");
+                cad.put("sha256", cs.sha256);
+            }
+            m.put("cad", cad);
+        }
         return m;
     }
 
@@ -620,9 +771,10 @@ public final class SimRobot {
             SimTelemetry.Frame f = t.takeFrameIfDue(now);
             if (f != null) sim.broadcast(telemetryJson(f));
         }
+        loadIfIdle();
         RobotRig r = rig;
         RobotBody body = r.body;
-        DVector3C p = body.position();
+        DVector3C p = body.centerPosition();
         DQuaternionC q = body.chassis.getQuaternion();
         double[] wheels = new double[body.wheels.size()];
         for (int i = 0; i < wheels.length; i++) wheels[i] = body.wheels.get(i).angle();
@@ -635,6 +787,22 @@ public final class SimRobot {
         m.put("q", new double[]{q.get0(), q.get1(), q.get2(), q.get3()});
         m.put("wheels", wheels);
         m.put("mech", mech);
+        double[][] groups = r.groupTransforms();
+        if (groups != null) {
+            // Each moving part of the CAD model, relative to the robot frame: x, y, z, qw, qx, qy, qz.
+            double[] inv = Geom3.inverse(groups[0]);
+            double[] links = new double[(groups.length - 1) * 7];
+            for (int i = 1; i < groups.length; i++) {
+                double[] rel = Geom3.compose(inv, groups[i]);
+                double[] quat = Geom3.quaternion(Geom3.rot(rel));
+                int k = (i - 1) * 7;
+                links[k] = round5(rel[9]);
+                links[k + 1] = round5(rel[10]);
+                links[k + 2] = round5(rel[11]);
+                for (int j = 0; j < 4; j++) links[k + 3 + j] = round5(quat[j]);
+            }
+            m.put("links", links);
+        }
         m.put("ds", ds);
         m.put("battery", r.batteryVolts());
         m.put("held", sim.elements.heldCount(index));

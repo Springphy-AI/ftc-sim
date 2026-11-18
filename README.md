@@ -252,6 +252,8 @@ looks devices up by those names.
   (flywheel), `hood` servo and `feeder` CR servo.
 - `robots/tank.json`: six-wheel drop-center tank with `left_drive` / `right_drive`, an arm
   (`left_arm`, also `arm`) and claw servos (`left_hand`, `right_hand`), for the classic samples.
+- `robots/mecanum-cad.json` and `robots/tank-urdf.json`: the same two robots built from CAD (a
+  STEP file and a URDF). See [Robots from CAD](#robots-from-cad).
 
 Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 
@@ -263,11 +265,143 @@ Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 | `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` for the 3D model |
 | `io` | simulated bus latency (default 1 ms per hub command, 2.5 ms per I2C read) |
 | `start` | starting pose `[x, y, heading]` on the field |
+| `cad` | optional: the robot's CAD model, see below |
 
 Motor models come from vendor datasheets: goBILDA 5203 (all ratios), REV HD Hex (spur and
 UltraPlanetary), REV Core Hex, NeveRest, TETRIX. If you mount a sensor differently from what
 your code assumes (for example the IMU orientation or the Pinpoint pod offsets), the readings
 are wrong in the same way they would be on the robot.
+
+## Robots from CAD
+
+A robot file can point at the robot's CAD model. The robot then looks like its CAD, in the 3D view
+and in other robots' webcams. Its mass, center of mass, inertia and collision shape come from the
+CAD. Its arms, slides, hoods and claws become rigid bodies on joints, driven by your motors and
+servos. Robots without `cad` work as before.
+
+### Add your robot from its CAD
+
+1. Export the robot's assembly as a STEP file. In Onshape, right-click the assembly's tab and
+   choose *Export*, then STEP. In Fusion 360, use *File → Export*; in SolidWorks and Inventor,
+   *Save As*.
+2. Put it in `robots/cad/`. Copy the robot file whose devices match your Driver Station
+   configuration, and give the copy a `cad` section with the STEP file's name:
+   `"cad": "cad/our-robot.step"`.
+3. Pick the copy from the **Robot** menu, or start with `--robot`.
+
+The page turns the STEP file into triangles with OpenCascade, which runs in the browser, and the
+simulator saves them next to it as `our-robot.step.cadmesh`. A big assembly takes up to a minute.
+The robot log then says what the simulator worked out by itself:
+
+- **Which way the robot faces.** Up comes from the drive wheels: their centers are level and the
+  robot is above them. The front is the end with the intake, or the end with parts named *front*
+  rather than *back*. If it guessed wrong, set `forward` and `up` (below).
+- **The drive wheels**: parts and sub-assemblies named like *wheel*, *mecanum* or *omni* that touch
+  the floor (not a flywheel or an intake wheel), sorted by where they are.
+- **Rollers and flywheels**: round parts named like the motor or CR servo that turns them, with
+  the parts on the same axis. An `intake` motor turns *Intake Roller* and its shaft, a `launcher`
+  or a `flywheel` load turns the *Flywheel* and its hub. They keep the robot file's `load.inertia`.
+- **Mass**: `chassis.mass_kg` spread over the parts by volume. Set it to what your robot weighs.
+
+To update the robot, export the STEP file again over the old one: the page converts it again.
+Commit the STEP, `.cadmesh` and robot files so your teammates and CI don't convert the STEP file
+again.
+
+Arms, slides, hoods and claws need one line each in the robot file's `cad.links`, because how far
+they may move isn't in a STEP file:
+
+```json
+"cad": {
+  "file": "cad/our-robot.step",
+  "links": [
+    { "name": "Arm Assembly", "device": "arm", "limits": [-35, 120] },
+    { "name": "Hood", "device": "hood", "ratio": 0.2, "limits": [-35, 35] },
+    { "name": "Slide Stage", "device": "lift", "joint": "prismatic", "limits": [0, 600] }
+  ]
+}
+```
+
+`name` is the part or sub-assembly in the CAD that moves. It turns on the round part named like a
+shaft, axle, pivot or hinge that is in it or touches it, and a slide moves along its longest side.
+The robot log says which part each link turns on; `axis_part` names a different one.
+
+`robots/mecanum-cad.json` is a STEP example with everything spelled out. It runs the same OpModes
+as `mecanum.json`.
+
+### The cad section of a STEP robot
+
+`"cad": "cad/our-robot.step"` is short for `"cad": {"file": "cad/our-robot.step"}`. Everything
+else is optional.
+
+| Field | What it sets |
+|---|---|
+| `file` | the STEP file, relative to the robot file |
+| `forward`, `up` | the CAD axes that point to the robot's front and up: `+x`, `-y`, `+z`... Default: worked out from the wheels and part names, as above |
+| `origin_mm` | the point on the floor under the robot's center, in CAD coordinates (mm). Default: the middle of the drive wheels, at the bottom of the wheels |
+| `wheels` | the parts of each drive wheel, such as `{"front_left": ["FL Wheel*"], ...}`. Default: parts or assemblies named like *wheel*, *mecanum* or *omni* that touch the floor, sorted by where they are |
+| `ignore` | parts to leave out, such as field elements or reference geometry |
+| `links` | the parts that move, one entry each, as below. Rollers and flywheels that aren't listed are found by their motor's name |
+
+| Link field | What it sets |
+|---|---|
+| `name` | the link's name, which other links use for `parent` and `mimic` |
+| `parts` | name patterns of its parts. A pattern matches a part's name or the name of any assembly it is in, so `"Arm Assembly"` takes a whole sub-assembly. `*` and `?` are wildcards; case doesn't matter. Default: the parts and sub-assemblies called `name` |
+| `joint` | `revolute` (an arm, a hood, a wrist, a claw finger), `prismatic` (a slide stage) or `continuous` (a roller, a flywheel, a feeder wheel). Default: `continuous` for a `roller` or `flywheel` motor and a CR servo, otherwise `revolute` |
+| `axis_part` | the shaft, rail or servo spline the link moves on. The axis is that part's long axis (a shaft, a rail) or its short axis (a disk, a servo horn). Or give the axis as `axis_point_mm` and `axis_dir`, in CAD coordinates. Default: a round part named like a shaft, axle, pivot or hinge in the link or touching it; a roller's own round part; a slide's longest side |
+| `device` | the motor, servo or CR servo that drives it |
+| `reversed` | flips which way is positive. The axis points along whichever of the robot's +x, +y, +z it is closest to, and positive turns right-handed about it |
+| `limits` | hard stops `[min, max]`, in degrees or mm from where the CAD has it |
+| `start` | where it is when the robot is placed or reset |
+| `parent` | the link it is mounted on. Default: the chassis |
+| `mass_kg` | its mass. Without it, the link gets a share of `chassis.mass_kg` by volume, which makes solid parts such as flywheels too heavy |
+| `ratio`, `servo_center` | servo-driven links: joint degrees per servo degree, and the joint's position when the servo is at 0.5 |
+| `torque_nm` | servo-driven links: the servo's stall torque. Default 2.5 N m |
+| `spool_diameter_mm` | motor-driven slides: the spool or pulley diameter. Default 38 mm |
+| `mimic`, `mimic_ratio` | a cascade stage that follows another link |
+
+### From a URDF
+
+A URDF (`.urdf` with STL or OBJ meshes) has the joints and the CAD's mass properties. CAD exporters
+write it: [onshape-to-robot](https://onshape-to-robot.readthedocs.io) for Onshape,
+[fusion2urdf](https://github.com/syuntoku14/fusion2urdf) for Fusion 360, and the SolidWorks URDF
+exporter. Put its folder in `robots/cad/` and point a robot file at it; `robots/tank-urdf.json` is
+an example that runs the same OpModes as `tank.json`.
+
+```json
+"cad": {
+  "file": "cad/my-robot/robot.urdf",
+  "links": [ { "name": "arm_joint", "device": "arm", "start": -35 } ]
+}
+```
+
+A joint is driven by the device with the same name as the joint, or by the `device` a `links`
+entry gives for it (the entry's `name` is the joint's name). Such an entry can also set `reversed`,
+`limits` (which override the URDF's), `start`, `ratio`, `servo_center`, `torque_nm` and
+`spool_diameter_mm`. Joints that no device drives stay where the CAD has them. The drive wheels
+are the links named like wheels, or on continuous joints that no device drives. Masses and
+inertias come from the URDF; `mass_kg` scales them to what your robot weighs on a scale. Mesh paths
+such as `package://robot/meshes/arm.stl` are looked up next to the URDF and in its parent folder.
+
+### What the CAD changes
+
+- **The chassis** is everything that doesn't move. Its mass, center of mass and inertia come from
+  the CAD. It collides through boxes fitted to each part: a bent or curved part gets several, and
+  screws and nuts get none.
+- **Links on revolute and prismatic joints** are rigid bodies. Gravity pulls on them, they stop at
+  their limits, and they hit balls, other robots and the field. A motor drives its joint through
+  its torque curve and gearbox, and its encoder counts what the joint does. A servo pulls toward
+  where its horn is, with at most its stall torque, and an unpowered servo holds only a little.
+- **Rollers, flywheels and feeder wheels** turn with their motor or CR servo: with their CAD
+  inertia when `links` lists them, with the robot file's `load.inertia` when they were found by
+  name. The intake takes balls at the CAD roller, and the launcher throws from the CAD flywheel's
+  rim.
+- **The robot file's numbers** follow the CAD: the robot's size, wheel positions, wheel diameter and
+  mass. The robot log lists what the simulator assumed while reading the CAD.
+- **Not taken from the CAD**: how the drive wheels grip (mecanum rollers grip along their axis, as
+  before), where the sensors are (still set in `devices`), mates, and materials.
+
+If the CAD can't be used, for example because a pattern matches no part, the robot is built from
+the robot file's numbers and the 3D view says why.
 
 ## What is simulated
 
@@ -341,10 +475,23 @@ The suite includes:
   balls gently placed or tossed in, and a tip dumping the CELL and turning the other CELL up.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
   contact, no drift at rest.
+- `CadImportTest`: robots from CAD. The STEP and URDF examples are read into their links, joints,
+  wheels and masses. The STEP example with nothing but its file name comes out the same as with
+  everything spelled out, also exported y-up or modeled facing backward; a link with only its
+  name and device finds its pivot. A STEP file is converted again only when it changes (line
+  endings don't count), and when its saved conversion is damaged or no longer fits the robot
+  file. The CAD robot drives at the plain robot's speed, and its
+  odometry sees no movement while it turns in place. The URDF arm swings up on its motor with its
+  encoder following, and falls back unpowered; URDF drive wheels are found without "wheel" in
+  their names. The hood follows its servo, the CAD intake and flywheel take in and launch balls
+  (from the front of the flywheel's rim, wherever it has turned to), and a cascade slide's second
+  stage follows the first, held back by its motor's rotor. Two writes of one conversion don't
+  collide.
 - `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
   spot, pre-load, blackboard and gamepads; one robot pushes the other; swapping one robot's file
-  leaves the other alone; alliance partners start side by side and an alliance takes at most two
-  robots; *INIT all* / *START all* / *STOP all* run both robots' Autonomous together.
+  leaves the other alone, and never happens under a running OpMode; alliance partners start side
+  by side and an alliance takes at most two robots; *INIT all* / *START all* / *STOP all* run both
+  robots' Autonomous together.
 - `VisionLinkageTest`: every class, method and field that FIRST's Vision and RobotCore classes
   refer to exists in the simulator, so a missing stand-in can't surface as a `NoSuchMethodError`
   in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
@@ -375,7 +522,7 @@ Station page loads.
 | `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, web server, browser UI (`src/main/resources/web`) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
-| `robots/` | Robot descriptions |
+| `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |
 
 ## License
 
@@ -393,7 +540,9 @@ Third-party code in this repository keeps its own license:
 Libraries that Gradle downloads at build time: ODE4j (LGPL-2.1-or-later or BSD-style, at your
 choice), Javalin, Gson and Kotlin stdlib (Apache-2.0), Jetty (Apache-2.0 or EPL-2.0), SLF4J (MIT),
 FIRST's FTC SDK packages RobotCore and Vision (BSD-3-Clause), OpenFTC's AprilTag plugin (MIT),
-and OpenCV with JavaCPP and OpenBLAS from Bytedeco (Apache-2.0, BSD-3-Clause).
+and OpenCV with JavaCPP and OpenBLAS from Bytedeco (Apache-2.0, BSD-3-Clause). From npm:
+occt-import-js, Open CASCADE Technology compiled to WebAssembly, which the Driver Station page
+uses to read STEP files (both LGPL-2.1; their license texts are served with them).
 
 The field layout follows the *BIOBUZZ presented by RTX* Competition Manual (FIRST Tech Challenge
 2026–27). FIRST®, FIRST® Tech Challenge and BIOBUZZ™ are trademarks of FIRST (For Inspiration and

@@ -1,0 +1,52 @@
+{
+  "name": "Tank robot from CAD (URDF)",
+  "description": "The tank robot of tank.json, built from a URDF as CAD exporters write it (onshape-to-robot, fusion2urdf, the SolidWorks exporter): the arm is a rigid body on its motor's joint and the claw fingers on their servos, with the CAD's masses.",
+
+  "chassis": {
+    "length_m": 0.4572,
+    "width_m": 0.4318,
+    "frame_height_m": 0.09,
+    "ground_clearance_m": 0.025,
+    "mass_kg": 11.0,
+    "color": "#1e4fb3"
+  },
+
+  "drive": {
+    "type": "tank",
+    "wheel_diameter_mm": 101.6,
+    "wheelbase_m": 0.30,
+    "track_width_m": 0.33,
+    "motor": "goBILDA 5203 312rpm",
+    "external_gear_ratio": 1.0,
+    "motors": { "left": "left_drive", "right": "right_drive" },
+    "left_side_mirrored": true,
+    "traction_mu": 0.9,
+    "roller_mu": 0.05
+  },
+
+  "imu": { "name": "imu", "logo": "UP", "usb": "FORWARD" },
+
+  "devices": [
+    { "type": "motor", "name": "left_arm", "aliases": ["arm"], "motor": "goBILDA 5203 117rpm",
+      "external_gear_ratio": 1.0, "role": "arm",
+      "load": { "kind": "arm", "mass_kg": 0.6, "length_m": 0.35, "min_deg": -35, "max_deg": 120, "start_deg": -35 } },
+    { "type": "servo", "name": "left_hand", "range_deg": 180, "speed_deg_per_sec": 400, "role": "claw_left" },
+    { "type": "servo", "name": "right_hand", "range_deg": 180, "speed_deg_per_sec": 400, "role": "claw_right" },
+
+    { "type": "distance", "name": "sensor_distance", "x_m": 0.2286, "y_m": 0.0, "z_m": 0.08, "yaw_deg": 0 },
+    { "type": "color", "name": "sensor_color", "x_m": 0.16, "y_m": 0.0, "z_m": 0.015 },
+    { "type": "touch", "name": "sensor_touch", "x_m": 0.2286, "y_m": 0.12, "z_m": 0.06 },
+    { "type": "webcam", "name": "Webcam 1", "model": "Logitech C920", "x_m": 0.2, "y_m": 0.0, "z_m": 0.3, "pitch_deg": 20 }
+  ],
+
+  "io": { "command_ms": 1.0, "i2c_ms": 2.5 },
+
+  "cad": {
+    "file": "cad/arm-bot/arm-bot.urdf",
+    "links": [
+      { "name": "left_arm", "start": -35 }
+    ]
+  },
+
+  "start": [-1.20, -1.20, 0]
+}

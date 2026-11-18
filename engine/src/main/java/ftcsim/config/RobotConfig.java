@@ -29,6 +29,87 @@ public final class RobotConfig {
     public Io io = new Io();
     /** Starting pose on the field: x, y in meters, heading in degrees (0 faces +x, the blue wall). */
     public double[] start = {-1.55, -0.30, 0};
+    /**
+     * The robot's CAD model (a STEP or URDF file). When present, the robot looks like its CAD, its
+     * mass properties and collision shape come from it, and its moving parts are rigid bodies on
+     * joints. Without it the robot is built from the numbers above. {@code "cad": "cad/x.step"} is
+     * short for {@code "cad": {"file": "cad/x.step"}}.
+     */
+    public Cad cad;
+
+    /** How to read the CAD model. Lengths in the CAD's own coordinates are millimeters. */
+    public static final class Cad {
+        /** A .step/.stp or .urdf file, relative to the robot file. */
+        public String file;
+        /**
+         * The CAD axes that point to the robot's front and up: "+x", "-y", "+z"... Left out (or
+         * "auto"): a STEP file's are worked out from its wheels and part names, a URDF's are +x, +z.
+         */
+        public String forward;
+        public String up;
+        /** The point on the floor under the robot's center, in CAD coordinates (mm); default: automatic. */
+        public double[] originMm;
+        /** Parts to leave out entirely (name patterns). */
+        public List<String> ignore = new ArrayList<>();
+        /**
+         * The drivetrain wheels: wheel (front_left, front_right, back_left, back_right; for "tank"
+         * left_front, left_middle, ...) to the CAD parts (STEP name patterns) or links (URDF) that
+         * make it up. Default: parts named like *wheel*, *mecanum* or *omni*, sorted by position.
+         */
+        public JsonObject wheels;
+        /** STEP: the parts that move, each on a joint. URDF: settings for joints, by joint name. */
+        public List<CadLink> links = new ArrayList<>();
+        /** URDF: total mass to scale the CAD masses to (kg); default: the URDF's own masses. */
+        public Double massKg;
+    }
+
+    /** One moving part of the CAD model and what drives it. Angles in degrees, lengths in mm. */
+    public static final class CadLink {
+        /** STEP: a name for the link. URDF: the joint's name. */
+        public String name;
+        /**
+         * STEP: the parts that move together (name patterns; a pattern matches any assembly level).
+         * Default: the parts or sub-assembly called {@link #name}.
+         */
+        public List<String> parts = new ArrayList<>();
+        /** STEP: the link this one is mounted on ("base" = the chassis). */
+        public String parent = "base";
+        /**
+         * STEP: revolute (an arm, a hood, a claw), prismatic (a slide), continuous (a roller).
+         * Default: continuous for a roller or flywheel motor and a CR servo, otherwise revolute.
+         */
+        public String joint;
+        /**
+         * STEP: the shaft, rail or servo spline the link turns or slides along (name pattern).
+         * Default: a round part named like a shaft, axle or pivot in or next to the link; a slide
+         * moves along its own length.
+         */
+        public String axisPart;
+        /** STEP: or the axis given directly, in CAD coordinates: a point (mm) and a direction. */
+        public double[] axisPointMm;
+        public double[] axisDir;
+        /** Turns the positive direction around. */
+        public boolean reversed;
+        /** The motor, servo or CR servo (by name) that drives the joint. */
+        public String device;
+        /** Joint travel per servo travel (degrees per degree), for servo-driven joints. */
+        public double ratio = 1;
+        /** Joint position (from the CAD pose) when a servo is at 0.5. */
+        public double servoCenter = 0;
+        /** Hard stops [min, max] from the CAD pose; default: the URDF's limits, or none. */
+        public double[] limits;
+        /** Position from the CAD pose when the robot is placed or reset. */
+        public double start = 0;
+        /** Mass of the link's parts (kg); default: its share of the robot's mass by volume. */
+        public Double massKg;
+        /** Prismatic joints driven by a motor: diameter of the spool or pulley (mm). */
+        public double spoolDiameterMm = 38;
+        /** Servo-driven joints: the servo's stall torque (N m). */
+        public double torqueNm = 2.5;
+        /** STEP: follow another link (a cascade slide stage): position = ratio x that link's. */
+        public String mimic;
+        public double mimicRatio = 1;
+    }
 
     public static final class Chassis {
         public double lengthM = 0.4572;
@@ -111,19 +192,61 @@ public final class RobotConfig {
     }
 
     public transient Path source;
+    /** The CAD model, its status, and what was assumed reading it; null without a {@code cad} section. */
+    public transient ftcsim.cad.CadState cadState;
 
     private static final Gson GSON = new GsonBuilder()
             .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
+            .registerTypeAdapterFactory(new CadShorthand())
             .create();
 
-    public static RobotConfig load(Path file) throws IOException {
-        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            RobotConfig c = GSON.fromJson(r, RobotConfig.class);
-            if (c == null) throw new IOException("empty robot file " + file);
-            c.source = file;
-            c.validate();
-            return c;
+    /** Reads {@code "cad": "file"} as {@code "cad": {"file": "file"}}. */
+    private static final class CadShorthand implements com.google.gson.TypeAdapterFactory {
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> com.google.gson.TypeAdapter<T> create(Gson gson, com.google.gson.reflect.TypeToken<T> type) {
+            if (type.getRawType() != Cad.class) return null;
+            com.google.gson.TypeAdapter<Cad> object = (com.google.gson.TypeAdapter<Cad>) gson.getDelegateAdapter(this, type);
+            return (com.google.gson.TypeAdapter<T>) new com.google.gson.TypeAdapter<Cad>() {
+                @Override
+                public void write(com.google.gson.stream.JsonWriter out, Cad value) throws IOException {
+                    object.write(out, value);
+                }
+
+                @Override
+                public Cad read(com.google.gson.stream.JsonReader in) throws IOException {
+                    if (in.peek() != com.google.gson.stream.JsonToken.STRING) return object.read(in);
+                    Cad c = new Cad();
+                    c.file = in.nextString();
+                    return c;
+                }
+            };
         }
+    }
+
+    public static RobotConfig load(Path file) throws IOException {
+        return load(file, true);
+    }
+
+    /**
+     * Reads a robot file. Without {@code withCad} the CAD model isn't read: enough to know the
+     * robot's devices, and quick even for a big CAD assembly.
+     */
+    public static RobotConfig load(Path file, boolean withCad) throws IOException {
+        RobotConfig c;
+        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            c = GSON.fromJson(r, RobotConfig.class);
+            if (c == null) throw new IOException("empty robot file " + file);
+        }
+        c.source = file;
+        c.validate();
+        if (c.cad != null && withCad) c.cadState = ftcsim.cad.CadState.load(c);
+        return c;
+    }
+
+    /** The CAD model, if this robot has one and it is ready. */
+    public ftcsim.cad.RobotModel model() {
+        return cadState == null ? null : cadState.model;
     }
 
     public static Gson gson() {
@@ -132,7 +255,8 @@ public final class RobotConfig {
 
     private void validate() {
         if (chassis.widthM <= 0 || chassis.lengthM <= 0) throw new IllegalArgumentException("chassis size must be positive");
-        if (drive.trackWidthM / 2 > chassis.widthM / 2) throw new IllegalArgumentException("wheels must fit inside the chassis width");
+        if (cad == null && drive.trackWidthM / 2 > chassis.widthM / 2) throw new IllegalArgumentException("wheels must fit inside the chassis width");
+        if (cad != null && (cad.file == null || cad.file.isBlank())) throw new IllegalArgumentException("cad needs a file (.step, .stp or .urdf)");
         for (Device d : devices) {
             if (d.type == null || d.name == null) throw new IllegalArgumentException("every device needs a type and a name");
         }

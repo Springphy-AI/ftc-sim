@@ -3,8 +3,11 @@ package ftcsim.server;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -23,7 +26,9 @@ import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
 import io.javalin.websocket.WsContext;
 
+import ftcsim.cad.CadMeshFile;
 import ftcsim.hal.CameraPreviews;
+import ftcsim.sim.SimRobot;
 import ftcsim.sim.Simulator;
 
 /**
@@ -94,6 +99,9 @@ public final class WebServer {
             config.staticFiles.add("/web", Location.CLASSPATH);
             config.startup.showJavalinBanner = false;
             config.routes.get("/camera/{id}", WebServer::streamCamera);
+            config.routes.get("/cad/{robot}/model", this::cadModel);
+            config.routes.get("/cad/{robot}/source", this::cadSource);
+            config.routes.post("/cad/{robot}/mesh", this::cadMesh);
             config.routes.ws("/ws", ws -> {
                 ws.onConnect(ctx -> {
                     ctx.enableAutomaticPings(5, TimeUnit.SECONDS);
@@ -115,6 +123,69 @@ public final class WebServer {
 
     public void stop() {
         if (app != null) app.stop();
+    }
+
+    // ---- CAD models ----------------------------------------------------------------------------------
+
+    private SimRobot robotOf(Context ctx) {
+        try {
+            int i = Integer.parseInt(ctx.pathParam("robot"));
+            return i >= 0 && i < sim.robots().size() ? sim.robot(i) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** A robot's CAD model for the 3D view (see ftcsim.cad.ModelExport). */
+    private void cadModel(Context ctx) {
+        SimRobot r = robotOf(ctx);
+        byte[] model = r == null ? null : r.cadModelBytes();
+        if (model == null) {
+            ctx.status(404);
+            return;
+        }
+        ctx.header("Cache-Control", "no-store");
+        ctx.contentType("application/octet-stream");
+        ctx.result(model);
+    }
+
+    /** The STEP file a page should convert (only while it needs converting). */
+    private void cadSource(Context ctx) throws IOException {
+        SimRobot r = robotOf(ctx);
+        Path step = r == null ? null : r.cadSource();
+        if (step == null) {
+            ctx.status(404);
+            return;
+        }
+        ctx.header("Cache-Control", "no-store");
+        ctx.contentType("application/octet-stream");
+        ctx.result(Files.newInputStream(step));   // streamed: a STEP file can be hundreds of MB
+    }
+
+    /**
+     * The page's conversion of a STEP file. It must carry the X-Ftcsim-Upload header, which other
+     * web sites can't send to this server without the browser asking it first (and it never agrees).
+     */
+    private void cadMesh(Context ctx) throws IOException {
+        SimRobot r = robotOf(ctx);
+        if (r == null || ctx.header("X-Ftcsim-Upload") == null) {
+            ctx.status(r == null ? 404 : 403);
+            return;
+        }
+        byte[] data;
+        try (InputStream in = ctx.bodyInputStream()) {
+            data = in.readNBytes((int) CadMeshFile.MAX_BYTES + 1);
+        }
+        if (data.length > CadMeshFile.MAX_BYTES) {
+            ctx.status(413).result("the converted mesh is too big");
+            return;
+        }
+        String problem = r.acceptCadMesh(data);
+        if (problem != null) {
+            ctx.status(422).result(problem);
+            return;
+        }
+        ctx.status(204);
     }
 
     /**

@@ -14,6 +14,50 @@ configurations {
 
 def ftcSdkVersion = '12.0.0'
 
+// OpenCascade compiled to WebAssembly (occt-import-js), which the Driver Station page runs to turn
+// a robot's STEP file into triangles. It comes from npm, as a plain download Gradle caches.
+def occtImportJsVersion = '0.0.23'
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            ivy {
+                name = 'npm'
+                url = 'https://registry.npmjs.org'
+                patternLayout { artifact '[module]/-/[module]-[revision].[ext]' }
+                metadataSources { artifact() }
+            }
+        }
+        filter { includeGroup 'npm' }
+    }
+}
+
+configurations {
+    occtImportJs {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+dependencies {
+    occtImportJs "npm:occt-import-js:${occtImportJsVersion}@tgz"
+}
+
+def occtWebDir = layout.buildDirectory.dir('generated/occt')
+def unpackOcct = tasks.register('unpackOcct', Sync) {
+    description = 'Puts occt-import-js (the STEP reader the Driver Station page uses) into the web resources.'
+    from({ tarTree(configurations.occtImportJs.singleFile) }) {
+        // (js/occt-worker.js, not the package's own worker, runs it: it reports failures)
+        include 'package/dist/occt-import-js.js', 'package/dist/occt-import-js.wasm', 'package/dist/license.*'
+        eachFile { it.path = it.name }
+        includeEmptyDirs = false
+    }
+    into occtWebDir.map { it.dir('web/vendor/occt') }
+}
+sourceSets.main.resources.srcDir(occtWebDir)
+tasks.named('processResources') { dependsOn unpackOcct }
+
 dependencies {
     implementation project(':sdk')
     implementation 'org.ode4j:core:0.5.4'          // rigid-body physics (pure-Java port of ODE)
