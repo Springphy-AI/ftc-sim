@@ -5,9 +5,9 @@
 [![macOS](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml/badge.svg?branch=main)](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml)
 
 Run your real FTC robot code (the `TeamCode` in your FtcRobotController project) against a
-simulated robot on the **BIOBUZZ** (2026–27) field; each season's game is a
-[season pack](#seasons), so next season's field is added next to it. Drive it from a browser
-Driver Station with an Xbox/PlayStation controller or the keyboard. When it works in the
+simulated robot on the **BIOBUZZ** (2026–27) field, or on another season's field: **DECODE**
+(2025–26) is included, and each new game is added as a [season pack](#seasons). Drive it from a
+browser Driver Station with an Xbox/PlayStation controller or the keyboard. When it works in the
 simulator, deploy the same code to the robot as usual. Nothing in TeamCode changes.
 
 ![Driver Station and 3D field](docs/screenshot.png)
@@ -143,11 +143,12 @@ AprilTags, the human player). Each game is a **season pack** in `seasons/`:
 | Season | Pack | |
 |---|---|---|
 | BIOBUZZ presented by RTX (2026–27) | `seasons/biobuzz/` | the default |
+| DECODE presented by RTX (2025–26) | `seasons/decode/` | |
 
 Pick one with `--season`, or `season=` in `sim.properties`:
 
 ```bat
-.\run-sim.bat --season biobuzz --project "C:\path\to\FtcRobotController"
+.\run-sim.bat --season decode --project "C:\path\to\FtcRobotController"
 ```
 
 The top bar shows the season, and the 3D view's camera presets, the human player buttons and the
@@ -157,6 +158,19 @@ odometry in your TeamCode give the field positions you'd get on the real field. 
 TeamCode builds against has the tag libraries of CENTERSTAGE, INTO THE DEEP, DECODE and BIOBUZZ
 (`AprilTagGameDatabase.getDecodeTagLibrary()`...); `getCurrentGameTagLibrary()` is BIOBUZZ's.
 
+**DECODE** in the simulator: the field from FIRST's DECODE manual and official field CAD; 36
+ARTIFACTS (24 purple, 12 green, 5 in) staged on the SPIKE MARKS, in the LOADING ZONES and in the
+ALLIANCE AREAS, 3 pre-loaded in each robot (and at most 3 held, rule G408); both GOALS with their
+RAMPS, SQUARES and GATES; the OBELISK, turned to a random MOTIF at every *Reset*; the GOAL
+AprilTags 20 and 24 and the OBELISK's 21–23. An ARTIFACT that drops into a GOAL rolls down its RAMP
+and waits at the GATE; push the GATE's paddle toward the wall with the robot and the RAMP empties
+toward the audience, and gravity closes the GATE again. The human player puts a purple or green
+ARTIFACT into the alliance's LOADING ZONE with **N** / **M** (red) and **V** / **B** (blue). The
+top bar shows the MOTIF and, for each GOAL, the ARTIFACTS that went through its SQUARE, the ones on
+its RAMP and how many RAMP places match the MOTIF (not a MATCH score). Simplified: the inside of the
+GOALS, the RAMP rails (a flat plate) and the GATE lever are simplified from the CAD, and an
+ARTIFACT's mass (75 g) and bounce are estimates.
+
 **Where robots start** comes from the season (`"start"` in its `season.json`, two spots per
 alliance). A robot file can give its own spot per season, `"start": {"biobuzz": [-1.2, -1.2, 0]}`
 (x, y in meters, heading in degrees). A plain `"start": [x, y, h]`, as robot files made before
@@ -164,7 +178,7 @@ there were seasons have, is a BIOBUZZ spot; other seasons ignore it.
 
 ### Adding a season
 
-When FIRST reveals a new game, copy a pack folder, say `seasons/biobuzz/` to `seasons/<game>/`,
+When FIRST reveals a new game, copy a pack folder, say `seasons/decode/` to `seasons/<game>/`,
 and describe the new field in its `season.json` (meters, in the season's field coordinates):
 
 | Key | What |
@@ -184,7 +198,9 @@ and describe the new field in its `season.json` (meters, in the season's field c
 What data can't say goes in Java in the same folder, package `<game>`, named by `"code"`: a
 `SeasonCode` that can add shapes worked out from the data (`describe`) and a `SeasonGame` for the
 match (`restage`, `beforeStep`, `act` for the human player, `stats` for the top bar). BIOBUZZ's
-HIVES, their tipping and its staging rules are in `seasons/biobuzz/`. The simulator compiles the packs with itself (`gradlew build`). FIRST publishes the
+HIVES, their tipping and its staging rules are in `seasons/biobuzz/`; DECODE needs code only for
+its MOTIF and what it counts. The simulator compiles the packs with itself (`gradlew build`), and
+`SeasonsTest` loads every pack in `seasons/` and plays a little of each. FIRST publishes the
 Competition Manual, the field drawings and a STEP model of the whole field at kickoff: the numbers
 for `season.json` come from there.
 
@@ -486,7 +502,7 @@ the robot file's numbers and the 3D view says why.
   orientation), goBILDA Pinpoint (its own odometry from your offsets, resolution and directions),
   SparkFun OTOS, REV 2m distance (raycast), REV Color Sensor V3 (tape and tiles under it), REV
   touch sensor / digital channel, and battery voltage.
-- **Game pieces** (BIOBUZZ): the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
+- **Game pieces** (BIOBUZZ; for DECODE see [Seasons](#seasons)): the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
   as Competition Manual section 10.3.1 sets them up: 4 POLLEN in each FLOWER, 4 in each GARDEN and
   4 pre-loaded in each simulated robot; the absent robots' pre-loads sit in the middle of their
   LOADING ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
@@ -555,6 +571,13 @@ The suite includes:
   (from the front of the flywheel's rim, wherever it has turned to), and a cascade slide's second
   stage follows the first, held back by its motor's rotor. Two writes of one conversion don't
   collide.
+- `SeasonsTest`: every season pack in `seasons/` loads and plays (its robot starts clear of the
+  structures, its game pieces stay on the field). On DECODE: the ARTIFACTS are staged per section
+  10.3.1, the GOAL AprilTags sit where FIRST's DECODE tag library puts them, ARTIFACTS dropped into
+  a GOAL roll down the RAMP and wait at the GATE, a robot pushes the GATE open and the RAMP empties,
+  the human player fills the LOADING ZONE, the OBELISK shows the MOTIF, and FIRST's
+  `AprilTagProcessor` with the DECODE library locates the camera from tag 24 within 3 cm (it
+  prints the error).
 - `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
   spot, pre-load, blackboard and gamepads; one robot pushes the other; swapping one robot's file
   leaves the other alone, and never happens under a running OpMode; alliance partners start side
@@ -614,6 +637,7 @@ and OpenCV with JavaCPP and OpenBLAS from Bytedeco (Apache-2.0, BSD-3-Clause). F
 occt-import-js, Open CASCADE Technology compiled to WebAssembly, which the Driver Station page
 uses to read STEP files (both LGPL-2.1; their license texts are served with them).
 
-The field layout follows the *BIOBUZZ presented by RTX* Competition Manual (FIRST Tech Challenge
-2026–27). FIRST®, FIRST® Tech Challenge and BIOBUZZ™ are trademarks of FIRST (For Inspiration and
+The field layouts follow the *BIOBUZZ presented by RTX* (FIRST Tech Challenge 2026–27) and
+*DECODE presented by RTX* (2025–26) Competition Manuals and FIRST's field drawings and CAD.
+FIRST®, FIRST® Tech Challenge, BIOBUZZ™ and DECODE™ are trademarks of FIRST (For Inspiration and
 Recognition of Science and Technology). This project is not affiliated with or endorsed by FIRST.
