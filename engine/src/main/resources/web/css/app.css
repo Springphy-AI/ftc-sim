@@ -98,6 +98,9 @@ select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px s
 .rr-head { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; text-align: left; }
 .rr-head b { font-weight: 650; font-size: 14px; white-space: nowrap; }
 .rr-alliance { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rr-info { display: flex; gap: 8px; margin-top: -3px; color: var(--faint); font: 11.5px var(--mono); }
+.rr-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rr-battery { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rr-status { margin-left: auto; color: var(--muted); font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rr-status.running { color: #7be3a8; }
 .rr-status.init { color: #a9c4ff; }

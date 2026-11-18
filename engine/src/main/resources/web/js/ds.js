@@ -136,7 +136,7 @@ export class DriverStation {
     const n = list.length;
     while (this.robots.length < n) this.robots.push(blankRobot());
     this.robots.length = n;
-    this.meta = list.map((r) => ({ alliance: r.alliance, robotFile: r.robotFile }));
+    this.meta = list.map((r) => ({ alliance: r.alliance, robotFile: r.robotFile, project: r.project }));
     if (this.current >= n) this.current = 0;
     this.buildRows();
   }
@@ -300,6 +300,14 @@ export class DriverStation {
     if (st === 'IDLE') $('timer').textContent = '';
   }
 
+  /** Robot i's battery voltage from the state stream, on its card. */
+  setBattery(i, volts) {
+    const row = this.rows[i];
+    if (!row || typeof volts !== 'number') return;
+    const text = `${volts.toFixed(1)} V`;
+    if (row.battery.textContent !== text) row.battery.textContent = text;
+  }
+
   /** Elapsed / remaining OpMode time from the state stream. */
   setTimer(i, ds) {
     const r = this.robots[i];
@@ -330,6 +338,7 @@ export class DriverStation {
       root.innerHTML = `<button class="rr-head" title="Show Robot ${n}'s telemetry, gamepads and devices below">`
           + `<i class="dot idle"></i><b>Robot ${n}</b><span class="rr-alliance">${esc(alliance)} alliance</span>`
           + '<span class="rr-status">Stopped</span></button>'
+        + '<div class="rr-info"><span class="rr-project"></span><span class="rr-battery" title="Battery voltage"></span></div>'
         + '<div class="rr-controls">'
           + `<select aria-label="Robot ${n} OpMode"></select>`
           + '<button class="go init" disabled>INIT</button>'
@@ -345,6 +354,7 @@ export class DriverStation {
       const q = (sel) => root.querySelector(sel);
       const row = {
         root, dot: q('.dot'), status: q('.rr-status'), select: q('.rr-controls select'), main: q('.go'),
+        project: q('.rr-project'), battery: q('.rr-battery'),
         file: q('.rr-file select'), cad: q('.rr-file .cad'),
         stop: q('.halt'), error: q('.rr-msg.error'), errorText: q('.rr-msg.error .text'), fix: q('.fix'), warn: q('.rr-msg.warn'),
       };
@@ -401,6 +411,9 @@ export class DriverStation {
     row.fix.textContent = ds.fixRobot ? `Use ${ds.fixRobot}` : '';
     row.warn.hidden = !ds.warning;
     row.warn.textContent = ds.warning || '';
+    const project = this.meta[i]?.project ?? '';
+    row.project.textContent = `TeamCode: ${project}`;
+    row.project.title = `Robot ${i + 1}'s TeamCode: ${project}`;
     this.renderRowFile(i, options);
     this.renderRowStatus(i);
   }

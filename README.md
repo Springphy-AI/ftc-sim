@@ -104,19 +104,20 @@ alliance partner. An alliance has at most two robots.
 ### Driving several robots
 
 - **A card per robot.** The side panel starts with a card for every robot: its name and alliance,
-  its state and time (an Autonomous with the 30 s timer counts down, e.g. *Running · 0:28 left*),
-  its OpMode list, its INIT / START / STOP button and a stop button, and below them its robot file
-  and *+ From CAD* (see [Robots from CAD](#robots-from-cad)); both work while that robot is
-  stopped. If that robot's code throws an error, the error appears in its card, with *Dismiss*
-  (and *Use tank.json* when another robot file has the missing device).
+  its TeamCode folder and battery voltage, its state and time (an Autonomous with the 30 s timer
+  counts down, e.g. *Running · 0:28 left*), its OpMode list, its INIT / START / STOP button and a
+  stop button, and below them its robot file and *+ From CAD*
+  (see [Robots from CAD](#robots-from-cad)); both work while that robot is stopped. If that
+  robot's code throws an error, the error appears in its card, with *Dismiss* (and
+  *Use tank.json* when another robot file has the missing device).
 - **Starting a match.** Below the cards, *INIT all* initializes every stopped robot's selected
   OpMode, *START all* starts every robot in INIT at the same moment (so their 30 s timers line up),
   and *STOP all* stops them all. Each card's own buttons still start and stop that robot alone.
   *30 s auto timer* and *FTC samples* (also list the SDK's sample OpModes) apply to every robot.
 - **The selected robot.** Click a robot's card to show its telemetry, gamepads, devices, build and
   log below; that card is outlined, and the section titles name the robot
-  (*Telemetry · Robot 2*). The top bar shows that robot's TeamCode folder, and *Place robot* and
-  the chase camera act on it. Each robot's robot file is on its card.
+  (*Telemetry · Robot 2*), and *Place robot* and the chase camera act on it. The top bar keeps
+  what the whole field shares: the connection, the HIVEs and the real-time rate.
 - **Reset** starts a new match: every robot back at its start and the game pieces restaged, once
   every OpMode has stopped.
 - **Controllers.** With *Auto*, the first controller drives robot 1's gamepad 1, the second

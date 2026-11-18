@@ -90,6 +90,9 @@ function renderTopBar() {
   const cards = several && locked === null;
   $('robotPick').hidden = cards;
   $('cadImportBtn').hidden = cards;
+  // Its TeamCode and battery too: the top bar keeps what the whole field shares.
+  $('project').hidden = cards;
+  $('battery').parentElement.hidden = cards;
   $('resetBtn').title = several
     ? 'Power-cycle every robot, put them back at their start positions and restage the game pieces'
     : 'Power-cycle the robot, put it back at its start position and restage the game pieces';
@@ -245,7 +248,10 @@ function onMessage(msg) {
     }
     case 'state': {
       view.updateState(msg);
-      msg.robots.forEach((r, i) => ds.setTimer(i, r.ds));
+      msg.robots.forEach((r, i) => {
+        ds.setTimer(i, r.ds);
+        ds.setBattery(i, r.battery);
+      });
       const r = msg.robots[current];
       if (r) $('battery').textContent = `${r.battery.toFixed(1)} V`;
       $('rtf').textContent = `${Math.round(msg.rtf * 100)}%`;
