@@ -56,6 +56,8 @@ export class DriverStation {
     this.multi = false;
     this.listeners = [];
     this.pickListeners = [];
+    this.cadListeners = [];
+    this.robotFiles = [];         // robots/*.json, for each card's robot file menu
 
     $('opmodeSelect').addEventListener('change', (e) => {
       // Remember the choice until the simulator confirms it, so an older update can't undo it.
@@ -112,6 +114,15 @@ export class DriverStation {
   /** Called when a robot's row is clicked to show its Driver Station: fn(robot). */
   onPick(fn) { this.pickListeners.push(fn); }
 
+  /** Called when a card's "+ From CAD" is clicked: fn(robot). */
+  onImportCad(fn) { this.cadListeners.push(fn); }
+
+  /** The robot files a card's menu offers (the hello message's list). */
+  setRobotFiles(files) {
+    this.robotFiles = files || [];
+    this.rows.forEach((_, i) => this.renderRowFile(i, true));
+  }
+
   /**
    * A new connection (the simulator may have restarted): forget what the previous one said about
    * each robot, keeping only the viewer's own FTC samples choice.
@@ -125,7 +136,7 @@ export class DriverStation {
     const n = list.length;
     while (this.robots.length < n) this.robots.push(blankRobot());
     this.robots.length = n;
-    this.meta = list.map((r) => ({ alliance: r.alliance }));
+    this.meta = list.map((r) => ({ alliance: r.alliance, robotFile: r.robotFile }));
     if (this.current >= n) this.current = 0;
     this.buildRows();
   }
@@ -315,6 +326,7 @@ export class DriverStation {
       const alliance = this.meta[i]?.alliance ?? '';
       const root = document.createElement('div');
       root.className = `robot-row ${alliance}`;
+      root.dataset.robot = String(i);
       root.innerHTML = `<button class="rr-head" title="Show Robot ${n}'s telemetry, gamepads and devices below">`
           + `<i class="dot idle"></i><b>Robot ${n}</b><span class="rr-alliance">${esc(alliance)} alliance</span>`
           + '<span class="rr-status">Stopped</span></button>'
@@ -323,17 +335,22 @@ export class DriverStation {
           + '<button class="go init" disabled>INIT</button>'
           + `<button class="halt" title="Stop Robot ${n}" aria-label="Stop Robot ${n}" disabled>■</button>`
         + '</div>'
+        + '<div class="rr-file">'
+          + `<select aria-label="Robot ${n} robot file" title="Robot ${n}'s robot file (robots/*.json)"></select>`
+          + `<button class="tb-btn cad" title="Make Robot ${n} from your CAD: pick the STEP file of its assembly, or drop it on this card">+ From CAD</button>`
+        + '</div>'
         + '<div class="rr-msg error" hidden><div class="text"></div><div class="actions">'
           + '<button class="fix" hidden></button><button class="ghost dismiss">Dismiss</button></div></div>'
         + '<div class="rr-msg warn" hidden></div>';
       const q = (sel) => root.querySelector(sel);
       const row = {
-        root, dot: q('.dot'), status: q('.rr-status'), select: q('select'), main: q('.go'),
+        root, dot: q('.dot'), status: q('.rr-status'), select: q('.rr-controls select'), main: q('.go'),
+        file: q('.rr-file select'), cad: q('.rr-file .cad'),
         stop: q('.halt'), error: q('.rr-msg.error'), errorText: q('.rr-msg.error .text'), fix: q('.fix'), warn: q('.rr-msg.warn'),
       };
       // Clicking anywhere on the card except its controls shows that robot's details below.
       root.addEventListener('click', (e) => {
-        if (e.target.closest('select, .rr-controls button, .rr-msg')) return;
+        if (e.target.closest('select, .rr-controls button, .rr-file button, .rr-msg')) return;
         for (const fn of this.pickListeners) fn(i);
       });
       row.select.addEventListener('change', (e) => {
@@ -350,6 +367,8 @@ export class DriverStation {
         else if (st === 'RUNNING') this.sendTo(i, { type: 'stop' });
       });
       row.stop.addEventListener('click', () => this.sendTo(i, { type: 'stop' }));
+      row.file.addEventListener('change', (e) => this.sendTo(i, { type: 'robot', file: e.target.value }));
+      row.cad.addEventListener('click', () => { for (const fn of this.cadListeners) fn(i); });
       row.fix.addEventListener('click', () => {
         const f = this.robots[i].ds.fixRobot;
         if (f) this.sendTo(i, { type: 'robot', file: f });
@@ -382,7 +401,23 @@ export class DriverStation {
     row.fix.textContent = ds.fixRobot ? `Use ${ds.fixRobot}` : '';
     row.warn.hidden = !ds.warning;
     row.warn.textContent = ds.warning || '';
+    this.renderRowFile(i, options);
     this.renderRowStatus(i);
+  }
+
+  /** Robot i's robot file menu and "+ From CAD": only while it's stopped, as the simulator requires. */
+  renderRowFile(i, options = false) {
+    const row = this.rows[i], r = this.robots[i];
+    if (!row || !r) return;
+    const file = this.meta[i]?.robotFile || r.ds.robotFile || '';   // every robot change comes with a hello
+    const files = this.robotFiles.includes(file) || !file ? this.robotFiles : [...this.robotFiles, file];
+    if (options || row.file.options.length !== files.length) row.file.innerHTML = files.map((f) => `<option>${esc(f)}</option>`).join('');
+    row.file.value = file;
+    const idle = r.ds.state === 'IDLE';
+    row.file.disabled = !idle;
+    row.cad.disabled = !idle;
+    row.cad.title = idle ? `Make Robot ${i + 1} from your CAD: pick the STEP file of its assembly, or drop it on this card`
+      : `Stop Robot ${i + 1} to change its robot`;
   }
 
   /** "Stopped", "Init · 0:03", "Running · 0:12", or "Running · 0:28 left" for an Autonomous with the 30 s timer. */

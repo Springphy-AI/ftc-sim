@@ -86,6 +86,10 @@ function renderTopBar() {
   sel.title = r.robot.description || r.robot.name;
   placeBtn.textContent = several ? `Place robot ${current + 1}` : 'Place robot';
   $('cadImportBtn').title = `Make ${several ? `robot ${current + 1}` : 'this robot'} from your CAD: pick the STEP file of its assembly, or drop it on the page`;
+  // With a card per robot, each card has its robot file menu and "+ From CAD" instead.
+  const cards = several && locked === null;
+  $('robotPick').hidden = cards;
+  $('cadImportBtn').hidden = cards;
   $('resetBtn').title = several
     ? 'Power-cycle every robot, put them back at their start positions and restage the game pieces'
     : 'Power-cycle the robot, put it back at its start position and restage the game pieces';
@@ -139,8 +143,7 @@ function checkCad() {
 }
 
 // ---- a robot from CAD: pick or drop the STEP file of its assembly -----------------------------
-async function importCad(file) {
-  const i = current;
+async function importCad(file, i = current) {
   const who = robots.length > 1 ? `Robot ${i + 1}: ` : '';
   if (!/\.(step|stp)$/i.test(file.name)) {
     cadNotice(`${who}${file.name} isn't a STEP file. Export the robot's assembly as STEP (.step or .stp) from your CAD and use that.`, 'err', 12000);
@@ -161,33 +164,57 @@ async function importCad(file) {
     cadNotice(`${who}${e.message}`, 'err');
   }
 }
-$('cadImportBtn').addEventListener('click', () => $('cadFile').click());
+let cadTarget = null;     // the robot the file picker is choosing a STEP file for
+const pickCad = (i) => {
+  cadTarget = i;
+  $('cadFile').click();
+};
+$('cadImportBtn').addEventListener('click', () => pickCad(current));
+ds.onImportCad((i) => pickCad(i));
 $('cadFile').addEventListener('change', (e) => {
   const f = e.target.files[0];
   e.target.value = '';
-  if (f) importCad(f);
+  if (f) importCad(f, cadTarget ?? current);
 });
+
+// Dropping a STEP file: on a robot's card in the Robots panel makes that robot, anywhere else
+// the robot whose details are shown.
 let dragDepth = 0;
 const draggingFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+const dropTarget = (e) => {
+  const card = e.target?.closest?.('.robot-row[data-robot]');
+  return card ? Number(card.dataset.robot) : current;
+};
+const showDrop = (i) => {
+  $('dropZone').textContent = `Drop the STEP file of your robot's assembly to make ${robots.length > 1 ? `robot ${i + 1}` : 'the robot'} from it`;
+  $('dropZone').hidden = false;
+  for (const card of document.querySelectorAll('.robot-row[data-robot]')) card.classList.toggle('drop', Number(card.dataset.robot) === i);
+};
+const hideDrop = () => {
+  dragDepth = 0;
+  $('dropZone').hidden = true;
+  for (const card of document.querySelectorAll('.robot-row.drop')) card.classList.remove('drop');
+};
 window.addEventListener('dragenter', (e) => {
   if (!draggingFiles(e)) return;
   dragDepth++;
-  $('dropZone').textContent = `Drop the STEP file of your robot's assembly to make ${robots.length > 1 ? `robot ${current + 1}` : 'the robot'} from it`;
-  $('dropZone').hidden = false;
+  showDrop(dropTarget(e));
 });
 window.addEventListener('dragleave', (e) => {
-  if (!draggingFiles(e) || --dragDepth > 0) return;
-  dragDepth = 0;
-  $('dropZone').hidden = true;
+  if (draggingFiles(e) && --dragDepth <= 0) hideDrop();
 });
-window.addEventListener('dragover', (e) => { if (draggingFiles(e)) e.preventDefault(); });
+window.addEventListener('dragover', (e) => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  showDrop(dropTarget(e));
+});
 window.addEventListener('drop', (e) => {
   if (!draggingFiles(e)) return;
   e.preventDefault();
-  dragDepth = 0;
-  $('dropZone').hidden = true;
+  const i = dropTarget(e);
+  hideDrop();
   const f = e.dataTransfer.files[0];
-  if (f) importCad(f);
+  if (f) importCad(f, i);
 });
 
 function setConnection(ok, text) {
@@ -208,6 +235,7 @@ function onMessage(msg) {
       view.setField(msg.field);
       view.setRobots(robots);
       view.setBalls(msg.balls);
+      ds.setRobotFiles(robotFiles);
       ds.setRobots(robots);
       ds.setMulti(robots.length > 1 && locked === null);
       input.setRobots(robots.length, current, locked === null ? null : current);

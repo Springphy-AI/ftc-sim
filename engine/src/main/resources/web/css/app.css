@@ -115,6 +115,10 @@ select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px s
 .go.stopping, .go:disabled { background: var(--card); color: var(--faint); cursor: default; }
 .rr-controls .halt { height: 32px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--red); cursor: pointer; }
 .rr-controls .halt:disabled { color: var(--faint); cursor: default; }
+.rr-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.rr-file select { min-width: 0; width: 100%; padding: 4px 6px; font-size: 12px; }
+.rr-file .cad:disabled { color: var(--faint); cursor: default; border-color: var(--line); }
+.robot-row.drop { border-color: var(--blue); background: rgba(62, 123, 250, .12); }
 .rr-msg { border-radius: 6px; padding: 7px 8px; font-size: 12px; cursor: auto; }
 .rr-msg.error { background: rgba(229, 72, 77, .14); border: 1px solid rgba(229, 72, 77, .5); }
 .rr-msg.error .text { color: #ffb4b6; font-family: var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }

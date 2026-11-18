@@ -105,17 +105,18 @@ alliance partner. An alliance has at most two robots.
 
 - **A card per robot.** The side panel starts with a card for every robot: its name and alliance,
   its state and time (an Autonomous with the 30 s timer counts down, e.g. *Running · 0:28 left*),
-  its OpMode list, its INIT / START / STOP button and a stop button. If that robot's code throws an
-  error, the error appears in its card, with *Dismiss* (and *Use tank.json* when another robot
-  file has the missing device).
+  its OpMode list, its INIT / START / STOP button and a stop button, and below them its robot file
+  and *+ From CAD* (see [Robots from CAD](#robots-from-cad)); both work while that robot is
+  stopped. If that robot's code throws an error, the error appears in its card, with *Dismiss*
+  (and *Use tank.json* when another robot file has the missing device).
 - **Starting a match.** Below the cards, *INIT all* initializes every stopped robot's selected
   OpMode, *START all* starts every robot in INIT at the same moment (so their 30 s timers line up),
   and *STOP all* stops them all. Each card's own buttons still start and stop that robot alone.
   *30 s auto timer* and *FTC samples* (also list the SDK's sample OpModes) apply to every robot.
 - **The selected robot.** Click a robot's card to show its telemetry, gamepads, devices, build and
   log below; that card is outlined, and the section titles name the robot
-  (*Telemetry · Robot 2*). The top bar shows that robot's TeamCode folder and robot file, and
-  *Place robot* and the chase camera act on it.
+  (*Telemetry · Robot 2*). The top bar shows that robot's TeamCode folder, and *Place robot* and
+  the chase camera act on it. Each robot's robot file is on its card.
 - **Reset** starts a new match: every robot back at its start and the game pieces restaged, once
   every OpMode has stopped.
 - **Controllers.** With *Auto*, the first controller drives robot 1's gamepad 1, the second
@@ -242,7 +243,8 @@ INIT *Concept: AprilTag* and press START.
 
 ## Describing your robot
 
-Robots are JSON files in `robots/`. Choose one with `--robot` or from the top bar.
+Robots are JSON files in `robots/`. Choose one with `--robot`, from the top bar, or with several
+robots from a robot's card.
 **Device names must match your robot configuration on the Driver Station**, because your code
 looks devices up by those names.
 
@@ -286,7 +288,9 @@ servos. Robots without `cad` work as before.
    *Save As*.
 2. In the simulator, pick the robot file whose devices match your Driver Station configuration
    from the **Robot** menu. Then click **+ From CAD** in the top bar and choose the STEP file, or
-   drop the file anywhere on the page.
+   drop the file anywhere on the page. With several robots, the robot file menu and
+   **+ From CAD** are on each robot's card in the Robots panel instead, and dropping the file on a
+   card makes that robot.
 
 That's all. The simulator saves the file as `robots/cad/<name>.step` and writes
 `robots/<name>.json` with the devices and drive of the robot file you had picked, so your TeamCode
