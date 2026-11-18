@@ -166,7 +166,9 @@ operating system. The Xbox Guide button may be taken by the Windows Game Bar.
 | [ · ] | back · start |
 | hold Shift | sticks at 40 % |
 
-With one controller, set **Gamepad 2 → Keyboard** to try two-driver code.
+With one controller, set **Gamepad 2 → Keyboard** to try two-driver code. The keys drive even
+right after you pick from a menu or tick a checkbox: the menu lets go of them, so an arrow key
+doesn't change the OpMode or the robot file.
 
 **The example BIOBUZZ TeleOp** (`examples/teamcode`, default robot):
 

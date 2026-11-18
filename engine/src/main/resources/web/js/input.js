@@ -11,6 +11,10 @@ const KEY_BUTTONS = {
 };
 const KEY_CAPTURE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyC',
   ...Object.keys(KEY_BUTTONS)]);
+// Every key the page uses: driving, plus N and M for the human player (main.js).
+const PAGE_KEYS = new Set([...KEY_CAPTURE, 'KeyN', 'KeyM']);
+// Inputs you type into; the keys stay theirs. A checkbox, slider or dropdown doesn't take text.
+const TEXT_INPUTS = new Set(['text', 'search', 'email', 'password', 'url', 'tel', 'number']);
 const SLOTS = [1, 2];
 
 function kindOf(id) {
@@ -80,14 +84,24 @@ export class InputManager {
     return Array.from({ length: this.robotCount }, (_, i) => i);
   }
 
+  /** Whether keys pressed in {@code target} are text being typed (and not for driving). */
   typingIn(target) {
-    const tag = target?.tagName;
-    return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable;
+    if (!target) return false;
+    if (target.isContentEditable || target.tagName === 'TEXTAREA') return true;
+    return target.tagName === 'INPUT' && TEXT_INPUTS.has((target.type || 'text').toLowerCase());
   }
 
   onKey(e, down) {
     if (e.key === 'Shift') this.shift = down;
-    if (this.typingIn(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || this.typingIn(e.target)) return;
+    // A dropdown or checkbox keeps the focus after a mouse click on it, and would take the driving
+    // keys: arrows and letters change a dropdown's choice (a robot file, an OpMode). It lets go
+    // instead, and the key drives.
+    const tag = e.target?.tagName;
+    if (down && (tag === 'SELECT' || tag === 'INPUT') && PAGE_KEYS.has(e.code)) {
+      e.preventDefault();
+      e.target.blur();
+    }
     if (!KEY_CAPTURE.has(e.code)) return;
     if (down) {
       this.keys.add(e.code);
