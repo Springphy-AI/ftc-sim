@@ -28,10 +28,14 @@ class ExampleOpModesTest {
     private final List<String> messages = new CopyOnWriteArrayList<>();
 
     private Simulator start() throws Exception {
+        return start("robots/mecanum.json");
+    }
+
+    private Simulator start(String robotFile) throws Exception {
         Path home = Path.of("").toAbsolutePath();
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
                 new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), Files.createTempDirectory("ftcsim-ex"));
-        Path robot = home.resolve("robots/mecanum.json");
+        Path robot = home.resolve(robotFile);
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(), compiler, "test");
         sim.setOutput(new Simulator.Output() {
             @Override
@@ -137,6 +141,44 @@ class ExampleOpModesTest {
         assertNull(sim.lastError());
         assertTrue(sim.dsJson().contains("\"selected\":\"BIOBUZZ TeleOp\""), "preselectTeleOp applied: " + sim.dsJson());
         sim.shutdown();
+    }
+
+    @Test
+    void parkingAutoDrivesFromTheHiveToTheRedLoadingZone() throws Exception {
+        Simulator sim = start("robots/my-robot.json");
+        double[] s = {sim.rig().body.position().get0(), sim.rig().body.position().get1(), Math.toDegrees(sim.rig().body.heading())};
+        assertEquals(-0.3239, s[0], 0.01, "my-robot.json's start spot");
+        assertEquals(-1.5964, s[1], 0.01);
+        assertEquals(90, s[2], 1.0);
+        sim.handle("{\"type\":\"init\",\"opmode\":\"BIOBUZZ Parking\"}");
+        waitFor(sim, Simulator.DsState.INIT, 2000);
+        Thread.sleep(400);   // Pinpoint IMU calibration after resetPosAndIMU()
+        sim.handle("{\"type\":\"start\"}");
+        long deadline = System.currentTimeMillis() + 25000;
+        while (messages.stream().noneMatch(m -> m.contains("ended at")) && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        assertTrue(messages.stream().anyMatch(m -> m.contains("ended at")), "autonomous finished");
+        double x = sim.rig().body.position().get0(), y = sim.rig().body.position().get1();
+        double heading = Math.toDegrees(sim.rig().body.heading());
+        System.out.printf("BIOBUZZ Parking: ended at x %.3f m, y %.3f m, heading %.1f deg%n", x, y, heading);
+        // The last stop, (-61, 36) in facing the blue wall: backed into the red LOADING ZONE.
+        assertEquals(-61 * 0.0254, x, 0.05);
+        assertEquals(36 * 0.0254, y, 0.05);
+        assertEquals(0, heading, 3.0);
+        double[] zone = BiobuzzRect.of(sim.elements().field().json.getAsJsonObject("loading_zones").getAsJsonObject("red"));
+        double back = x - 0.4572 / 2;
+        assertTrue(back < zone[1] && y > zone[2] && y < zone[3], "the robot's back half is in the red LOADING ZONE " + java.util.Arrays.toString(zone));
+        sim.handle("{\"type\":\"stop\"}");
+        waitFor(sim, Simulator.DsState.IDLE, 3000);
+        assertNull(sim.lastError());
+        sim.shutdown();
+    }
+
+    /** x0, x1, y0, y1 of a season.json rectangle ({"x_m": [...], "y_m": [...]}). */
+    private static final class BiobuzzRect {
+        static double[] of(com.google.gson.JsonObject o) {
+            com.google.gson.JsonArray xs = o.getAsJsonArray("x_m"), ys = o.getAsJsonArray("y_m");
+            return new double[]{xs.get(0).getAsDouble(), xs.get(1).getAsDouble(), ys.get(0).getAsDouble(), ys.get(1).getAsDouble()};
+        }
     }
 
     @Test
