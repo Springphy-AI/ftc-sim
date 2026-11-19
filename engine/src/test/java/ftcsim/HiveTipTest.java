@@ -196,6 +196,18 @@ public class HiveTipTest {
         assertTrue(!scenario(0, 7, false));
     }
 
+    // Section 12.3, "Preferred" rows: on the field a gently placed 3rd POLLEN on 3 NECTAR, or 8th POLLEN,
+    // tips the HIVE. This HIVE is deliberately stiffer (above), so it holds; these pin that choice down.
+    @Test
+    void threeNectarTwoPollenThenAPlacedPollenHolds() throws Exception {
+        assertTrue(!scenario(3, 3, false));
+    }
+
+    @Test
+    void sevenPollenThenAPlacedPollenHolds() throws Exception {
+        assertTrue(!scenario(0, 8, false));
+    }
+
     /** Launches this many of the robot's pre-loaded POLLEN at the red up CELL; true if the HIVE tips. */
     private static boolean launchFromRobot(int count, double power, double hoodPos, double y) throws Exception {
         Field f = new Field();
