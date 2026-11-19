@@ -162,7 +162,8 @@ def extractRealFtcSdk = tasks.register('extractRealFtcSdk') {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // Classes tagged "experiment" are the report's measurements, run by the experiment task below.
+    useJUnitPlatform { excludeTags 'experiment' }
     dependsOn extractRealFtcSdk
     workingDir = rootProject.projectDir
     systemProperty 'ftcsim.realSdkDir', realSdkDir.get().asFile.absolutePath
@@ -171,6 +172,25 @@ tasks.named('test') {
     systemProperty 'ftcsim.visionExpected',
             (rootProject.javacppPlatform != null && new File(aprilTagNatives, System.mapLibraryName('apriltag')).isFile()).toString()
     systemProperty 'ftcsim.simSdkClasses', "${rootDir}/sdk/build/classes/java/main"
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        exceptionFormat 'full'
+        showStandardStreams = true
+    }
+}
+
+// The measurements behind the report (the HIVE launch sweep, the real-time benchmark). They take
+// minutes and their numbers depend on the computer, so they are not part of test:
+//   gradlew :engine:experiment --tests ftcsim.RealTimeBenchmark
+tasks.register('experiment', Test) {
+    description = 'Runs the report\'s measurements (classes tagged "experiment").'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'experiment' }
+    workingDir = rootProject.projectDir
+    systemProperty 'java.library.path', aprilTagNatives.absolutePath
+    outputs.upToDateWhen { false }
     testLogging {
         events 'passed', 'failed', 'skipped'
         exceptionFormat 'full'

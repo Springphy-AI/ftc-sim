@@ -208,14 +208,34 @@ public class HiveTipTest {
         assertTrue(!scenario(0, 8, false));
     }
 
+    /**
+     * What happened to a launch: whether the HIVE tipped, how many balls the red audience CELL holds at
+     * the end, and how far the robot stood from that CELL's open end.
+     */
+    public record Launch(boolean tipped, int inCell, double distanceM) {}
+
     /** Launches this many of the robot's pre-loaded POLLEN at the red up CELL; true if the HIVE tips. */
     private static boolean launchFromRobot(int count, double power, double hoodPos, double y) throws Exception {
+        Launch l = launch(count, power, hoodPos, y);
+        assertTrue(l.tipped() || l.inCell() == 3 + count, "all launched POLLEN landed in the CELL");
+        return l.tipped();
+    }
+
+    /**
+     * Launches this many of the robot's pre-loaded POLLEN at the red up CELL from {@code (-0.32, y)},
+     * the launcher at {@code power} and the hood at {@code hoodPos}. {@code distanceM} is the level
+     * distance from the robot's center to the middle of the CELL's open end.
+     */
+    public static Launch launch(int count, double power, double hoodPos, double y) throws Exception {
         Field f = new Field();
         int removed = 0;
         for (Ball b : f.elements.balls()) {
             if (b.state() == State.HELD && removed < 4 - count) f.elements.placeBall(b, 1.0 + 0.2 * removed++, 1.5);
         }
         f.rig.place(-0.32, y, Math.PI / 2);   // facing the red HIVE's audience CELL
+        double sign = "rear".equals(f.red.upCell()) ? 1 : -1;
+        double[] open = f.red.current().toWorld(0, sign * f.cells.cellOuter, f.cells.cellFloor);
+        double distance = Math.hypot(open[0] + 0.32, open[1] - y);
         ServoPort hood = f.rig.servoPorts().stream().filter(p -> p.name.equals("hood")).findFirst().orElseThrow();
         ServoPort feeder = f.rig.servoPorts().stream().filter(p -> p.name.equals("feeder")).findFirst().orElseThrow();
         hood.position = hoodPos;
@@ -226,8 +246,7 @@ public class HiveTipTest {
         feeder.pwmEnabled = true;
         f.run(2.0);
         boolean tipped = f.tipped();
-        assertTrue(tipped || BiobuzzGame.of(f.elements).cellCounts().get("red audience") == 3 + count, "all launched POLLEN landed in the CELL");
-        return tipped;
+        return new Launch(tipped, BiobuzzGame.of(f.elements).cellCounts().get("red audience"), distance);
     }
 
     @Test
