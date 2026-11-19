@@ -1,0 +1,12 @@
+{
+  "name": "ftc-sim-paper-tools",
+  "private": true,
+  "description": "Converts docs/figures/*.svg to PDFs for the paper",
+  "type": "module",
+  "scripts": {
+    "figures": "node svg2pdf.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "23.11.1"
+  }
+}

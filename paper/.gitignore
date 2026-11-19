@@ -1,0 +1,12 @@
+tools/node_modules/
+tools/package-lock.json
+# latexmk's files; the PDF is copied to docs/static/pdfs/ for the project page
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+main.pdf
+build/

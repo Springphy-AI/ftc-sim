@@ -1,0 +1,34 @@
+{
+  "architecture": {
+    "title": "Every robot, sensor and camera reads from one 1 kHz physics world",
+    "subtitle": ""
+  },
+  "cad-import": {
+    "title": "The CAD gives the shape and mass, the robot file the devices and limits",
+    "subtitle": "A STEP file is converted once in the browser; a URDF already has its joints and masses"
+  },
+  "field-map": {
+    "title": "The field is the same after a half turn, with red and blue swapped",
+    "subtitle": "Top view, to scale, drawn from the simulator’s field description file"
+  },
+  "hive-seesaw": {
+    "title": "A HIVE tips when the balls’ moment beats its own holding moment",
+    "subtitle": "Side view along the pivot axis, rear CELL up against its 30° stop; center-of-mass offset drawn larger than scale"
+  },
+  "loop-timing": {
+    "title": "Bulk reads cut this control loop from 10.5 ms to 7.5 ms",
+    "subtitle": "One loop: read 4 drive encoders, read the IMU heading, set 4 changed motor powers"
+  },
+  "match-robots": {
+    "title": "Four robots share one physics world, but each runs its own code in isolation",
+    "subtitle": "Each robot is a separate Robot Controller; they share only the physics world and the match start"
+  },
+  "mecanum-grip": {
+    "title": "Each mecanum wheel grips only along its roller axis",
+    "subtitle": "Top view of the simulated chassis, front up; directions from the robot model’s wheel setup"
+  },
+  "vision-pipeline": {
+    "title": "Only the image is simulated: FIRST’s code finds the tags and solves their pose",
+    "subtitle": "One webcam frame, from the physics state to the detections a team’s OpMode reads"
+  }
+}

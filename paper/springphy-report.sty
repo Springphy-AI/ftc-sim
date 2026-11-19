@@ -1,0 +1,142 @@
+% springphy-report.sty: technical report layout for Springphy AI.
+% First page: the Springphy wordmark at the top left, the date at the top right, a rule, then the title,
+% authors and affiliations across the page; the body is two columns, the abstract in bold.
+% Captions read "Figure 1 | ...". Load after \documentclass[10pt,twocolumn,letterpaper]{article}.
+%
+%   \reportdate{2026-11-18}
+%   \reporttitle{Full title}  \reportshorttitle{Running head}
+%   \reportauthors{Name\textsuperscript{1}}  \reportaffiliations{\textsuperscript{1}Org}
+%   \reportnote{Text under the affiliations}   \reportfootnote{First-page footnote}
+%   \reportlogo{figures/springphy-wordmark.png}
+%   \begin{document} \makereporttitle \begin{abstract}...\end{abstract} \keywords{...}
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{springphy-report}[2026/11/18 Springphy AI technical report]
+
+\RequirePackage[T1]{fontenc}
+\RequirePackage{newpxtext}
+\RequirePackage{newpxmath}
+\RequirePackage[scaled=0.86]{beramono}
+\RequirePackage{textcomp}
+\RequirePackage[letterpaper,left=0.75in,right=0.75in,top=0.95in,bottom=0.9in,
+  headheight=28pt,headsep=12pt,footskip=24pt,columnsep=0.28in]{geometry}
+\RequirePackage{microtype}
+\RequirePackage{graphicx}
+\RequirePackage[table]{xcolor}
+\RequirePackage{fancyhdr}
+\RequirePackage{titlesec}
+\RequirePackage{caption}
+\RequirePackage{booktabs}
+\RequirePackage{tabularx}
+\RequirePackage{array}
+\RequirePackage{enumitem}
+\RequirePackage{xurl}
+\RequirePackage[numbers,sort&compress]{natbib}
+\RequirePackage{hyperref}
+\RequirePackage[capitalise,nameinlink,noabbrev]{cleveref}
+
+% Colors: the wordmark's teal for links and citations, its navy for headings.
+\definecolor{springteal}{HTML}{0D96A1}
+\definecolor{springnavy}{HTML}{071727}
+\definecolor{rulegray}{HTML}{8C959F}
+\hypersetup{colorlinks=true,linkcolor=springteal,citecolor=springteal,urlcolor=springteal,
+  pdfcreator={LaTeX with springphy-report.sty}}
+
+% Front matter fields
+\newcommand*{\@reportdate}{\today}
+\newcommand*{\@reporttitle}{}
+\newcommand*{\@reportshorttitle}{}
+\newcommand*{\@reportauthors}{}
+\newcommand*{\@reportaffiliations}{}
+\newcommand*{\@reportnote}{}
+\newcommand*{\@reportfootnote}{}
+\newcommand*{\@reportlogo}{}
+\newcommand*{\reportdate}[1]{\renewcommand*{\@reportdate}{#1}}
+\newcommand{\reporttitle}[1]{\renewcommand{\@reporttitle}{#1}}
+\newcommand{\reportshorttitle}[1]{\renewcommand{\@reportshorttitle}{#1}}
+\newcommand{\reportauthors}[1]{\renewcommand{\@reportauthors}{#1}}
+\newcommand{\reportaffiliations}[1]{\renewcommand{\@reportaffiliations}{#1}}
+\newcommand{\reportnote}[1]{\renewcommand{\@reportnote}{#1}}
+\newcommand{\reportfootnote}[1]{\renewcommand{\@reportfootnote}{#1}}
+\newcommand*{\reportlogo}[1]{\renewcommand*{\@reportlogo}{#1}}
+
+% Headers: the logo and date on the first page; the running title and page number after it.
+\fancypagestyle{reportfirst}{%
+  \fancyhf{}%
+  \fancyhead[L]{\ifx\@reportlogo\@empty\else\raisebox{-1pt}{\includegraphics[height=17pt]{\@reportlogo}}\fi}%
+  \fancyhead[R]{\small\itshape\@reportdate}%
+  \renewcommand{\headrulewidth}{0.5pt}%
+  \renewcommand{\headrule}{\hbox to\headwidth{\color{rulegray}\leaders\hrule height \headrulewidth\hfill}}%
+  \fancyfoot[R]{\small\thepage}%
+}
+\fancypagestyle{reportrest}{%
+  \fancyhf{}%
+  \fancyhead[L]{\small\itshape\@reportshorttitle}%
+  \fancyhead[R]{\ifx\@reportlogo\@empty\else\raisebox{-1pt}{\includegraphics[height=9pt]{\@reportlogo}}\fi}%
+  \renewcommand{\headrulewidth}{0.4pt}%
+  \renewcommand{\headrule}{\hbox to\headwidth{\color{rulegray}\leaders\hrule height \headrulewidth\hfill}}%
+  \fancyfoot[R]{\small\thepage}%
+}
+\pagestyle{reportrest}
+
+% Title block, across both columns
+\newcommand{\makereporttitle}{%
+  \hypersetup{pdftitle={\@reporttitle}}%
+  \twocolumn[{%
+    \begin{flushleft}
+      \vspace*{4pt}
+      {\fontsize{22}{26.5}\selectfont\bfseries\color{springnavy}\@reporttitle\par}
+      \vspace{14pt}
+      {\normalsize\bfseries\@reportauthors\par}
+      \vspace{4pt}
+      {\small\@reportaffiliations\par}
+      \ifx\@reportnote\@empty\else\vspace{4pt}{\small\itshape\@reportnote\par}\fi
+    \end{flushleft}
+    \vspace{14pt}
+  }]%
+  \thispagestyle{reportfirst}%
+  \ifx\@reportfootnote\@empty\else
+    \begingroup\renewcommand{\thefootnote}{}\footnotetext{\@reportfootnote}\endgroup
+  \fi
+}
+
+% Abstract: bold body text in the first column, no heading.
+\renewenvironment{abstract}{\par\noindent\bfseries\ignorespaces}{\par\medskip}
+\newcommand{\keywords}[1]{\par\noindent\textit{Keywords:} \textit{#1}\par\bigskip}
+
+% Headings: "1. Introduction"
+\setcounter{secnumdepth}{2}
+\titleformat{\section}{\Large\bfseries\color{springnavy}}{\thesection.}{0.45em}{}
+\titleformat{\subsection}{\large\bfseries\color{springnavy}}{\thesubsection.}{0.45em}{}
+\titleformat{\paragraph}[runin]{\normalsize\bfseries}{}{0pt}{}[]
+\titlespacing*{\section}{0pt}{14pt plus 3pt minus 2pt}{6pt plus 2pt}
+\titlespacing*{\subsection}{0pt}{10pt plus 2pt minus 2pt}{4pt plus 1pt}
+\titlespacing*{\paragraph}{0pt}{6pt plus 2pt minus 1pt}{0.5em}
+
+% Captions: "Figure 1 | Text."
+\DeclareCaptionLabelSeparator{bar}{\ \textbar\ }
+\captionsetup{labelfont=bf,labelsep=bar,font=small,justification=justified,singlelinecheck=false,skip=6pt}
+\captionsetup[table]{position=top}
+
+% Lists, tables
+\setlist{itemsep=2pt,topsep=4pt,parsep=0pt,leftmargin=*}
+\renewcommand{\arraystretch}{1.12}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+% Let tall full-width tables sit at the top of a page instead of drifting past the references.
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.8}
+\renewcommand{\dblfloatpagefraction}{0.8}
+\crefname{section}{Section}{Sections}
+\crefname{table}{Table}{Tables}
+\crefname{figure}{Figure}{Figures}
+
+% Inline code that may break after _ and .
+\newcommand{\code}[1]{\texttt{#1}}
+
+% References. The list is numbered, so drop the a/b that BibTeX adds to two entries with the same author and year.
+\providecommand{\natexlab}[1]{}% the .bbl only \providecommand's it, so this definition wins
+\setlength{\bibsep}{2pt plus 1pt}
+\renewcommand{\bibfont}{\small}
+
+\endinput
