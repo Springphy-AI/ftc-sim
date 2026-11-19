@@ -15,7 +15,9 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
 ## Quick start
 
 1. Install a JDK 17 or newer (Android Studio's bundled JDK works, or [Temurin](https://adoptium.net)).
-   `run-sim.bat` also finds a JDK unpacked in `%USERPROFILE%\.jdks`.
+   `run-sim.bat` also finds a JDK unpacked in `%USERPROFILE%\.jdks`, and `run-sim.sh` one in
+   `~/.jdks` (on macOS, including the `Contents/Home` layout, even when macOS's placeholder
+   `javac` says "Unable to locate a Java Runtime").
 2. Start the simulator with your robot project:
 
    ```bat
@@ -267,6 +269,13 @@ anywhere in that range, the default hood and launcher speed drop the ball into t
 the 3 starting NECTAR in it, the 3rd POLLEN that lands tips the HIVE, and then its other CELL is
 the raised one, open toward the rear wall.
 
+**The example BIOBUZZ Parking** autonomous (`examples/teamcode`, with `--robot robots/my-robot.json`):
+starts with its back against the audience wall, facing into the open end of the red HIVE's
+audience CELL, then drives around the A-frame and the red FLOWER and backs into the red LOADING
+ZONE, using Pinpoint field coordinates (`pinpoint.setPosition` at START). It takes about 7
+seconds and then preselects BIOBUZZ TeleOp. It assumes that start: from another robot file's
+start spot it drives somewhere else.
+
 ## The Driver Station panel
 
 - **OpMode list** with Autonomous and TeleOp groups. Tick *FTC samples* to show the FTC SDK samples,
@@ -328,6 +337,10 @@ looks devices up by those names.
   sample names `front_left_drive` …, plus `imu`, `pinpoint`, `sensor_otos`, `sensor_distance`,
   `sensor_color`, `sensor_touch`, `digitalTouch`, and a BIOBUZZ-style `intake`, `launcher`
   (flywheel), `hood` servo and `feeder` CR servo.
+- `robots/my-robot.json`: the same mecanum robot, starting on BIOBUZZ with its back against the
+  audience wall and facing into the red HIVE's audience CELL
+  (`"start": {"biobuzz": [-0.3239, -1.5964, 90]}`), where the BIOBUZZ Parking example starts.
+  The tests keep using `robots/mecanum.json`.
 - `robots/tank.json`: six-wheel drop-center tank with `left_drive` / `right_drive`, an arm
   (`left_arm`, also `arm`) and claw servos (`left_hand`, `right_hand`), for the classic samples.
 - `robots/mecanum-cad.json` and `robots/tank-urdf.json`: the same two robots built from CAD (a
@@ -491,8 +504,8 @@ the robot file's numbers and the 3D view says why.
   is a chassis plus one body per wheel. Each mecanum wheel grips only along its roller axis, which
   is the standard way Gazebo models mecanum wheels, so strafing, wheel slip and pushing against
   walls behave physically. The robot and the game pieces collide with the walls and the season's
-  structures: on BIOBUZZ the HIVE structure's A-frames and the FLOWERS, and for balls also the
-  A-frame legs, the axle, the sign board and both HIVES' CELLS.
+  structures: on BIOBUZZ the HIVE structure's A-frames and the FLOWERS' frames, and for balls
+  also the A-frame legs, the axle, the sign board, both HIVES' CELLS and the FLOWERS' rings.
 - **Motors** follow their torque-speed curve, sag the battery under load, and BRAKE/FLOAT
   correctly. The **hub firmware** implements `RUN_WITHOUT_ENCODER`, `RUN_USING_ENCODER`
   (velocity PIDF), `RUN_TO_POSITION`, `STOP_AND_RESET_ENCODER`, `setVelocity`, PIDF tuning,
@@ -507,8 +520,9 @@ the robot file's numbers and the 3D view says why.
   4 pre-loaded in each simulated robot; the absent robots' pre-loads sit in the middle of their
   LOADING ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
   balls roll and bounce, slow down with air drag in flight and rolling resistance on the tiles,
-  and the robot pushes them. A robot with an `intake` role picks up balls
-  in front of its roller (reverse it to spit one out) and holds at most 4 (rule G407); a `feeder`
+  and the robot pushes them. A robot with an `intake` role has a solid roller across its front
+  that pushes and bumps balls; spinning, it picks up a ball that touches it (reverse it to spit
+  one out), and the robot holds at most 4 (rule G407; the top bar shows *In robot*); a `feeder`
   then sends them into the `launcher`, which throws them at about half the flywheel's surface
   speed, at an angle set by the `hood` servo.
 - **HIVES** are solid seesaws. Each CELL has a floor, side walls and a peaked roof, is closed at
@@ -523,8 +537,16 @@ the robot file's numbers and the 3D view says why.
   Just over the tipping point it starts slowly: the HIVE can creep for a few seconds before it
   swings over. The
   top bar shows how many balls are in each HIVE's CELLS (audience / rear) and how many times it
-  has tipped. That is not a MATCH score. Balls in FLOWERS and ALLIANCE AREAS stay put (those
-  holders are not modeled as containers yet). *Reset* also resets the HIVES and the game pieces.
+  has tipped. That is not a MATCH score. *Reset* also resets the HIVES and the game pieces.
+- **FLOWERS** (Competition Manual 9.7) are open tubes: a lower ring with a 7.1 cm hole the bottom
+  POLLEN sits in, the Retrieval Opening, a middle ring that lets POLLEN through but stops NECTAR,
+  and a tube up to the 10.15 cm top opening. The 4 starting POLLEN are stacked inside. The intake
+  takes them out of the bottom one by one, and once the bottom one is gone the others drop and
+  roll out of the opening; a full robot's roller can knock the bottom one out. A NECTAR dropped in
+  the top rests on the middle ring and locks POLLEN put in above it; a POLLEN put into an empty
+  FLOWER falls through. The FLOWER's frame stops the robot's body, so only the low roller reaches
+  in. POLLEN and NECTAR are drawn as the perforated balls they are. Balls waiting in the ALLIANCE
+  AREAS stay put until the human player brings them in.
 - **Human player NECTAR**: press **N** (red) or **M** (blue), or the *+ Red NECTAR* / *+ Blue
   NECTAR* buttons, to put one NECTAR from that ALLIANCE AREA into its LOADING ZONE, at rest at
   the first free spot along the alliance wall. Each button shows how many are left (5 per color
@@ -535,7 +557,7 @@ the robot file's numbers and the 3D view says why.
 - **Loop timing**: hardware calls take about as long as on a real Control Hub, so control-loop
   tuning carries over.
 
-**Not simulated yet**: scoring, taking POLLEN out of a FLOWER, LEDs and sounds, Limelight,
+**Not simulated yet**: scoring, LEDs and sounds, Limelight,
 OctoQuad, legacy BNO055 / Modern Robotics sensors, switchable webcams, cameras driven through
 EasyOpenCV directly (`OpenCvCameraFactory`), lens distortion and motion blur in the webcam image.
 OpModes that use them are skipped at build time with the reason.
@@ -553,7 +575,10 @@ The suite includes:
 - `GameElementsTest`: POLLEN and NECTAR counts and staging per section 10.3.1, balls at rest,
   pushing, intake (4-ball limit), launching, and the CELLS: NECTAR stays in the upward-facing
   CELLS, a ball shot into the open end stays, a ball dropped on the roof bounces off, and a ball
-  in a downward-facing CELL rolls out, and a ball thrown at a CELL's side bounces off.
+  in a downward-facing CELL rolls out, and a ball thrown at a CELL's side bounces off. The
+  FLOWERS: the stacks stay put, the intake empties a FLOWER from the bottom, a full robot's roller
+  knocks the bottom POLLEN out, the others roll out once it is gone, a NECTAR stops on the middle
+  ring and locks POLLEN in, and the robot's body stops at the FLOWER's frame.
 - `HiveTipTest`: the HIVE calibration table from the Event Field Setup Guide (section 12.3), with
   balls gently placed or tossed in, and a tip dumping the CELL and turning the other CELL up.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
@@ -593,9 +618,9 @@ The suite includes:
   view reaches the Driver Station page.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
-  Pinpoint auto to within 0.2 in, and from the near end, the middle and the far end of its
-  documented shooting range the BIOBUZZ TeleOp's first 2 shots land in the red HIVE's CELL and
-  the 3rd tips the HIVE.
+  Pinpoint auto to within 1.5 in (about 0.5 in in practice), BIOBUZZ Parking ends in the red
+  LOADING ZONE, and from the near end, the middle and the far end of its documented shooting
+  range the BIOBUZZ TeleOp's first 2 shots land in the red HIVE's CELL and the 3rd tips the HIVE.
 
 On GitHub, these tests run on Windows, Ubuntu and macOS (JDK 21, plus JDK 17 on Ubuntu) for every
 push to `main`/`master` and every pull request. Each OS has its own workflow (`windows.yml`,
