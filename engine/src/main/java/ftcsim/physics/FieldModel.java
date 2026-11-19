@@ -137,6 +137,12 @@ public final class FieldModel {
     public final double tile;
     public final double tapeWidth;
     public final List<Solid> solids = new ArrayList<>();
+    /**
+     * Shapes only the robots' bodies run into, where the field's frame stops a robot but leaves room
+     * for game pieces and a low intake (around a FLOWER's thin rings, for instance). Game pieces and
+     * wheels pass through them. They are never drawn.
+     */
+    public final List<Solid> robotStops = new ArrayList<>();
     public final List<Tape> tapes = new ArrayList<>();
     public final List<Tag> tags = new ArrayList<>();
     public final List<Mover> movers = new ArrayList<>();

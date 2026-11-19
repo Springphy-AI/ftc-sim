@@ -153,6 +153,13 @@ public final class RobotBody {
     /** Chassis body origin (its center of mass) in the robot frame. */
     private final double ox, oy, oz;
 
+    /**
+     * The intake roller of a robot built from the robot file's numbers, where the 3D view draws it:
+     * across the front, {@code ROLLER_AHEAD_M} ahead of the chassis, its axis {@code ROLLER_HEIGHT_M}
+     * above the tiles. (A CAD robot's roller is its own part.)
+     */
+    public static final double ROLLER_RADIUS_M = 0.03, ROLLER_AHEAD_M = 0.04, ROLLER_HEIGHT_M = 0.045;
+
     public RobotBody(PhysicsWorld world, RobotConfig config, java.util.function.Function<String, MotorUnit> motorByName) {
         this.world = world;
         this.config = config;
@@ -201,6 +208,7 @@ public final class RobotBody {
                     | PhysicsWorld.CAT_BALL | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL);
         }
         world.addChassis(chassis);
+        if (model == null) addIntakeRoller(c);
 
         double a = d.wheelbaseM / 2, b = d.trackWidthM / 2;
         double s = Math.sqrt(0.5);
@@ -258,6 +266,32 @@ public final class RobotBody {
             }
         }
     }
+
+    /**
+     * A robot with an "intake" device gets a roller across its front that is solid to game pieces,
+     * so it pushes and bumps them: it can knock the bottom POLLEN out of a FLOWER even when the robot
+     * is full. Picking a piece up is GameElements' work, while the roller spins. Pieces only: the
+     * chassis already meets walls and structures, and a rounded roller end touching a wall first
+     * would twist the robot.
+     */
+    private void addIntakeRoller(RobotConfig.Chassis c) {
+        boolean hasIntake = config.devices.stream().anyMatch(dv -> "intake".equals(dv.role));
+        if (!hasIntake) return;
+        double len = c.widthM * 0.82 - 2 * ROLLER_RADIUS_M;
+        DGeom roller = OdeHelper.createCapsule(world.space, ROLLER_RADIUS_M, len);
+        roller.setBody(chassis);
+        roller.setOffsetPosition(c.lengthM / 2 + ROLLER_AHEAD_M - ox, -oy, ROLLER_HEIGHT_M - oz);
+        roller.setOffsetRotation(new DMatrix3(1, 0, 0, 0, 0, -1, 0, 1, 0));   // the capsule's axis (z) across the robot (y)
+        PhysicsWorld.Material rm = new PhysicsWorld.Material("roller");
+        rm.mu = rm.mu2 = 0.6;
+        rm.bounce = 0.1;
+        rm.owner = this;
+        world.register(roller, rm, PhysicsWorld.CAT_ROLLER, PhysicsWorld.CAT_BALL);
+        intakeRoller = roller;
+    }
+
+    /** The solid intake roller, or null. */
+    private DGeom intakeRoller;
 
     /** Whether link {@code b} is {@code a} or rides on it. */
     private boolean carries(LinkBody a, LinkBody b) {
@@ -495,6 +529,10 @@ public final class RobotBody {
         for (DGeom g : chassisGeoms) {
             world.unregister(g);
             g.destroy();
+        }
+        if (intakeRoller != null) {
+            world.unregister(intakeRoller);
+            intakeRoller.destroy();
         }
         chassis.destroy();
     }

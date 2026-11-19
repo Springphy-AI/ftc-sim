@@ -54,7 +54,8 @@ public class PinpointSquareAuto extends LinearOpMode {
             telemetry.update();
         }
 
-        double[][] waypoints = {{20, 0}, {20, -20}, {0, -20}, {0, 0}};
+        // Forward, then left: from the default start, a square to the right would clip the red FLOWER.
+        double[][] waypoints = {{20, 0}, {20, 20}, {0, 20}, {0, 0}};
         for (double[] w : waypoints) {
             if (!driveTo(w[0], w[1], 0, 4.0)) break;
             sleep(250);

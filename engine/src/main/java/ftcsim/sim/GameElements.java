@@ -20,6 +20,7 @@ import ftcsim.config.RobotConfig;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.Mechanism;
 import ftcsim.physics.PhysicsWorld;
+import ftcsim.physics.RobotBody;
 import ftcsim.physics.ServoUnit;
 import ftcsim.season.SeasonCode;
 import ftcsim.season.SeasonGame;
@@ -58,6 +59,8 @@ public final class GameElements {
         /** 1/2 rho Cd A: air drag force = dragFactor * speed^2. */
         final double dragFactor;
         final double rollingResistance;
+        /** Drawn as a perforated (wiffle-style) shell. */
+        final boolean perforated;
         final DBody body;
         final DGeom geom;
         PhysicsWorld.Material material;
@@ -76,12 +79,18 @@ public final class GameElements {
             this.mass = t.mass;
             this.dragFactor = 0.5 * AIR_DENSITY * t.dragCoefficient * Math.PI * radius * radius;
             this.rollingResistance = t.rollingResistance;
+            this.perforated = t.perforated;
             this.body = body;
             this.geom = geom;
         }
 
         public State state() {
             return state;
+        }
+
+        /** A free ball the physics engine is moving; false while it rests asleep (or is not free). */
+        public boolean awake() {
+            return state == State.FREE && body.isEnabled();
         }
 
         /** The alliance whose ALLIANCE AREA this ball waits in for the human player, or null. */
@@ -100,13 +109,18 @@ public final class GameElements {
 
     /** One kind of game piece, from season.json "game_pieces". */
     private record PieceType(String name, double radius, double mass, double bounce, double friction,
-                             double dragCoefficient, double rollingResistance) {
+                             double dragCoefficient, double rollingResistance, boolean perforated) {
     }
 
     private static final double AIR_DENSITY = 1.2;               // kg/m^3
     private static final double GRAVITY = 9.81;
-    // Intake: a ball is pulled in when its center is in this box in front of the roller (robot frame).
+    // Intake, CAD roller: a ball is pulled in when its center is within this margin of the roller's box.
     private static final double INTAKE_REACH_M = 0.07;
+    // Intake, the robot file's roller (solid, RobotBody): the spinning roller pulls in a ball that
+    // touches it (within this gap of its surface), across most of the robot's width. Balls in front
+    // of it get pushed until they touch; through a FLOWER's Retrieval Opening it reaches the bottom
+    // POLLEN, and each one above as it drops, but not balls higher up the tube.
+    private static final double ROLLER_REACH_M = 0.05;
     private static final double INTAKE_MIN_OMEGA = 20;          // rad/s at the intake motor
     private static final double INTAKE_INTERVAL_S = 0.12;
     // Feeder: one ball per interval while the feeder turns forward.
@@ -243,7 +257,8 @@ public final class GameElements {
             PieceType t = new PieceType(name, p.get("diameter_m").getAsDouble() / 2, p.get("mass_kg").getAsDouble(),
                     p.has("bounce") ? p.get("bounce").getAsDouble() : 0.35, p.has("friction") ? p.get("friction").getAsDouble() : 0.6,
                     p.has("drag_coefficient") ? p.get("drag_coefficient").getAsDouble() : 0.5,
-                    p.has("rolling_resistance") ? p.get("rolling_resistance").getAsDouble() : 0.04);
+                    p.has("rolling_resistance") ? p.get("rolling_resistance").getAsDouble() : 0.04,
+                    p.has("perforated") && p.get("perforated").getAsBoolean());
             JsonObject colors = p.getAsJsonObject("colors");
             // "rgb": {"red": "#d8343a"}: this piece's own shade of a color, if not the palette's.
             JsonObject rgb = p.has("rgb") ? p.getAsJsonObject("rgb") : new JsonObject();
@@ -329,6 +344,7 @@ public final class GameElements {
     }
 
     private void hold(Holder r, Ball b) {
+        if (b.state == State.FREE) wakeNeighbors(b);
         b.state = State.HELD;
         b.area = null;
         b.body.setLinearVel(0, 0, 0);
@@ -342,6 +358,28 @@ public final class GameElements {
     private void passThrough(Ball b, RobotRig rig) {
         b.material.passThrough = rig.body;
         b.material.passThroughUntil = world.steps() + 300;
+    }
+
+    /**
+     * Wakes resting balls near this one before it leaves. The physics engine puts still balls to
+     * sleep and does not wake them when what they rest on disappears: without this, taking the
+     * bottom ball out of a stack (a FLOWER's) would leave the ones above it floating.
+     */
+    private void wakeNeighbors(Ball b) {
+        DVector3C p = b.body.getPosition();
+        for (Ball o : balls) {
+            if (o == b || o.state != State.FREE || o.body.isEnabled()) continue;
+            DVector3C q = o.body.getPosition();
+            double dx = q.get0() - p.get0(), dy = q.get1() - p.get1(), dz = q.get2() - p.get2();
+            if (dx * dx + dy * dy + dz * dz < 0.5 * 0.5) o.body.enable();
+        }
+    }
+
+    /** Sets a free ball's velocity (the season's own rules: a ball rolling out of a holder, say). */
+    public void setVelocity(Ball b, double vx, double vy, double vz) {
+        if (b.state != State.FREE) return;
+        b.body.enable();
+        b.body.setLinearVel(vx, vy, vz);
     }
 
     private void free(Ball b, double x, double y, double z, double vx, double vy, double vz) {
@@ -398,7 +436,7 @@ public final class GameElements {
         RobotRig rig = r.rig;
         List<Ball> held = r.held;
         RobotConfig.Chassis c = rig.config.chassis;
-        double front = c.lengthM / 2 + 0.04;   // the roller, as drawn in the 3D view
+        double front = c.lengthM / 2 + RobotBody.ROLLER_AHEAD_M;   // the roller's axis
         CadPart roller = r.intakePart;
         if (omega > 0) {
             if (held.size() >= capacity) return;
@@ -415,10 +453,11 @@ public final class GameElements {
                     caught = q[0] > rb[0] - m && q[0] < rb[3] + m && q[1] > rb[1] - m
                             && q[1] < rb[4] + m && q[2] > rb[2] - m && q[2] < rb[5] + m;
                 } else {
+                    // Touching the spinning roller.
                     double[] local = rig.body.toRobotFrame(b.body.getPosition());
-                    double heightAboveFloor = b.body.getPosition().get2();
-                    caught = local[0] > c.lengthM / 2 - 0.02 && local[0] < front + b.radius + INTAKE_REACH_M
-                            && Math.abs(local[1]) < c.widthM * 0.41 && heightAboveFloor < 0.15;
+                    double dx = local[0] - front, dz = b.body.getPosition().get2() - RobotBody.ROLLER_HEIGHT_M;
+                    caught = Math.hypot(dx, dz) < RobotBody.ROLLER_RADIUS_M + b.radius + ROLLER_REACH_M
+                            && local[0] > c.lengthM / 2 - 0.02 && Math.abs(local[1]) < c.widthM * 0.41;
                 }
                 if (caught) {
                     hold(r, b);
@@ -429,7 +468,7 @@ public final class GameElements {
         } else if (!held.isEmpty()) {
             // Reversed: spit the last ball in back out over the roller.
             Ball b = held.remove(held.size() - 1);
-            double x = front + b.radius + 0.03;
+            double x = front + RobotBody.ROLLER_RADIUS_M + b.radius + 0.01;   // just clear of the roller
             DVector3 p;
             if (roller != null) {
                 double[] rb = roller.bounds;
@@ -492,6 +531,7 @@ public final class GameElements {
 
     /** Sets one ball loose at (x, y, z) moving at (vx, vy, vz), out of a robot or its staging spot. */
     public void throwBall(Ball b, double x, double y, double z, double vx, double vy, double vz) {
+        if (b.state == State.FREE) wakeNeighbors(b);
         for (Holder r : robots) r.held.remove(b);
         free(b, x, y, z, vx, vy, vz);
     }
@@ -627,6 +667,7 @@ public final class GameElements {
             m.put("color", b.color);
             m.put("rgb", b.rgb);
             m.put("r", b.radius);
+            if (b.perforated) m.put("perforated", true);
             out.add(m);
         }
         return out;

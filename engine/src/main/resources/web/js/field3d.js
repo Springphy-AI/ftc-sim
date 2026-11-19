@@ -383,8 +383,12 @@ export class FieldView {
     const geos = {};
     const mats = {};
     for (const b of list || []) {
-      const geo = geos[b.r] ??= new THREE.SphereGeometry(b.r, 20, 14);
-      const mat = mats[b.rgb] ??= new THREE.MeshStandardMaterial({ color: b.rgb ?? 0xffffff, roughness: 0.45 });
+      const geo = geos[b.r] ??= new THREE.SphereGeometry(b.r, 32, 20);
+      // Perforated plastic balls (season.json "perforated", like BIOBUZZ's wiffle-style POLLEN and
+      // NECTAR): the holes are cut out of the shell, and its inside shows through them.
+      const mat = mats[`${b.rgb}:${!!b.perforated}`] ??= new THREE.MeshStandardMaterial(b.perforated
+        ? { color: b.rgb ?? 0xffffff, roughness: 0.45, alphaMap: (this.ballHoles ??= this.holesTexture()), alphaTest: 0.5, side: THREE.DoubleSide }
+        : { color: b.rgb ?? 0xffffff, roughness: 0.45 });
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
       m.receiveShadow = true;
@@ -392,6 +396,38 @@ export class FieldView {
       this.ballGroup.add(m);
       this.balls.push(m);
     }
+  }
+
+  /**
+   * Where the holes are on a perforated ball's shell, as an alpha map (white = plastic, black =
+   * hole) in the sphere's longitude/latitude layout: a ring of 8 around the middle, 6 in each ring
+   * at 40 degrees, and one at each pole: 22 holes, close to the real balls.
+   */
+  holesTexture() {
+    const W = 512, H = 256, c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#000';
+    const a = 0.2;   // hole radius, radians of arc
+    const hole = (lon, lat) => {
+      const y = (0.5 - lat / Math.PI) * H, ry = a / Math.PI * H;
+      const rx = Math.min(W / 2, a / (2 * Math.PI) * W / Math.max(Math.cos(lat), 0.05));
+      for (const dx of [-W, 0, W]) {
+        ctx.beginPath();
+        ctx.ellipse(lon / (2 * Math.PI) * W + dx, y, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+    for (let i = 0; i < 8; i++) hole(i * Math.PI / 4, 0);
+    for (const lat of [0.7, -0.7]) for (let i = 0; i < 6; i++) hole(i * Math.PI / 3 + (lat > 0 ? 0.3 : 0.8), lat);
+    ctx.fillRect(0, 0, W, a / Math.PI * H);            // the hole at each pole
+    ctx.fillRect(0, H - a / Math.PI * H, W, a / Math.PI * H);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    return tex;
   }
 
   // ---- robots ------------------------------------------------------------------------------

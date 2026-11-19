@@ -118,7 +118,8 @@ class MultiRobotTest {
             assertEquals(4, sim.elements().heldCount(1));
             List<Ball> balls = sim.elements().balls();
             assertEquals(8, balls.stream().filter(b -> b.color.equals("yellow") && b.state() == State.HELD).count());
-            assertEquals(8 + 8, balls.stream().filter(b -> b.color.equals("yellow") && b.state() == State.FREE).count());
+            // Free: 16 stacked in the FLOWERS, 8 in the GARDENS, 8 pre-loads of the two absent robots.
+            assertEquals(16 + 8 + 8, balls.stream().filter(b -> b.color.equals("yellow") && b.state() == State.FREE).count());
         });
 
         // OpMode.blackboard belongs to each robot: the sample counts how often it was started.

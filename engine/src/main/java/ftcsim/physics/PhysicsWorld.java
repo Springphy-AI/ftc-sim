@@ -33,6 +33,10 @@ public final class PhysicsWorld {
 
     /** Collision categories. */
     public static final long CAT_GROUND = 1, CAT_STATIC = 2, CAT_CHASSIS = 4, CAT_WHEEL = 8, CAT_BALL = 16;
+    /** A robot's intake roller: solid to game pieces only. */
+    public static final long CAT_ROLLER = 32;
+    /** The field's {@link FieldModel#robotStops}: they stop only robots' bodies. */
+    public static final long CAT_ROBOT_STOP = 64;
 
     /** How a geom behaves in contacts. */
     public static final class Material {
@@ -114,6 +118,16 @@ public final class PhysicsWorld {
             Material mat = new Material("structure");
             mat.mu = mat.mu2 = sd.friction();
             register(g, mat, CAT_STATIC, CAT_CHASSIS | CAT_WHEEL | CAT_BALL);
+        }
+        // Where the field's frame stops a robot but not the game pieces: only chassis collide with these.
+        for (FieldModel.Solid sd : field.robotStops) {
+            DGeom g = geom(space, sd);
+            g.setPosition(sd.center()[0], sd.center()[1], sd.center()[2]);
+            double[] m = sd.rot();
+            g.setRotation(new DMatrix3(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]));
+            Material mat = new Material("structure");
+            mat.mu = mat.mu2 = sd.friction();
+            register(g, mat, CAT_ROBOT_STOP, CAT_CHASSIS);
         }
         for (FieldModel.Mover m : field.movers) movers.add(new HingeBody(this, m));
     }
@@ -321,7 +335,9 @@ public final class PhysicsWorld {
         c.surface.mode = OdeConstants.dContactApprox1 | OdeConstants.dContactBounce
                 | OdeConstants.dContactSoftCFM | OdeConstants.dContactSoftERP;
         c.surface.mu = Math.sqrt(m1.mu * m2.mu);
-        c.surface.bounce = Math.max(m1.bounce, m2.bounce);
+        // A ball meeting an intake roller doesn't bounce off it: the roller pushes it along.
+        boolean roller = "roller".equals(m1.kind) || "roller".equals(m2.kind);
+        c.surface.bounce = roller ? 0 : Math.max(m1.bounce, m2.bounce);
         c.surface.bounce_vel = 0.1;
         c.surface.soft_cfm = 1e-5;
         c.surface.soft_erp = 0.3;

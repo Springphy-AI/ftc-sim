@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import org.ode4j.math.DVector3C;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import ftcsim.season.SeasonGame;
@@ -23,14 +23,24 @@ public final class BiobuzzGame extends SeasonGame {
 
     private final HiveLayout layout;
     private final List<HiveBody> hives = new ArrayList<>();
+    private final List<Flower> flowers;
     /** 10.3.1: every ROBOT starts the MATCH with this many pre-loaded POLLEN. */
     private final int preload;
+    /** Per ball (by id): rolling out of a FLOWER's Retrieval Opening, its direction (radians) and time left (s). */
+    private final double[] exitDir, exitTime;
+    private final boolean[] exitStarted;
+    private final Random exitRandom = new Random(7);
 
     BiobuzzGame(GameElements elements) {
         super(elements);
         layout = HiveLayout.of(field);
         for (Hive h : layout.hives) hives.add(new HiveBody(world.mover(h.alliance() + " HIVE"), h));
+        flowers = Flower.of(json);
         preload = json.getAsJsonObject("preload").getAsJsonArray("colors").size();
+        int n = elements.balls().size();
+        exitDir = new double[n];
+        exitTime = new double[n];
+        exitStarted = new boolean[n];
     }
 
     /** The BIOBUZZ game on a field that plays BIOBUZZ. */
@@ -57,9 +67,9 @@ public final class BiobuzzGame extends SeasonGame {
     /**
      * Puts every SCORING ELEMENT where it starts a MATCH:
      * <ul>
-     *   <li>POLLEN: 4 in each FLOWER, 4 in each GARDEN, 4 pre-loaded in each simulated robot. The
-     *       pre-loads of absent ROBOTS (each ALLIANCE has two) go in the center of their LOADING
-     *       ZONE against the perimeter wall (10.3.4).</li>
+     *   <li>POLLEN: 4 stacked in each FLOWER (free balls, held by its tube), 4 in each GARDEN, 4
+     *       pre-loaded in each simulated robot. The pre-loads of absent ROBOTS (each ALLIANCE has
+     *       two) go in the center of their LOADING ZONE against the perimeter wall (10.3.4).</li>
      *   <li>NECTAR: 3 in each upward-facing CELL of its color (free balls, held by the CELL's
      *       walls), 5 in each ALLIANCE AREA.</li>
      * </ul>
@@ -76,15 +86,15 @@ public final class BiobuzzGame extends SeasonGame {
         }
         int p = 0;
         // FLOWERS: 4 stacked in each. The lowest sits in the 2.79 in hole of the bottom ring, on the
-        // tiles (9.7); the others rest on top of it. (The 1.25 in backstop is the guide at the top.)
-        JsonObject flowers = json.getAsJsonObject("flowers");
-        for (String name : flowers.keySet()) {
-            JsonArray axis = flowers.getAsJsonObject(name).getAsJsonArray("axis_m");
+        // tiles (9.7); the others rest on top of it, inside the tube.
+        for (Flower f : flowers) {
             for (int i = 0; i < 4; i++) {
                 Ball b = pollen.get(p++);
-                elements.stage(b, axis.get(0).getAsDouble(), axis.get(1).getAsDouble(), b.radius + i * 2 * b.radius);
+                elements.throwBall(b, f.x(), f.y(), b.radius + i * (2 * b.radius + 0.001), 0, 0, 0);
             }
         }
+        java.util.Arrays.fill(exitTime, 0);
+        java.util.Arrays.fill(exitStarted, false);
         // GARDENS: 4 in a row along the wall.
         JsonObject gardens = json.getAsJsonObject("gardens");
         for (String alliance : gardens.keySet()) {
@@ -147,6 +157,90 @@ public final class BiobuzzGame extends SeasonGame {
     @Override
     public void beforeStep(double dt) {
         for (HiveBody h : hives) h.beforeStep();
+        rollOutOfFlowers(dt);
+    }
+
+    // A POLLEN that drops out of a FLOWER's middle ring rolls out of the Retrieval Opening.
+    private static final double FLOWER_DROP_SPEED = 0.2;       // m/s downward: it is falling, not resting
+    private static final double FLOWER_ROLL_OUT_SPEED = 0.5;   // m/s
+    private static final double FLOWER_EXIT_TIME_S = 0.5;
+
+    /**
+     * On the field, when the bottom POLLEN of a FLOWER is taken or knocked out, the ones above drop
+     * through the tall Retrieval Opening and roll out on their own, so the whole stack comes out;
+     * only the weight of the stack keeps the bottom one in place at the start. Simulated POLLEN are
+     * perfect spheres and fall straight, so each lands back in the lower ring and the next one,
+     * falling right behind it, pins it there. Real ones are not quite round (Competition Manual
+     * 9.8), come off the middle ring at an angle and keep rolling: a POLLEN that falls clear of the
+     * middle ring rolls toward the open front or sides (never the wall) at a walking pace until it
+     * is out of the lower ring, even with the next one landing on it. One resting in place, like
+     * the bottom one at the start, does not move.
+     */
+    private void rollOutOfFlowers(double dt) {
+        for (Ball b : elements.balls()) {
+            if (!b.awake()) continue;
+            DVector3C p = b.position(), v = b.velocity();
+            Flower f = flowerNear(p.get0(), p.get1(), 0.075);
+            int i = b.id;
+            if (f == null) {
+                exitTime[i] = 0;
+                exitStarted[i] = false;
+                continue;
+            }
+            if (p.get2() > f.retrievalTop() - b.radius) {   // its top has not left the middle ring
+                exitStarted[i] = false;
+                continue;
+            }
+            if (!exitStarted[i] && v.get2() < -FLOWER_DROP_SPEED) {
+                exitStarted[i] = true;
+                exitTime[i] = FLOWER_EXIT_TIME_S;
+                exitDir[i] = f.yaw() + (exitRandom.nextDouble() * 2 - 1) * Math.toRadians(100);   // front or sides
+            }
+            if (exitTime[i] > 0) {
+                exitTime[i] -= dt;
+                double cx = Math.cos(exitDir[i]), cy = Math.sin(exitDir[i]);
+                double along = v.get0() * cx + v.get1() * cy;
+                if (along < FLOWER_ROLL_OUT_SPEED) {
+                    double dv = FLOWER_ROLL_OUT_SPEED - along;
+                    elements.setVelocity(b, v.get0() + dv * cx, v.get1() + dv * cy, v.get2());
+                }
+            }
+        }
+    }
+
+    /** The FLOWER within this distance (m, horizontally) of the point, or null. */
+    private Flower flowerNear(double x, double y, double within) {
+        for (Flower f : flowers) if (Math.hypot(x - f.x(), y - f.y()) < within) return f;
+        return null;
+    }
+
+    /** The four FLOWERS. */
+    public List<Flower> flowers() {
+        return flowers;
+    }
+
+    public Flower flower(String name) {
+        for (Flower f : flowers) if (f.name().equals(name)) return f;
+        throw new IllegalArgumentException("no FLOWER " + name);
+    }
+
+    /** The FLOWER a ball is in (flower_red, flower_rear...), or null. */
+    public String flowerOf(Ball b) {
+        if (b.state() != GameElements.State.FREE) return null;
+        DVector3C p = b.position();
+        for (Flower f : flowers) if (f.holds(p.get0(), p.get1(), p.get2())) return f.name();
+        return null;
+    }
+
+    /** Free balls inside each FLOWER, keyed by FLOWER name. */
+    public Map<String, Integer> flowerCounts() {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Flower f : flowers) out.put(f.name(), 0);
+        for (Ball b : elements.balls()) {
+            String f = flowerOf(b);
+            if (f != null) out.merge(f, 1, Integer::sum);
+        }
+        return out;
     }
 
     // ---- the human player ------------------------------------------------------------------------

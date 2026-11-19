@@ -201,6 +201,7 @@ public final class Season {
         m.put("title", title);
         m.put("years", years);
         m.put("home", homeAlliance);
+        if (robotCapacity != Integer.MAX_VALUE) m.put("capacity", robotCapacity);
         JsonObject view = json.has("view") ? json.getAsJsonObject("view") : new JsonObject();
         m.put("audience", view.has("audience") ? view.get("audience").getAsString() : "-y");
         Map<String, String> walls = new LinkedHashMap<>();

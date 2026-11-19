@@ -67,7 +67,9 @@
     "yellow": 40
    },
    "bounce": 0.35,
-   "friction": 0.6
+   "friction": 0.6,
+   "rolling_resistance": 0.12,
+   "perforated": true
   },
   "nectar": {
    "shape": "sphere",
@@ -82,7 +84,9 @@
     "blue": "#2f6fe0"
    },
    "bounce": 0.35,
-   "friction": 0.6
+   "friction": 0.6,
+   "rolling_resistance": 0.12,
+   "perforated": true
   }
  },
  "alliance_areas": {

@@ -52,10 +52,14 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setPlacing(f
 // The season: its name, and the human player's buttons (a game piece from the ALLIANCE AREA into
 // a LOADING ZONE...), each with an optional key.
 let actions = [];
+let capacity = null;      // game pieces a robot may hold (the season's rule), or null for no limit
 const act = (id) => send({ type: 'action', id });
 const keyName = (code) => code.replace(/^Key|^Digit/, '');
 function setSeason(season, list) {
   const name = season ? `${season.title}${season.years ? ` (${season.years})` : ''}` : '';
+  capacity = season?.capacity ?? null;
+  $('heldStat').title = capacity === null ? 'Game pieces inside this robot'
+    : `Game pieces inside this robot. It can hold at most ${capacity}: launch or spit one out before the intake will pick up another.`;
   $('seasonName').textContent = season ? season.title.replace(/ presented by .*/i, '') : '';
   $('seasonName').title = name;
   document.title = season ? `FTC Simulator · ${season.title.replace(/ presented by .*/i, '')}` : 'FTC Simulator';
@@ -303,6 +307,11 @@ function onMessage(msg) {
       });
       const r = msg.robots[current];
       if (r) $('battery').textContent = `${r.battery.toFixed(1)} V`;
+      if (r && typeof r.held === 'number') {
+        const full = capacity !== null && r.held >= capacity;
+        $('held').textContent = capacity === null ? `${r.held}` : `${r.held} / ${capacity}${full ? ' full' : ''}`;
+        $('held').classList.toggle('full', full);
+      }
       $('rtf').textContent = `${Math.round(msg.rtf * 100)}%`;
       if (msg.game) {
         for (const [id, n] of Object.entries(msg.game.left ?? {})) {
