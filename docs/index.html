@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<!--
+  FTC Simulator project page, served by GitHub Pages from /docs on main.
+  Built from the Academic Project Page Template (github.com/eliahuhorwitz/Academic-project-page-template,
+  CC BY-SA 4.0), itself adapted from the Nerfies page. Template files: static/css/bulma*.css, static/css/index.css,
+  static/js/bulma-carousel.min.js, static/js/fontawesome.all.min.js; ours: static/css/project.css, static/js/index.js.
+  The paper is static/pdfs/ftc-sim-report.pdf, built from ../paper (LaTeX), the report's only source; copy
+  paper/main.pdf here after every rebuild. figures/*.svg come from figures/src/figures.py.
+
+  Preview locally:  python -m http.server 8123 -d docs   then open http://localhost:8123/
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+
+  <title>Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge</title>
+  <meta name="description" content="A physics-based simulator for FIRST Tech Challenge robots, field and game. Teams run their own robot code, unmodified, on simulated robots with hub firmware, bus timing, sensors and webcams.">
+  <meta name="keywords" content="FIRST Tech Challenge, FTC, robot simulation, ODE4j, BIOBUZZ, DECODE, AprilTag, REV hub, robotics education">
+  <meta name="author" content="Lening Li, Na Li">
+
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Springphy AI">
+  <meta property="og:title" content="Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge">
+  <meta property="og:description" content="Teams run their own FTC robot code, unmodified, on simulated robots with hub firmware, bus timing, sensors and webcams, on the BIOBUZZ and DECODE fields.">
+  <meta property="og:url" content="https://leelening.github.io/ftc-sim/">
+  <meta property="og:image" content="https://leelening.github.io/ftc-sim/static/images/social-preview.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A simulated FTC robot shooting balls into a HIVE on the BIOBUZZ field">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge">
+  <meta name="twitter:description" content="Teams run their own FTC robot code, unmodified, on simulated robots with hub firmware, bus timing, sensors and webcams.">
+  <meta name="twitter:image" content="https://leelening.github.io/ftc-sim/static/images/social-preview.jpg">
+
+  <meta name="citation_title" content="Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge">
+  <meta name="citation_author" content="Li, Lening">
+  <meta name="citation_author" content="Li, Na">
+  <meta name="citation_publication_date" content="2026">
+  <meta name="citation_technical_report_institution" content="Springphy AI">
+  <meta name="citation_pdf_url" content="https://leelening.github.io/ftc-sim/static/pdfs/ftc-sim-report.pdf">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230D96A1'/%3E%3Cpath d='M9 23V9h14v4H13v3h8v4h-8v3z' fill='white'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="stylesheet" href="static/css/project.css">
+
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script defer src="static/js/bulma-carousel.min.js"></script>
+  <script defer src="static/js/index.js"></script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge",
+    "author": [
+      { "@type": "Person", "name": "Lening Li", "affiliation": { "@type": "Organization", "name": "Springphy AI", "url": "https://springphy.ai" } },
+      { "@type": "Person", "name": "Na Li", "affiliation": { "@type": "Organization", "name": "Springphy AI", "url": "https://springphy.ai" } }
+    ],
+    "datePublished": "2026-11-19",
+    "url": "https://leelening.github.io/ftc-sim/",
+    "image": "https://leelening.github.io/ftc-sim/static/images/social-preview.jpg",
+    "keywords": ["FIRST Tech Challenge", "robot simulation", "ODE4j", "AprilTag"],
+    "isAccessibleForFree": true
+  }
+  </script>
+</head>
+<body>
+
+  <button class="scroll-to-top" onclick="scrollToTop()" title="Scroll to top" aria-label="Scroll to top">
+    <i class="fas fa-chevron-up"></i>
+  </button>
+
+  <main id="main-content">
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-1 publication-title">Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge</h1>
+            <div class="is-size-5 publication-authors">
+              <span class="author-block"><a href="https://github.com/leelening" target="_blank" rel="noopener">Lening Li</a>,</span>
+              <span class="author-block">Na Li</span>
+            </div>
+            <div class="publication-org">
+              <a href="https://springphy.ai" target="_blank" rel="noopener" title="Springphy AI">
+                <img src="static/images/springphy-wordmark.png" alt="Springphy AI" width="174" height="48">
+              </a>
+            </div>
+            <div class="is-size-6 publication-venue">Technical report (draft) · November 2026</div>
+
+            <div class="publication-links">
+              <span class="link-block">
+                <a href="static/pdfs/ftc-sim-report.pdf" target="_blank" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-file-pdf"></i></span>
+                  <span>Paper</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="https://github.com/leelening/ftc-sim" target="_blank" rel="noopener" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fab fa-github"></i></span>
+                  <span>Code</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="#quickstart" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-terminal"></i></span>
+                  <span>Quick start</span>
+                </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Teaser video -->
+  <section class="hero teaser">
+    <div class="container is-max-desktop">
+      <div class="hero-body">
+        <video id="teaser" poster="static/images/teaser-poster.jpg" autoplay controls muted loop playsinline preload="metadata"
+               aria-label="A simulated robot shoots four POLLEN into the red HIVE, which tips after the third">
+          <source src="static/videos/teaser.mp4" type="video/mp4">
+        </video>
+        <h2 class="subtitle has-text-centered">
+          A simulated robot runs the bundled BIOBUZZ TeleOp: it spins up its launcher and shoots POLLEN into the red HIVE's
+          open CELL. With 3 NECTAR already inside, the CELL holds 2 POLLEN; the third tips the HIVE, as FIRST's field
+          setup guide specifies. Recorded in real time.
+        </h2>
+      </div>
+    </div>
+  </section>
+
+  <!-- Abstract -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Abstract</h2>
+          <div class="content has-text-justified">
+            <p>
+              FIRST Tech Challenge (FTC) teams build a new robot for a new game every season, and their programmers rarely
+              have a working robot to test on. Existing FTC simulators are mainly teaching tools, and none that we found
+              documents a model of the robot hub’s control loops or of the time each hardware call takes. We present a physics-based
+              simulator for FTC robots playing the 2026–27 game, BIOBUZZ. It models the field and its structures, the 56
+              game pieces, the two bistable HIVES, and up to four robots with their motors, mechanisms, sensors and webcams.
+              A robot is described in a JSON file or imported from its CAD model, in which case its arms, slides and hoods
+              become bodies on joints. Everything specific to one game is kept in a season pack, and the 2025–26 game,
+              DECODE, is included as a second pack. Matches are run from a browser version of the Driver Station.
+            </p>
+            <p>
+              Rigid-body physics runs in ODE4j with a 1 ms step, paced to the wall clock; on a desktop computer, four robots
+              and all the game pieces run at 1.7 to 2.0 times real time. We model mecanum wheels with
+              anisotropic contact friction, motors with their datasheet torque–speed curves, and the REV hub's firmware
+              control loops, battery sag and hardware-call timing. The HIVE model is calibrated against the
+              tipping table in FIRST's Event Field Setup Guide and against balls launched by a simulated robot. Webcam
+              frames are rendered in software and passed to FIRST's own AprilTag pipeline; on these frames, which have no
+              lens distortion or noise, the tag positions it reports in our tests are within 2 mm of ground truth.
+            </p>
+            <p>
+              Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads. We
+              describe the models, a test suite that runs on Windows, Linux and macOS, and a planned comparison with a
+              physical robot and field. The code is open source under the MIT license.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Numbers from the test suite -->
+  <section class="section facts">
+    <div class="container is-max-desktop">
+      <div class="columns is-multiline is-centered has-text-centered">
+        <div class="column fact"><p class="fact-num">1&nbsp;ms</p><p class="fact-text">physics step in ODE4j, paced to the wall clock</p></div>
+        <div class="column fact"><p class="fact-num">1,083</p><p class="fact-text">public members of 115 SDK 12.0 classes, all found in FIRST's jars</p></div>
+        <div class="column fact"><p class="fact-num">41</p><p class="fact-text">of FIRST's sample files, bundled with the simulator, compile unmodified</p></div>
+        <div class="column fact"><p class="fact-num">≤&nbsp;2&nbsp;mm</p><p class="fact-text">AprilTag position error on rendered, noise-free frames</p></div>
+        <div class="column fact"><p class="fact-num">91</p><p class="fact-text">tests, run on Windows, Linux and macOS (vision tests skip on macOS)</p></div>
+      </div>
+      <p class="has-text-centered fact-note">The SDK, sample and AprilTag numbers come from the simulator's own tests; the 1&nbsp;ms step is a setting. None has been compared with a physical robot yet; Section 10 of the report plans that comparison.</p>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section class="hero is-small is-light">
+    <div class="hero-body">
+      <div class="container">
+        <div id="results-carousel" class="carousel results-carousel">
+          <div class="item">
+            <img src="static/images/match-four-robots.jpg" alt="Four simulated robots on the BIOBUZZ field, with a Driver Station card for each" loading="lazy" width="1600" height="900">
+            <h2 class="subtitle has-text-centered">Four robots, two per alliance. Each is its own Robot Controller, with its own TeamCode, gamepads, telemetry and robot file.</h2>
+          </div>
+          <div class="item">
+            <img src="static/images/decode-field.jpg" alt="The DECODE field with its GOALS, the OBELISK and purple and green ARTIFACTS" loading="lazy" width="1600" height="900">
+            <h2 class="subtitle has-text-centered">The 2025–26 DECODE field, loaded from its season pack: GOALS with RAMPS and GATES, the OBELISK and 36 ARTIFACTS.</h2>
+          </div>
+          <div class="item">
+            <img src="static/images/cad-robot.jpg" alt="A robot imported from its STEP file, holding POLLEN in front of the HIVE structure" loading="lazy" width="1600" height="900">
+            <h2 class="subtitle has-text-centered">A robot imported from its STEP file. Its intake roller and launcher are the CAD parts, driven by the robot's motors.</h2>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="section">
+    <div class="container is-max-desktop">
+      <h2 class="title is-3 has-text-centered">How it works</h2>
+
+      <div class="feature">
+        <h3 class="title is-4">One physics world, three inputs</h3>
+        <p>The simulator is one Java process plus a browser page. The team's own project, a robot file for each robot and the
+          season pack of the game being played describe what is simulated. They meet in one rigid-body world stepped every
+          millisecond, which the robots, sensors, webcams and Driver Station all read from or write to.</p>
+        <figure class="ftc-figure"><img src="figures/architecture.svg" alt="System architecture, from the team's project to the browser" loading="lazy">
+          <figcaption>System architecture, from the team's project to the browser.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">A field and game calibrated against FIRST's documents</h3>
+        <p>The BIOBUZZ field holds its structures, four FLOWERS that robots take POLLEN out of, 56 game pieces and two
+          bistable HIVES. A HIVE stays on either stop until
+          enough weight lands in its upward CELL, and the model gets this from its mass distribution alone. One parameter,
+          the height of the center of mass above the pivot (34.5&nbsp;mm), is fitted so that the HIVE meets every
+          “Necessary” row of the tipping table in FIRST's Event Field Setup Guide.</p>
+        <figure class="ftc-figure"><img src="figures/hive-seesaw.svg" alt="HIVE side view: the moments that hold it on its stop and tip it" loading="lazy">
+          <figcaption>HIVE side view, rear CELL up: its weight holds it on its stop, and balls at the closed end pull it the other way.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">Motors, hub firmware and the time each hardware call takes</h3>
+        <p>Motors follow their datasheet torque–speed curves, the REV hub's control loops run as they do in its firmware,
+          and every hardware call costs bus time: by default 1&nbsp;ms per hub command and 2.5&nbsp;ms per I2C read. At
+          these costs a mecanum TeleOp loop comes to about 95 loops per second without bulk reads and about 133 with them,
+          so control code is tuned at a loop period like the robot's. The costs are estimates until they are measured on a
+          robot.</p>
+        <figure class="ftc-figure"><img src="figures/loop-timing.svg" alt="One control loop drawn to scale, with and without bulk reads" loading="lazy">
+          <figcaption>One control loop at the simulator's default costs, drawn to scale, with and without bulk reads.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">Robots from CAD</h3>
+        <p>A robot file can point at the team's STEP or URDF model. A STEP file is converted once, in the browser, by
+          OpenCascade compiled to WebAssembly. Masses, oriented collision boxes and the joints of arms, slides and hoods
+          come from the meshes, and the robot's own motors and servos drive those joints.</p>
+        <figure class="ftc-figure"><img src="figures/cad-import.svg" alt="From a STEP or URDF file to a simulated robot" loading="lazy">
+          <figcaption>From a STEP or URDF file to a simulated robot.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">FIRST's own vision code on rendered frames</h3>
+        <p>Each webcam's view is rendered in software and passed through FIRST's unmodified VisionPortal processors and
+          AprilTag library, with the lens taken from the SDK's calibration table. On these noise-free frames, tag
+          positions are within 2&nbsp;mm of ground truth. Lens distortion, motion blur and sensor noise are not modeled
+          yet, so a robot's camera will do worse.</p>
+        <figure class="ftc-figure"><img src="figures/vision-pipeline.svg" alt="Path of one webcam frame through the vision pipeline" loading="lazy">
+          <figcaption>Path of one webcam frame through the vision pipeline.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">Matches with up to four robots</h3>
+        <p>Each robot's TeamCode is loaded by its own class loader, so static fields and two projects with classes of the
+          same name stay apart. Robots meet only in the physics world, where they collide, push each other and show up in
+          each other's distance sensors and webcams. <em>INIT all</em> and <em>START all</em> keep their autonomous timers in step.</p>
+        <figure class="ftc-figure"><img src="figures/match-robots.svg" alt="What four robots in one match share, and what they keep apart" loading="lazy">
+          <figcaption>What four robots in one match share, and what they keep apart.</figcaption></figure>
+      </div>
+
+      <div class="feature">
+        <h3 class="title is-4">One engine, a season pack per game</h3>
+        <p>Everything that belongs to one game is a season pack: a <code>season.json</code> with the field's shapes, game
+          pieces, start spots and human-player buttons, plus a little Java for what data cannot express. The physics, the
+          webcam renderer and the 3D view all build from the same shapes, so a new season needs no rendering code.</p>
+        <div class="table-container">
+          <table class="table is-fullwidth is-narrow season-table">
+            <thead><tr><th></th><th>BIOBUZZ (2026–27)</th><th>DECODE (2025–26)</th></tr></thead>
+            <tbody>
+              <tr><th>Structures</th><td>HIVE structure; 4 FLOWERS that POLLEN can be taken out of; 2 HIVES on pivots</td><td>2 GOALS with RAMPS; 2 GATES; the OBELISK</td></tr>
+              <tr><th>Game pieces</th><td>40 POLLEN, 8 red and 8 blue NECTAR</td><td>36 ARTIFACTS: 24 purple, 12 green</td></tr>
+              <tr><th>Each robot</th><td>Holds 4; pre-load 4 POLLEN</td><td>Holds 3; pre-load 2 purple, 1 green</td></tr>
+              <tr><th>AprilTags</th><td>30–45, on the HIVES</td><td>20 and 24 on the GOALS; 21–23 on the OBELISK</td></tr>
+              <tr><th>Java in the pack</th><td>6 files, 827 lines</td><td>2 files, 194 lines</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick start -->
+  <section class="section hero is-light" id="quickstart">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Quick start</h2>
+      <p>Install JDK 17 or newer, then start the simulator with your FtcRobotController project:</p>
+      <p class="command-label">Windows</p>
+      <div class="command">
+        <pre><code>.\run-sim.bat --project "C:\path\to\FtcRobotController"</code></pre>
+        <button class="copy-command-btn" onclick="copyCommand(this)" title="Copy the command" aria-label="Copy the Windows command">
+          <i class="fas fa-copy"></i><span class="copy-text">Copy</span>
+        </button>
+      </div>
+      <p class="command-label">macOS and Linux</p>
+      <div class="command">
+        <pre><code>sh run-sim.sh --project ~/FtcRobotController</code></pre>
+        <button class="copy-command-btn" onclick="copyCommand(this)" title="Copy the command" aria-label="Copy the macOS and Linux command">
+          <i class="fas fa-copy"></i><span class="copy-text">Copy</span>
+        </button>
+      </div>
+      <p>The Driver Station opens at <code>http://localhost:8080</code>: pick an OpMode, press INIT, then START. Without
+        <code>--project</code> it runs the bundled examples and FIRST's samples. <code>--robots 4</code> plays a full
+        match, and <code>--season decode</code> switches to the DECODE field. The
+        <a href="https://github.com/leelening/ftc-sim#readme" target="_blank" rel="noopener">README</a> lists every option.</p>
+    </div>
+  </section>
+
+  <!-- BibTeX -->
+  <section class="section" id="BibTeX">
+    <div class="container is-max-desktop content">
+      <div class="bibtex-header">
+        <h2 class="title">BibTeX</h2>
+        <button class="copy-bibtex-btn" onclick="copyBibTeX()" title="Copy BibTeX to clipboard">
+          <i class="fas fa-copy"></i>
+          <span class="copy-text">Copy</span>
+        </button>
+      </div>
+      <pre id="bibtex-code"><code>@techreport{li2026ftcsim,
+  title       = {Programming the Robot Before It Exists: A Physics Simulator for {FIRST} Tech Challenge},
+  author      = {Li, Lening and Li, Na},
+  institution = {Springphy AI},
+  type        = {Technical report},
+  year        = {2026},
+  url         = {https://github.com/leelening/ftc-sim}
+}</code></pre>
+    </div>
+  </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content">
+            <p>
+              This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank" rel="noopener">Academic Project Page Template</a>,
+              which was adapted from the <a href="https://nerfies.github.io" target="_blank" rel="noopener">Nerfies</a> project page.
+              This page is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative
+              Commons Attribution-ShareAlike 4.0 International License</a>; the simulator's code is under the MIT license.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
