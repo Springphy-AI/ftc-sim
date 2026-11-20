@@ -49,6 +49,7 @@
         <select id="codeFile" aria-label="File"></select>
         <button class="tb-btn" id="codeNew" title="Add an OpMode to TeamCode">+ New</button>
         <span class="spacer"></span>
+        <button class="tb-btn" id="deployBtn" title="Put this robot's TeamCode on the real robot (Control Hub or phone), as Android Studio's Run does">⇪ Deploy</button>
         <button class="tb-btn" id="codeSave" title="Save the file to the robot project (Ctrl+S). The simulator rebuilds this robot.">Save</button>
         <button class="code-run" id="codeRun" title="Stop this robot's OpMode, save, rebuild, then INIT and START the OpMode in this file, or the one selected in the Driver Station (Ctrl+Enter)">▶ Save &amp; run</button>
         <button class="ghost code-close" id="codeClose" title="Close the editor" aria-label="Close the editor">×</button>
@@ -64,6 +65,18 @@
       </form>
       <div class="code-info" id="codeInfo"></div>
       <div class="code-editor" id="codeEditor"></div>
+      <div class="deploy" id="deployPanel" hidden>
+        <div class="deploy-bar">
+          <select id="deployTarget" aria-label="Robot to deploy to"></select>
+          <button class="tb-btn" id="deployRefresh" title="Look for robots again (USB, or ADB over Wi-Fi)" aria-label="Look for robots again">↻</button>
+          <button class="tb-btn" id="deployConnect" title="Connect to a Control Hub over its Wi-Fi (ADB at 192.168.43.1:5555). Join the robot's Wi-Fi network first.">Control Hub Wi-Fi</button>
+          <span class="spacer"></span>
+          <button class="code-run" id="deployGo">⇪ Deploy</button>
+          <button class="ghost" id="deployCancel" hidden>Cancel</button>
+        </div>
+        <div class="deploy-msg" id="deployMsg" role="status"></div>
+        <pre class="deploy-log" id="deployLog" hidden></pre>
+      </div>
       <div class="code-status" id="codeStatus" role="status"></div>
     </section>
     <div class="code-resizer" id="codeResizer" role="separator" aria-orientation="vertical" aria-label="Resize the editor" hidden></div>

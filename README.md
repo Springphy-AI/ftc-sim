@@ -85,8 +85,10 @@ second clone of the official one.
   a robot's OpMode is running, its rebuild waits until it stops; the other robots keep going.
 - **Separate hardware.** `--robot2` gives robot 2 its own robot file. The device names in each
   project must match its robot's file.
-- **Deploying.** Each project deploys to its own real robot as usual. The simulator writes to a
-  project only when you save a file in its code editor.
+- **Deploying.** Each project deploys to its own real robot: with your usual tools, or from the
+  simulator's code editor, which builds the project of the robot shown and installs it on the
+  robot you pick ([Editing and deploying in the simulator](#editing-and-deploying-in-the-simulator)).
+  The simulator writes to a project only when you save a file in its code editor.
 - **Editing.** The code editor shows the TeamCode of the robot you clicked. Two robots that run
   the same folder share its files, so saving there rebuilds both; give a robot its own folder with
   `--project2` to edit its code apart.
@@ -222,10 +224,9 @@ for `season.json` come from there.
   runs.
 - Never import `ftcsim.*` in TeamCode. Those are simulator internals that don't exist on the robot,
   and the simulator refuses to build a file that uses them.
-- Deploy to the robot with your usual tools. The simulator writes to your project only when you
-  save a file in its code editor (below).
+- Deploy to the robot with your usual tools, or from the simulator (below).
 
-### Editing in the simulator
+### Editing and deploying in the simulator
 
 Click **</> Code** in the top bar to edit TeamCode beside the field, without another editor open.
 
@@ -245,6 +246,26 @@ Click **</> Code** in the top bar to edit TeamCode beside the field, without ano
   opened it, an unchanged copy reloads by itself; with changes of your own, saving asks whether to
   keep yours or load the file from disk. A file deleted on disk while it has unsaved changes stays
   in the list: saving offers to make it again with your text, or to discard your changes.
+
+**⇪ Deploy** puts the code on the real robot, as Android Studio's Run button does:
+
+1. Connect the computer to the robot: a Control Hub by USB-C, or join the Control Hub's Wi-Fi and
+   click *Control Hub Wi-Fi* (ADB at 192.168.43.1:5555); a Robot Controller phone by USB with USB
+   debugging on.
+2. Pick the robot in the list (*↻* looks again) and click **⇪ Deploy**. The simulator saves the
+   open file, runs your project's own Gradle wrapper (`gradlew :TeamCode:installDebug`) to build
+   the Robot Controller app with your TeamCode and install it on that robot, and starts the app
+   again. Gradle's output appears below; *Cancel* stops the build.
+3. Without a robot, *No robot: only check that it builds* runs the real Android build
+   (`assembleDebug`) to check that the code builds for the robot.
+
+Deploying needs what Android Studio needs: the Android SDK (Android Studio installs it; the
+simulator finds it from the project's `local.properties`, `ANDROID_HOME`, or its usual folder) and
+its `adb`. Gradle runs on the JDK Android Studio builds with, its own bundled one when it is
+installed (else `JAVA_HOME`, else the simulator's); the log's first line names it. The first build of a project downloads
+Gradle, the Android build tools and the SDK platform it needs, as in Android Studio. With several
+robots, each one deploys its own project to the robot picked for it, one at a time. The bundled
+examples aren't a robot project and can't be deployed.
 
 The simulator only answers its own page on this computer (`localhost`): another web site open in
 your browser can't read or change your code, start a build, or watch and drive the robots.
@@ -324,8 +345,8 @@ start spot it drives somewhere else.
   puts it back at its start and restages the game pieces.
 - **Camera**: while a `VisionPortal` streams, its live view, with the processors' overlays (tag
   outlines, axes, ids), like the Robot Controller's camera preview.
-- **</> Code**: the robot's TeamCode in an editor beside the field, with *Save & run*
-  ([Editing in the simulator](#editing-in-the-simulator)).
+- **</> Code**: the robot's TeamCode in an editor beside the field, with *Save & run* and *Deploy*
+  ([Editing and deploying in the simulator](#editing-and-deploying-in-the-simulator)).
 
 ## Vision: VisionPortal and AprilTags
 
@@ -669,7 +690,7 @@ Station page loads.
 |---|---|
 | `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision, RobotCore math), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
 | `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64 and Linux x64 so far), with the script that builds it |
-| `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files, web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
+| `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files and deploy (`ftcsim.deploy`), web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
 | `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |

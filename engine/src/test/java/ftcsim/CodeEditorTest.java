@@ -155,7 +155,7 @@ class CodeEditorTest {
             assertEquals(403, http.send(HttpRequest.newBuilder(URI.create(base + "/code/0/files")).header("X-Ftcsim-Code", "1")
                     .header("Origin", "http://attacker.example").build(), HttpResponse.BodyHandlers.ofString()).statusCode());
 
-            // The WebSocket (robot state, builds with their errors): another site's page
+            // The WebSocket (robot state, builds with their errors, deploy logs): another site's page
             // is turned away; the simulator's own page is welcome.
             assertEquals(0, webSocketMessages(http, port, "http://attacker.example"));
             assertTrue(webSocketMessages(http, port, "http://localhost:" + port) > 0);

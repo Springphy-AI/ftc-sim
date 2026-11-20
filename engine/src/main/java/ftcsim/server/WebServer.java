@@ -8,6 +8,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -32,6 +35,7 @@ import io.javalin.websocket.WsContext;
 
 import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
+import ftcsim.deploy.RobotDeploy;
 import ftcsim.hal.CameraPreviews;
 import ftcsim.runner.TeamCodeFiles;
 import ftcsim.sim.SimRobot;
@@ -83,6 +87,8 @@ public final class WebServer {
 
     private final Simulator sim;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    private final RobotDeploy deployer = new RobotDeploy();
+    private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
     private Javalin app;
 
     public WebServer(Simulator sim) {
@@ -112,6 +118,10 @@ public final class WebServer {
             config.routes.get("/code/{robot}/files", this::codeFiles);
             config.routes.get("/code/{robot}/file", this::codeRead);
             config.routes.put("/code/{robot}/file", this::codeWrite);
+            config.routes.get("/deploy/{robot}/devices", this::deployDevices);
+            config.routes.post("/deploy/{robot}/connect", this::deployConnect);
+            config.routes.post("/deploy/{robot}/start", this::deployStart);
+            config.routes.post("/deploy/{robot}/cancel", this::deployCancel);
             config.routes.ws("/ws", ws -> {
                 ws.onConnect(ctx -> {
                     // Browsers let any web site open a WebSocket to localhost: only the simulator's own
@@ -368,6 +378,114 @@ public final class WebServer {
         } catch (RuntimeException e) {
             ctx.status(400).result("Expected {\"root\", \"path\", \"text\", \"base\"}");
         }
+    }
+
+    // ---- deploying a robot's project to the real robot ----------------------------------------------
+
+    /** The project a robot runs, for deploying: from its TeamCode folder (the first writable one). */
+    private static RobotDeploy.Tools deployTools(SimRobot r) {
+        Path teamCode = r.files().roots().stream().filter(x -> !x.readOnly()).map(TeamCodeFiles.Root::dir).findFirst().orElse(null);
+        return RobotDeploy.tools(teamCode);
+    }
+
+    /** @param adbSaid what adb answered to a connect, or null */
+    private void sendDeployInfo(Context ctx, SimRobot r, String adbSaid) {
+        RobotDeploy.Tools tools = deployTools(r);
+        List<RobotDeploy.Device> devices = List.of();
+        String deviceProblem = null;
+        if (tools.adb() != null) {
+            try {
+                devices = RobotDeploy.devices(tools.adb());
+            } catch (IOException e) {
+                deviceProblem = "adb didn't answer: " + e.getMessage();
+            }
+        }
+        Map<String, Object> info = RobotDeploy.describe(tools, devices, deviceProblem, deployer.busyRobot());
+        if (adbSaid != null) info.put("adb", adbSaid);
+        ctx.header("Cache-Control", "no-store");
+        ctx.contentType("application/json").result(GSON.toJson(info));
+    }
+
+    /** The robot's project, the Android SDK, and the robots ADB sees. */
+    private void deployDevices(Context ctx) {
+        SimRobot r = codeRobot(ctx);
+        if (r != null) sendDeployInfo(ctx, r, null);
+    }
+
+    /** {@code {"address"}}: ADB connects to a robot over Wi-Fi (a Control Hub by default); answers as /devices, plus what adb said. */
+    private void deployConnect(Context ctx) {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        RobotDeploy.Tools tools = deployTools(r);
+        if (tools.adb() == null) {
+            ctx.status(409).result(tools.problem() != null ? tools.problem() : "No adb found");
+            return;
+        }
+        String address = RobotDeploy.CONTROL_HUB;
+        try {
+            JsonObject body = JsonParser.parseString(ctx.body()).getAsJsonObject();
+            if (body.has("address") && !body.get("address").isJsonNull()) address = body.get("address").getAsString().trim();
+        } catch (RuntimeException ignored) {
+            // no body: the Control Hub
+        }
+        if (!address.matches("[A-Za-z0-9.\\-]+(:\\d{1,5})?")) {
+            ctx.status(400).result("Not a robot address: " + address);
+            return;
+        }
+        String said;
+        try {
+            said = RobotDeploy.connect(tools.adb(), address);
+        } catch (IOException e) {
+            said = e.getMessage();
+        }
+        sendDeployInfo(ctx, r, said.replaceAll("[\\r\\n]+", " ").trim());
+    }
+
+    /**
+     * {@code {"serial"}}: builds the robot's project and installs it on that robot (null: only
+     * builds it). Progress comes over the WebSocket as "deploy" messages.
+     */
+    private void deployStart(Context ctx) {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        RobotDeploy.Tools tools = deployTools(r);
+        if (tools.problem() != null) {
+            ctx.status(409).result(tools.problem());
+            return;
+        }
+        String serial = null;
+        try {
+            JsonObject body = JsonParser.parseString(ctx.body()).getAsJsonObject();
+            if (body.has("serial") && !body.get("serial").isJsonNull()) serial = body.get("serial").getAsString();
+        } catch (RuntimeException ignored) {
+            // no body: build only
+        }
+        if (serial != null && !serial.matches("[A-Za-z0-9._:\\-]+")) {
+            ctx.status(400).result("Not a device serial: " + serial);
+            return;
+        }
+        boolean started = deployer.start(r.index, tools, serial, e -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("type", "deploy");
+            m.put("robot", e.robot());
+            m.put("state", e.state());
+            if (e.message() != null) m.put("message", e.message());
+            if (!e.lines().isEmpty()) m.put("lines", e.lines());
+            String json = GSON.toJson(m);
+            for (Client c : clients) c.send(json);
+        });
+        if (!started) {
+            ctx.status(409).result("Robot " + (deployer.busyRobot() + 1) + " is being deployed; wait for it to finish.");
+            return;
+        }
+        ctx.status(202);
+    }
+
+    private void deployCancel(Context ctx) {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        if (deployer.busyRobot() == r.index) deployer.cancel();
+        ctx.status(204);
     }
 
     private static int intParam(String s) {

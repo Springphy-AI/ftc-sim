@@ -228,6 +228,15 @@ table.devices tbody:empty::after { content: "none"; color: var(--faint); font-si
 .code-status.warn { color: var(--amber); }
 .code-status.err { color: #ffb4b6; }
 .code-status button { margin-top: 2px; }
+.deploy { display: flex; flex-direction: column; max-height: 45%; border-top: 1px solid var(--line); background: var(--panel); }
+.deploy-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+.deploy-bar select { min-width: 0; max-width: 50%; font-size: 12px; }
+.deploy-msg { padding: 0 10px 6px; font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.deploy-msg:empty { display: none; }
+.deploy-msg.ok { color: #7be3a8; }
+.deploy-msg.warn { color: var(--amber); }
+.deploy-msg.err { color: #ffb4b6; }
+.deploy-log { flex: 1; min-height: 80px; max-height: 220px; overflow: auto; margin: 0; padding: 6px 10px; font: 11px/1.4 var(--mono); color: var(--muted); background: #101215; border-top: 1px solid var(--line); white-space: pre-wrap; word-break: break-all; }
 .code-resizer { cursor: col-resize; background: var(--line); }
 .code-resizer:hover { background: var(--blue); }
 

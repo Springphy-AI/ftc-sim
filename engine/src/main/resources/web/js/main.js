@@ -6,6 +6,7 @@ import { InputManager } from './input.js';
 import { DriverStation } from './ds.js';
 import { convertIfNeeded } from './cadconvert.js';
 import { CodeEditor } from './code.js';
+import { DeployPanel } from './deploy.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,6 +37,7 @@ const code = new CodeEditor(send, document.querySelector('main.layout'), {
 });
 ds.onSamplesChange(() => code.onSamplesChange());
 ds.onSelect((i, name) => code.showOpMode(i, name));
+const deploy = new DeployPanel(code);
 
 // camera buttons
 for (const b of document.querySelectorAll('[data-cam]')) {
@@ -128,6 +130,7 @@ function showRobot(i) {
   try { if (locked === null) sessionStorage.setItem('ftcsim.robot', String(i)); } catch { /* storage unavailable */ }
   ds.show(i);
   code.setRobot(i);
+  deploy.setRobot(i);
   input.setCurrent(i);
   view.setFocus(i);
   renderRobotInfo();
@@ -303,6 +306,7 @@ function onMessage(msg) {
       ds.setRobots(robots);
       ds.setMulti(robots.length > 1 && locked === null);
       code.setRobots(robots.length);
+      deploy.setRobots(robots.length);
       input.setRobots(robots.length, current, locked === null ? null : current);
       showRobot(current);
       checkCad();
@@ -356,6 +360,9 @@ function onMessage(msg) {
       break;
     case 'log':
       ds.addLog(msg.robot, msg);
+      break;
+    case 'deploy':
+      deploy.onMessage(msg);
       break;
     case 'rumble':
       input.rumble(msg.robot, msg.gamepad, msg.strong, msg.weak, msg.durations);

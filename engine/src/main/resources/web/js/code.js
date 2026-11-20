@@ -16,7 +16,7 @@ const $ = (id) => document.getElementById(id);
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const DEFAULT_PACKAGE_DIR = 'org/firstinspires/ftc/teamcode';
 
-/** Calls the simulator's code endpoints (they need the X-Ftcsim-Code header). */
+/** Calls the simulator's code and deploy endpoints (they need the X-Ftcsim-Code header). */
 export async function api(method, url, body) {
   const res = await fetch(url, {
     method,
