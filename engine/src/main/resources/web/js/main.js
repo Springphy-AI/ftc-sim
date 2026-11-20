@@ -5,6 +5,7 @@ import { FieldView } from './field3d.js';
 import { InputManager } from './input.js';
 import { DriverStation } from './ds.js';
 import { convertIfNeeded } from './cadconvert.js';
+import { CodeEditor } from './code.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -27,6 +28,14 @@ try {
 const view = new FieldView($('scene'));
 const input = new InputManager(send);
 const ds = new DriverStation(send, input);
+// The code editor lists the FTC samples' files only when the Driver Station lists the samples, and
+// shows the file of an OpMode someone picks.
+const code = new CodeEditor(send, document.querySelector('main.layout'), {
+  samplesShown: (i) => ds.showsSamples(i),
+  chosenOpMode: (i) => ds.chosenOpMode(i),
+});
+ds.onSamplesChange(() => code.onSamplesChange());
+ds.onSelect((i, name) => code.showOpMode(i, name));
 
 // camera buttons
 for (const b of document.querySelectorAll('[data-cam]')) {
@@ -118,18 +127,23 @@ function showRobot(i) {
   current = i;
   try { if (locked === null) sessionStorage.setItem('ftcsim.robot', String(i)); } catch { /* storage unavailable */ }
   ds.show(i);
+  code.setRobot(i);
   input.setCurrent(i);
   view.setFocus(i);
-  renderTopBar();
+  renderRobotInfo();
 }
 
-/** The top bar describes the robot whose details are shown: its TeamCode and its robot file. */
-function renderTopBar() {
+/**
+ * The robot whose details are shown: its TeamCode, robot file and "+ From CAD" in the Driver Station
+ * card (with a card per robot, each card shows its own instead), and the buttons that act on it.
+ * The top bar keeps what the whole field shares.
+ */
+function renderRobotInfo() {
   const several = robots.length > 1;
   const r = robots[current];
   if (!r) return;
   const name = `Robot ${current + 1}`;
-  $('project').textContent = (several ? `${name} TeamCode: ` : '') + r.project;
+  $('project').textContent = `${several ? `${name} ` : ''}TeamCode: ${r.project}`;
   $('project').title = `TeamCode: ${r.project}`;
   $('robotPickName').textContent = several ? `${name} file` : 'Robot';
   const sel = $('robotSelect');
@@ -138,13 +152,6 @@ function renderTopBar() {
   sel.title = r.robot.description || r.robot.name;
   placeBtn.textContent = several ? `Place robot ${current + 1}` : 'Place robot';
   $('cadImportBtn').title = `Make ${several ? `robot ${current + 1}` : 'this robot'} from your CAD: pick the STEP file of its assembly, or drop it on the page`;
-  // With a card per robot, each card has its robot file menu and "+ From CAD" instead.
-  const cards = several && locked === null;
-  $('robotPick').hidden = cards;
-  $('cadImportBtn').hidden = cards;
-  // Its TeamCode and battery too: the top bar keeps what the whole field shares.
-  $('project').hidden = cards;
-  $('battery').parentElement.hidden = cards;
   $('resetBtn').title = several
     ? 'Power-cycle every robot, put them back at their start positions and restage the game pieces'
     : 'Power-cycle the robot, put it back at its start position and restage the game pieces';
@@ -282,6 +289,7 @@ function onMessage(msg) {
     case 'hello': {
       if (freshConnection) {
         ds.reset();   // nothing the previous connection said is current any more
+        code.reconnected();
         freshConnection = false;
       }
       robots = msg.robots;
@@ -294,6 +302,7 @@ function onMessage(msg) {
       ds.setRobotFiles(robotFiles);
       ds.setRobots(robots);
       ds.setMulti(robots.length > 1 && locked === null);
+      code.setRobots(robots.length);
       input.setRobots(robots.length, current, locked === null ? null : current);
       showRobot(current);
       checkCad();
@@ -339,9 +348,11 @@ function onMessage(msg) {
       break;
     case 'ds':
       ds.setDs(msg.robot, msg);
+      code.onDs(msg.robot, msg);
       break;
     case 'build':
       ds.setBuild(msg.robot, msg);
+      code.onBuild(msg.robot, msg);
       break;
     case 'log':
       ds.addLog(msg.robot, msg);

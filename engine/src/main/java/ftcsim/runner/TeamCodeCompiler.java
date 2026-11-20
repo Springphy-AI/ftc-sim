@@ -11,12 +11,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -47,11 +49,20 @@ public final class TeamCodeCompiler {
     public record Skipped(String file, String reason) {
     }
 
-    public record Result(boolean ok, String message, ClassLoader loader, List<OpModeInfo> opModes,
-                         List<Skipped> skipped, int compiledFiles, long millis) {
+    /**
+     * A compile error, for the code editor: the file (its root's index in {@link #roots()} and its
+     * path in it), where the error starts and ends (lines from 1, columns from 0 in characters, line
+     * breaks not counted), and javac's message.
+     */
+    public record Problem(int root, String file, int line, int column, int endLine, int endColumn, String message) {
     }
 
-    private static final Pattern SIM_INTERNALS = Pattern.compile("(?m)^\\s*import\\s+(static\\s+)?ftcsim\\.|\\bftcsim\\.hal\\.");
+    public record Result(boolean ok, String message, ClassLoader loader, List<OpModeInfo> opModes,
+                         List<Skipped> skipped, List<Problem> problems, int compiledFiles, long millis) {
+    }
+
+    /** An import of the simulator's internals (group 1) or a use of ftcsim.hal (group 2). */
+    private static final Pattern SIM_INTERNALS = Pattern.compile("(?m)^[ \\t]*(import\\s+(?:static\\s+)?ftcsim\\.)|\\b(ftcsim\\.hal\\.)");
 
     private final List<SourceRoot> roots;
     private final Path workDir;
@@ -72,7 +83,7 @@ public final class TeamCodeCompiler {
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
         if (javac == null) {
             return new Result(false, "No Java compiler available: run the simulator with a JDK (not a JRE).",
-                    null, List.of(), List.of(), 0, 0);
+                    null, List.of(), List.of(), List.of(), 0, 0);
         }
         Map<Path, Boolean> files = new LinkedHashMap<>();   // file -> is sample
         for (SourceRoot root : roots) {
@@ -80,17 +91,24 @@ public final class TeamCodeCompiler {
             try (Stream<Path> s = Files.walk(root.dir())) {
                 s.filter(p -> p.toString().endsWith(".java")).sorted().forEach(p -> files.put(p, root.samples()));
             } catch (IOException e) {
-                return new Result(false, "Could not read " + root.dir() + ": " + e.getMessage(), null, List.of(), List.of(), 0, 0);
+                return new Result(false, "Could not read " + root.dir() + ": " + e.getMessage(), null, List.of(), List.of(), List.of(), 0, 0);
             }
         }
         List<Skipped> skipped = new ArrayList<>();
+        List<Problem> problems = new ArrayList<>();
+        Map<Path, String> texts = new HashMap<>();
         Set<Path> active = new HashSet<>(files.keySet());
         for (Path f : files.keySet()) {
             try {
                 String src = Files.readString(f, StandardCharsets.UTF_8);
-                if (SIM_INTERNALS.matcher(src).find()) {
+                texts.put(f, src);
+                Matcher internals = SIM_INTERNALS.matcher(src);
+                if (internals.find()) {
                     active.remove(f);
-                    skipped.add(new Skipped(display(f), "uses simulator internals (ftcsim.*), which do not exist on the robot"));
+                    String why = "uses simulator internals (ftcsim.*), which do not exist on the robot";
+                    skipped.add(new Skipped(display(f), why));
+                    int g = internals.start(1) >= 0 ? 1 : 2;
+                    problems.add(problem(f, src, internals.start(g), internals.end(g), why));
                 }
             } catch (IOException e) {
                 active.remove(f);
@@ -117,17 +135,18 @@ public final class TeamCodeCompiler {
                     if (d.getKind() != Diagnostic.Kind.ERROR || d.getSource() == null) continue;
                     Path p = Paths.get(d.getSource().toUri());
                     failing.putIfAbsent(p, "line " + d.getLineNumber() + ": " + firstLine(d.getMessage(Locale.US)));
+                    problems.add(problem(p, texts.get(p), d));
                 }
                 if (failing.isEmpty()) {
                     String msg = diags.getDiagnostics().stream().map(d -> d.getMessage(Locale.US)).collect(Collectors.joining("; "));
-                    return new Result(false, "Compilation failed: " + msg, null, List.of(), skipped, 0, System.currentTimeMillis() - t0);
+                    return new Result(false, "Compilation failed: " + msg, null, List.of(), skipped, problems, 0, System.currentTimeMillis() - t0);
                 }
                 for (Map.Entry<Path, String> e : failing.entrySet()) {
                     if (active.remove(e.getKey())) skipped.add(new Skipped(display(e.getKey()), e.getValue()));
                 }
             }
         } catch (IOException e) {
-            return new Result(false, "Compilation failed: " + e.getMessage(), null, List.of(), skipped, 0, System.currentTimeMillis() - t0);
+            return new Result(false, "Compilation failed: " + e.getMessage(), null, List.of(), skipped, problems, 0, System.currentTimeMillis() - t0);
         }
 
         List<OpModeInfo> opModes;
@@ -138,7 +157,7 @@ public final class TeamCodeCompiler {
             for (Path f : active) if (files.get(f)) sampleClasses.add(f.getFileName().toString().replace(".java", ""));
             opModes = scan(out, loader, sampleClasses);
         } catch (IOException e) {
-            return new Result(false, "Could not load compiled classes: " + e.getMessage(), null, List.of(), skipped, 0, 0);
+            return new Result(false, "Could not load compiled classes: " + e.getMessage(), null, List.of(), skipped, problems, 0, 0);
         }
         URLClassLoader previous = lastLoader;
         lastLoader = loader;
@@ -149,7 +168,51 @@ public final class TeamCodeCompiler {
         long millis = System.currentTimeMillis() - t0;
         String msg = String.format(Locale.US, "Built %d file%s in %.1f s%s", active.size(), active.size() == 1 ? "" : "s",
                 millis / 1000.0, skipped.isEmpty() ? "" : String.format(Locale.US, "; %d skipped", skipped.size()));
-        return new Result(true, msg, loader, opModes, skipped, active.size(), millis);
+        return new Result(true, msg, loader, opModes, skipped, problems, active.size(), millis);
+    }
+
+    /** A javac error as a {@link Problem}, its position worked out in the file's own text. */
+    private Problem problem(Path file, String text, Diagnostic<? extends JavaFileObject> d) {
+        String message = d.getMessage(Locale.US);
+        long start = d.getStartPosition(), end = d.getEndPosition();
+        if (text == null || start == Diagnostic.NOPOS) {
+            int line = (int) Math.max(1, d.getLineNumber());
+            return new Problem(rootOf(file), display(file), line, 0, line, 0, message);
+        }
+        if (end == Diagnostic.NOPOS || end < start) end = start;
+        return problem(file, text, (int) start, (int) end, message);
+    }
+
+    private Problem problem(Path file, String text, int start, int end, String message) {
+        int[] from = lineColumn(text, start), to = lineColumn(text, end);
+        return new Problem(rootOf(file), display(file), from[0], from[1], to[0], to[1], message);
+    }
+
+    /** Line (from 1) and column (from 0) of a character offset; "\r\n", "\n" and "\r" end lines. */
+    static int[] lineColumn(String text, int offset) {
+        int line = 1, col = 0;
+        int n = Math.min(Math.max(offset, 0), text.length());
+        for (int i = 0; i < n; i++) {
+            char c = text.charAt(i);
+            if (c == '\n' || (c == '\r' && (i + 1 >= text.length() || text.charAt(i + 1) != '\n'))) {
+                line++;
+                col = 0;
+            } else if (c != '\r') {
+                col++;
+            }
+        }
+        return new int[]{line, col};
+    }
+
+    /** Whether a file is in one of these source folders. */
+    public boolean owns(Path file) {
+        return rootOf(file.toAbsolutePath().normalize()) >= 0;
+    }
+
+    /** The index of the source folder a file is in, or -1. */
+    private int rootOf(Path f) {
+        for (int i = 0; i < roots.size(); i++) if (f.startsWith(roots.get(i).dir())) return i;
+        return -1;
     }
 
     private List<OpModeInfo> scan(Path out, ClassLoader loader, Set<String> sampleClasses) throws IOException {

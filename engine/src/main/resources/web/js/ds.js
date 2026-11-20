@@ -57,12 +57,15 @@ export class DriverStation {
     this.listeners = [];
     this.pickListeners = [];
     this.cadListeners = [];
+    this.selectListeners = [];    // someone picked an OpMode in a menu
+    this.samplesListeners = [];   // whether the shown robot lists the FTC samples may have changed
     this.robotFiles = [];         // robots/*.json, for each card's robot file menu
 
     $('opmodeSelect').addEventListener('change', (e) => {
       // Remember the choice until the simulator confirms it, so an older update can't undo it.
       this.r.pendingSelect = e.target.value;
       this.send({ type: 'select', opmode: e.target.value });
+      for (const fn of this.selectListeners) fn(this.current, e.target.value);
     });
     $('showSamples').addEventListener('change', (e) => { this.r.showSamples = e.target.checked; this.r.samplesTouched = true; this.renderOpModes(); });
     $('mainBtn').addEventListener('click', () => this.mainAction());
@@ -116,6 +119,24 @@ export class DriverStation {
 
   /** Called when a card's "+ From CAD" is clicked: fn(robot). */
   onImportCad(fn) { this.cadListeners.push(fn); }
+
+  /** Called when someone picks an OpMode in a menu (not when the robot changes it): fn(robot, name). */
+  onSelect(fn) { this.selectListeners.push(fn); }
+
+  /** Called when the shown robot's OpMode list is drawn again (FTC samples may have been ticked): fn(). */
+  onSamplesChange(fn) { this.samplesListeners.push(fn); }
+
+  /** Whether robot i lists the FTC samples. */
+  showsSamples(i) { return !!this.robots[i]?.showSamples; }
+
+  /** The OpMode robot i's menu shows, which INIT runs: the robot's choice if listed, else the first listed. */
+  chosenOpMode(i) {
+    const r = this.robots[i];
+    if (!r) return null;
+    const list = this.visibleOpModes(r);
+    if (r.ds.selected && list.some((o) => o.name === r.ds.selected)) return r.ds.selected;
+    return (list.find((o) => o.kind === 'AUTONOMOUS') ?? list.find((o) => o.kind === 'TELEOP'))?.name ?? null;
+  }
 
   /** The robot files a card's menu offers (the hello message's list). */
   setRobotFiles(files) {
@@ -229,6 +250,7 @@ export class DriverStation {
   renderOpModes() {
     const r = this.r;
     $('showSamples').checked = r.showSamples;
+    for (const fn of this.samplesListeners) fn();
     const sel = $('opmodeSelect');
     const list = this.visibleOpModes();
     sel.innerHTML = this.optionsHtml(r);
@@ -367,6 +389,7 @@ export class DriverStation {
         // Remember the choice until the simulator confirms it, so an older update can't undo it.
         this.robots[i].pendingSelect = e.target.value;
         this.sendTo(i, { type: 'select', opmode: e.target.value });
+        for (const fn of this.selectListeners) fn(i, e.target.value);
       });
       row.main.addEventListener('click', () => {
         const st = this.robots[i].ds.state;

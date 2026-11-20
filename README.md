@@ -85,8 +85,11 @@ second clone of the official one.
   a robot's OpMode is running, its rebuild waits until it stops; the other robots keep going.
 - **Separate hardware.** `--robot2` gives robot 2 its own robot file. The device names in each
   project must match its robot's file.
-- **Deploying.** The simulator never writes to either folder, so each project deploys to its own
-  real robot as usual.
+- **Deploying.** Each project deploys to its own real robot as usual. The simulator writes to a
+  project only when you save a file in its code editor.
+- **Editing.** The code editor shows the TeamCode of the robot you clicked. Two robots that run
+  the same folder share its files, so saving there rebuilds both; give a robot its own folder with
+  `--project2` to edit its code apart.
 
 ### Alliance partners and opponents
 
@@ -219,7 +222,32 @@ for `season.json` come from there.
   runs.
 - Never import `ftcsim.*` in TeamCode. Those are simulator internals that don't exist on the robot,
   and the simulator refuses to build a file that uses them.
-- Deploy to the robot with your usual tools. The simulator never writes to your project.
+- Deploy to the robot with your usual tools. The simulator writes to your project only when you
+  save a file in its code editor (below).
+
+### Editing in the simulator
+
+Click **</> Code** in the top bar to edit TeamCode beside the field, without another editor open.
+
+- **The robot's own files.** The editor opens the TeamCode of the robot whose details are shown
+  (with several robots, click its card), starting with the file of the OpMode in its Driver
+  Station menu; choosing another OpMode there opens that one's file. Saving (**Ctrl+S**) writes the
+  file in that robot's project folder, the same file Android Studio builds and deploys, keeping its
+  line endings, and the simulator rebuilds that robot at once. While *FTC samples* is ticked in the
+  Driver Station, the samples' files are listed too, read-only as on the robot.
+- **Compile errors where they are.** After a save, errors are underlined in the file and marked
+  in the margin; point at one to read javac's message.
+- **▶ Save & run** (**Ctrl+Enter**) stops that robot's OpMode, saves, waits for the build, then INITs
+  and STARTs the OpMode in the file (or, for a file without one, the OpMode in the Driver Station's
+  menu). It runs nothing while the file has compile errors.
+- **+ New** adds a LinearOpMode (TeleOp or Autonomous) next to the open file.
+- **Other editors.** If the file was saved elsewhere (Android Studio, VS Code) since the editor
+  opened it, an unchanged copy reloads by itself; with changes of your own, saving asks whether to
+  keep yours or load the file from disk. A file deleted on disk while it has unsaved changes stays
+  in the list: saving offers to make it again with your text, or to discard your changes.
+
+The simulator only answers its own page on this computer (`localhost`): another web site open in
+your browser can't read or change your code, start a build, or watch and drive the robots.
 
 ## Driving
 
@@ -278,6 +306,9 @@ start spot it drives somewhere else.
 
 ## The Driver Station panel
 
+- **The robot**: its TeamCode folder and battery above the OpMode list, its robot file menu and
+  *+ From CAD* below INIT (with several robots, each robot's card has its own). The top bar keeps
+  what the whole field shares.
 - **OpMode list** with Autonomous and TeleOp groups. Tick *FTC samples* to show the FTC SDK samples,
   which are `@Disabled` on a real robot.
 - **INIT / START / STOP** with the same rules as the real app. The optional **30 s auto timer** stops
@@ -293,6 +324,8 @@ start spot it drives somewhere else.
   puts it back at its start and restages the game pieces.
 - **Camera**: while a `VisionPortal` streams, its live view, with the processors' overlays (tag
   outlines, axes, ids), like the Robot Controller's camera preview.
+- **</> Code**: the robot's TeamCode in an editor beside the field, with *Save & run*
+  ([Editing in the simulator](#editing-in-the-simulator)).
 
 ## Vision: VisionPortal and AprilTags
 
@@ -328,8 +361,8 @@ INIT *Concept: AprilTag* and press START.
 
 ## Describing your robot
 
-Robots are JSON files in `robots/`. Choose one with `--robot`, from the top bar, or with several
-robots from a robot's card.
+Robots are JSON files in `robots/`. Choose one with `--robot`, or from the robot file menu under
+INIT in the Driver Station panel (with several robots, on each robot's card).
 **Device names must match your robot configuration on the Driver Station**, because your code
 looks devices up by those names.
 
@@ -376,10 +409,10 @@ servos. Robots without `cad` work as before.
    choose *Export*, then STEP. In Fusion 360, use *File → Export*; in SolidWorks and Inventor,
    *Save As*.
 2. In the simulator, pick the robot file whose devices match your Driver Station configuration
-   from the **Robot** menu. Then click **+ From CAD** in the top bar and choose the STEP file, or
-   drop the file anywhere on the page. With several robots, the robot file menu and
-   **+ From CAD** are on each robot's card in the Robots panel instead, and dropping the file on a
-   card makes that robot.
+   from the **Robot** menu under INIT. Then click **+ From CAD** next to it and choose the STEP
+   file, or drop the file anywhere on the page. With several robots, the robot file menu and
+   **+ From CAD** are on each robot's card in the Robots panel, and dropping the file on a card
+   makes that robot.
 
 That's all. The simulator saves the file as `robots/cad/<name>.step` and writes
 `robots/<name>.json` with the devices and drive of the robot file you had picked, so your TeamCode
@@ -636,7 +669,7 @@ Station page loads.
 |---|---|
 | `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision, RobotCore math), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
 | `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64 and Linux x64 so far), with the script that builds it |
-| `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, web server, browser UI (`src/main/resources/web`) |
+| `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files, web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
 | `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |

@@ -344,6 +344,18 @@ public final class Simulator {
         for (SimRobot r : robots) r.releaseGamepadsAndStop();
     }
 
+    /**
+     * The code editor saved a TeamCode file: every robot whose TeamCode it is rebuilds now (robots
+     * running the same project folder share its files).
+     *
+     * @return robot index → the number of the build request that includes the save
+     */
+    public Map<Integer, Long> sourceSaved(Path file) {
+        Map<Integer, Long> tickets = new LinkedHashMap<>();
+        for (SimRobot r : robots) if (r.ownsSource(file)) tickets.put(r.index, r.rebuildAfterSave());
+        return tickets;
+    }
+
     /** Every robot power-cycled and back at its start, game pieces staged for a new MATCH. */
     private void resetField(SimRobot requester) {
         List<String> busy = robots.stream().filter(r -> !r.isIdle()).map(SimRobot::label).collect(Collectors.toList());

@@ -30,6 +30,18 @@ repositories {
         }
         filter { includeGroup 'npm' }
     }
+    // Scoped npm packages, "@group/name": the dependency's group is the scope without the "@".
+    exclusiveContent {
+        forRepository {
+            ivy {
+                name = 'npmScoped'
+                url = 'https://registry.npmjs.org'
+                patternLayout { artifact '@[organisation]/[module]/-/[module]-[revision].[ext]' }
+                metadataSources { artifact() }
+            }
+        }
+        filter { includeGroup 'codemirror'; includeGroup 'lezer'; includeGroup 'marijn' }
+    }
 }
 
 configurations {
@@ -57,6 +69,60 @@ def unpackOcct = tasks.register('unpackOcct', Sync) {
 }
 sourceSets.main.resources.srcDir(occtWebDir)
 tasks.named('processResources') { dependsOn unpackOcct }
+
+// CodeMirror 6, the Driver Station page's code editor, with its Java mode: every package it needs,
+// pinned. The page loads each package's ES module as published, through its import map (no
+// bundler). "npm" is an unscoped package; any other group is the npm scope ("@codemirror/view").
+def codemirrorPackages = [
+        'npm:codemirror:6.0.2',
+        'codemirror:autocomplete:6.20.4',
+        'codemirror:commands:6.11.1',
+        'codemirror:lang-java:6.0.2',
+        'codemirror:language:6.13.1',
+        'codemirror:lint:6.9.7',
+        'codemirror:search:6.7.2',
+        'codemirror:state:6.7.6',
+        'codemirror:streamparser:6.0.0',
+        'codemirror:view:6.43.15',
+        'lezer:common:1.5.5',
+        'lezer:highlight:1.2.5',
+        'lezer:java:1.1.5',
+        'lezer:lr:1.4.12',
+        'marijn:find-cluster-break:1.0.4',
+        'npm:crelt:1.0.7',
+        'npm:style-mod:4.1.4',
+        'npm:w3c-keyname:2.2.8',
+]
+configurations {
+    codemirror {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+dependencies {
+    codemirrorPackages.each { codemirror "${it}@tgz" }
+}
+def codemirrorWebDir = layout.buildDirectory.dir('generated/codemirror')
+def unpackCodemirror = tasks.register('unpackCodemirror', Sync) {
+    description = 'Puts CodeMirror (the code editor of the Driver Station page) into the web resources.'
+    includeEmptyDirs = false
+    into codemirrorWebDir.map { it.dir('web/vendor/codemirror') }
+    codemirrorPackages.each { coordinates ->
+        def (group, module) = coordinates.split(':')
+        def npmName = group == 'npm' ? module : "@${group}/${module}"
+        def tgz = configurations.codemirror.incoming.artifactView {
+            componentFilter { it instanceof ModuleComponentIdentifier && it.group == group && it.module == module }
+        }.files
+        from({ tarTree(tgz.singleFile) }) {
+            // the module each package.json names, and the license
+            include 'package/dist/index.js', 'package/index.js', 'package/src/style-mod.js', 'package/src/index.js', 'package/LICENSE'
+            eachFile { it.path = "${npmName}/${it.path.substring('package/'.length())}" }
+        }
+    }
+}
+sourceSets.main.resources.srcDir(codemirrorWebDir)
+tasks.named('processResources') { dependsOn unpackCodemirror }
 
 // Season packs: seasons/<id>/ holds the game's season.json and, for what data can't say, Java in
 // package <id>. The Java is compiled into the simulator; the season.json files are read from

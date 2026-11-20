@@ -21,6 +21,10 @@ import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
@@ -29,6 +33,7 @@ import io.javalin.websocket.WsContext;
 import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
 import ftcsim.hal.CameraPreviews;
+import ftcsim.runner.TeamCodeFiles;
 import ftcsim.sim.SimRobot;
 import ftcsim.sim.Simulator;
 
@@ -104,17 +109,28 @@ public final class WebServer {
             config.routes.get("/cad/{robot}/source", this::cadSource);
             config.routes.post("/cad/{robot}/mesh", this::cadMesh);
             config.routes.post("/cad/{robot}/import", this::cadImport);
+            config.routes.get("/code/{robot}/files", this::codeFiles);
+            config.routes.get("/code/{robot}/file", this::codeRead);
+            config.routes.put("/code/{robot}/file", this::codeWrite);
             config.routes.ws("/ws", ws -> {
                 ws.onConnect(ctx -> {
+                    // Browsers let any web site open a WebSocket to localhost: only the simulator's own
+                    // page may watch the robots (and their builds, which quote TeamCode) or drive them.
+                    if (!localPage(ctx.header("Origin"), ctx.header("Host"))) {
+                        ctx.closeSession(1008, "Only the simulator's own page may connect");
+                        return;
+                    }
                     ctx.enableAutomaticPings(5, TimeUnit.SECONDS);
                     Client c = new Client(ctx);
                     clients.add(c);
                     for (String m : sim.welcomeMessages()) c.send(m);
                 });
-                ws.onMessage(ctx -> sim.handle(ctx.message()));
+                ws.onMessage(ctx -> {
+                    if (clients.stream().anyMatch(c -> c.ctx.sessionId().equals(ctx.sessionId()))) sim.handle(ctx.message());
+                });
                 ws.onClose(ctx -> {
-                    clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId()));
-                    if (clients.isEmpty()) sim.onAllClientsDisconnected();
+                    boolean wasClient = clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId()));
+                    if (wasClient && clients.isEmpty()) sim.onAllClientsDisconnected();
                 });
                 ws.onError(ctx -> clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId())));
             });
@@ -213,6 +229,152 @@ public final class WebServer {
             ctx.status(409).result(e.getMessage());
         } catch (IllegalArgumentException e) {
             ctx.status(422).result(e.getMessage());
+        }
+    }
+
+    // ---- the code editor: a robot's TeamCode files ------------------------------------------------
+
+    /**
+     * The code endpoints read and write the robot project, and what they write runs, so only the
+     * simulator's own page may use them. The request must carry X-Ftcsim-Code, which a page on
+     * another site can't send here without the browser asking first (and this server never agrees),
+     * and must be addressed to this computer by name, which stops a site whose own name was
+     * pointed at 127.0.0.1 from passing as the simulator's page.
+     */
+    static boolean fromOwnPage(Context ctx) {
+        return ctx.header("X-Ftcsim-Code") != null && localPage(ctx.header("Origin"), ctx.header("Host"));
+    }
+
+    /**
+     * A request addressed to this computer by name, from a page of this computer (or from no page:
+     * a program, which a web site can't make send it).
+     */
+    static boolean localPage(String origin, String host) {
+        if (!isLocalHost(hostOf(host))) return false;
+        if (origin == null) return true;
+        try {
+            return isLocalHost(java.net.URI.create(origin).getHost());
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /** The host name in a Host header, without the port. */
+    static String hostOf(String host) {
+        if (host == null) return null;
+        if (host.startsWith("[")) {
+            int end = host.indexOf(']');
+            return end < 0 ? host : host.substring(0, end + 1);
+        }
+        int colon = host.indexOf(':');
+        return colon < 0 ? host : host.substring(0, colon);
+    }
+
+    static boolean isLocalHost(String host) {
+        return host != null && (host.equalsIgnoreCase("localhost") || host.equals("127.0.0.1") || host.equals("[::1]"));
+    }
+
+    /** The robot a code request is for, or null after answering 403/404. */
+    private SimRobot codeRobot(Context ctx) {
+        if (!fromOwnPage(ctx)) {
+            ctx.status(403).result("Only the simulator's own page may read and change TeamCode.");
+            return null;
+        }
+        SimRobot r = robotOf(ctx);
+        if (r == null) ctx.status(404).result("No such robot");
+        return r;
+    }
+
+    private static void refused(Context ctx, TeamCodeFiles.Refused e) {
+        JsonObject o = new JsonObject();
+        o.addProperty("error", e.getMessage());
+        if (e.currentHash != null) o.addProperty("hash", e.currentHash);
+        ctx.status(e.status).contentType("application/json").result(o.toString());
+    }
+
+    /** The robot's source folders and every Java file in them. */
+    private void codeFiles(Context ctx) throws IOException {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        TeamCodeFiles files = r.files();
+        JsonObject o = new JsonObject();
+        JsonArray roots = new JsonArray();
+        for (TeamCodeFiles.Root root : files.roots()) {
+            JsonObject j = new JsonObject();
+            j.addProperty("index", root.index());
+            j.addProperty("dir", root.dir().toString());
+            j.addProperty("readOnly", root.readOnly());
+            roots.add(j);
+        }
+        o.add("roots", roots);
+        JsonArray list = new JsonArray();
+        for (TeamCodeFiles.Entry e : files.list()) {
+            JsonObject j = new JsonObject();
+            j.addProperty("root", e.root());
+            j.addProperty("path", e.path());
+            list.add(j);
+        }
+        o.add("files", list);
+        ctx.header("Cache-Control", "no-store");
+        ctx.contentType("application/json").result(o.toString());
+    }
+
+    /** One file: {@code ?root=} its folder's index, {@code ?path=} its path in the folder. */
+    private void codeRead(Context ctx) throws IOException {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        try {
+            TeamCodeFiles.Content c = r.files().read(intParam(ctx.queryParam("root")), ctx.queryParam("path"));
+            JsonObject o = new JsonObject();
+            o.addProperty("text", c.text());
+            o.addProperty("hash", c.hash());
+            o.addProperty("readOnly", c.readOnly());
+            ctx.header("Cache-Control", "no-store");
+            ctx.contentType("application/json").result(o.toString());
+        } catch (TeamCodeFiles.Refused e) {
+            refused(ctx, e);
+        }
+    }
+
+    /**
+     * Saves a file, {@code {"root", "path", "text", "base"}}: base is the hash the editor read (null
+     * for a new file). Every robot running that file rebuilds; the answer has each one's build
+     * request number, {@code {"hash", "builds": {"0": 7}}}.
+     */
+    private void codeWrite(Context ctx) throws IOException {
+        SimRobot r = codeRobot(ctx);
+        if (r == null) return;
+        JsonObject body;
+        try {
+            body = JsonParser.parseString(ctx.body()).getAsJsonObject();
+        } catch (RuntimeException e) {
+            ctx.status(400).result("Expected {\"root\", \"path\", \"text\", \"base\"}");
+            return;
+        }
+        try {
+            if (!body.has("text") || !body.get("text").isJsonPrimitive()) throw new TeamCodeFiles.Refused(400, "No text to save");
+            String base = body.has("base") && !body.get("base").isJsonNull() ? body.get("base").getAsString() : null;
+            int root = body.has("root") ? body.get("root").getAsInt() : -1;
+            String path = body.has("path") ? body.get("path").getAsString() : null;
+            TeamCodeFiles.Saved saved = r.files().write(root, path, body.get("text").getAsString(), base);
+            JsonObject o = new JsonObject();
+            o.addProperty("hash", saved.hash());
+            JsonObject builds = new JsonObject();
+            sim.sourceSaved(saved.file()).forEach((robot, ticket) -> builds.addProperty(String.valueOf(robot), ticket));
+            o.add("builds", builds);
+            ctx.contentType("application/json").result(o.toString());
+        } catch (TeamCodeFiles.Refused e) {
+            refused(ctx, e);
+        } catch (RuntimeException e) {
+            ctx.status(400).result("Expected {\"root\", \"path\", \"text\", \"base\"}");
+        }
+    }
+
+    private static int intParam(String s) {
+        try {
+            return s == null ? -1 : Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 

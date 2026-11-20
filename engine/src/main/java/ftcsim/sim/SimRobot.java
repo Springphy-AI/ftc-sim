@@ -47,6 +47,7 @@ import ftcsim.physics.RobotBody;
 import ftcsim.physics.ServoUnit;
 import ftcsim.runner.OpModeInfo;
 import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.runner.TeamCodeFiles;
 import ftcsim.season.Season;
 import ftcsim.sim.Simulator.DsState;
 
@@ -94,10 +95,17 @@ public final class SimRobot {
 
     // builds
     private final ExecutorService buildExecutor;
+    private final TeamCodeFiles files;
     private volatile TeamCodeCompiler.Result build;
     private volatile boolean building = false;
     private volatile boolean buildPending = false;
-    private String sourceFingerprint;
+    private volatile String sourceFingerprint;
+    /**
+     * Every build request gets the next number; {@link #built} is the newest request a finished
+     * build covers. A page that saved a file waits for the build that includes its save.
+     */
+    private long buildRequests = 0;
+    private volatile long built = 0;
 
     SimRobot(Simulator sim, int index, String alliance, int station, Path robotFile, RobotConfig config,
              TeamCodeCompiler compiler, String projectLabel) {
@@ -107,6 +115,7 @@ public final class SimRobot {
         this.station = station;
         this.robotFile = robotFile;
         this.compiler = compiler;
+        this.files = new TeamCodeFiles(compiler.roots());
         this.projectLabel = projectLabel;
         this.context = new RobotContext(index);
         applyIo(config);
@@ -151,12 +160,20 @@ public final class SimRobot {
 
     // ---- builds ----------------------------------------------------------------------------------
 
-    void requestBuild() {
+    /**
+     * Builds TeamCode now, or when the running OpMode stops.
+     *
+     * @return this request's number: once {@link #buildJson()}'s "built" reaches it, the build
+     * includes every source change made before the call
+     */
+    long requestBuild() {
+        long ticket;
         synchronized (lock) {
+            ticket = ++buildRequests;
             if (state != DsState.IDLE) {
                 buildPending = true;
                 broadcastBuild();
-                return;
+                return ticket;
             }
             buildPending = false;
         }
@@ -166,6 +183,7 @@ public final class SimRobot {
             try {
                 TeamCodeCompiler.Result r = compiler.compile();
                 build = r;
+                built = Math.max(built, ticket);
                 // One println, so robots building at the same time don't interleave their reports.
                 String who = sim.robots().size() > 1 ? label() + " " : "";
                 StringBuilder report = new StringBuilder(who).append("TeamCode: ").append(r.message());
@@ -179,13 +197,35 @@ public final class SimRobot {
                     }
                 }
             } catch (Throwable t) {
-                build = new TeamCodeCompiler.Result(false, "Build crashed: " + t, null, List.of(), List.of(), 0, 0);
+                build = new TeamCodeCompiler.Result(false, "Build crashed: " + t, null, List.of(), List.of(), List.of(), 0, 0);
+                built = Math.max(built, ticket);
             } finally {
                 building = false;
                 broadcastBuild();
                 broadcastDs();
             }
         });
+        return ticket;
+    }
+
+    /** This robot's TeamCode files, for the code editor. */
+    public TeamCodeFiles files() {
+        return files;
+    }
+
+    /** Whether a file is part of this robot's TeamCode (or its FTC samples). */
+    boolean ownsSource(Path file) {
+        return compiler.owns(file);
+    }
+
+    /**
+     * The code editor saved one of this robot's files: rebuild now, without waiting for the
+     * source watcher to notice. Returns the build request's number ({@link #requestBuild()}).
+     */
+    long rebuildAfterSave() {
+        sourceFingerprint = compiler.fingerprint();
+        log("TeamCode saved in the code editor; rebuilding");
+        return requestBuild();
     }
 
     /** Called about once a second by the source watcher; rebuilds when TeamCode changed. */
@@ -430,7 +470,7 @@ public final class SimRobot {
         String start = "Simulator: " + who + " has no device named \"" + device + "\"";
         if (!others.isEmpty()) {
             return new DeviceHint(start + ", but " + String.join(" and ", others) + (others.size() == 1 ? " does" : " do")
-                    + ". Switch to it with the button below or the Robot menu in the top bar (not the OpMode list),"
+                    + ". Switch to it with the button below or the robot file menu under INIT (not the OpMode list),"
                     + " then INIT again.", others.get(0));
         }
         return new DeviceHint(start + ". Add it to robots/" + current
@@ -715,11 +755,13 @@ public final class SimRobot {
         m.put("robot", index);
         m.put("building", building);
         m.put("pending", buildPending);
+        m.put("built", built);
         TeamCodeCompiler.Result b = build;
         if (b != null) {
             m.put("ok", b.ok());
             m.put("message", b.message());
             m.put("skipped", b.skipped());
+            m.put("problems", b.problems());
             m.put("opmodes", b.opModes().stream().map(OpModeInfo::toJson).collect(Collectors.toList()));
         }
         m.put("roots", compiler.roots().stream().map(r -> r.dir().toString()).collect(Collectors.toList()));

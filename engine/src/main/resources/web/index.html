@@ -7,27 +7,66 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='8' width='24' height='16' rx='3' fill='%23e5484d'/%3E%3Ccircle cx='10' cy='26' r='4' fill='%23222'/%3E%3Ccircle cx='22' cy='26' r='4' fill='%23222'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/app.css">
   <script type="importmap">
-    { "imports": { "three": "./vendor/three.module.min.js" } }
+    { "imports": {
+      "three": "./vendor/three.module.min.js",
+      "codemirror": "./vendor/codemirror/codemirror/dist/index.js",
+      "@codemirror/autocomplete": "./vendor/codemirror/@codemirror/autocomplete/dist/index.js",
+      "@codemirror/commands": "./vendor/codemirror/@codemirror/commands/dist/index.js",
+      "@codemirror/lang-java": "./vendor/codemirror/@codemirror/lang-java/dist/index.js",
+      "@codemirror/language": "./vendor/codemirror/@codemirror/language/dist/index.js",
+      "@codemirror/lint": "./vendor/codemirror/@codemirror/lint/dist/index.js",
+      "@codemirror/search": "./vendor/codemirror/@codemirror/search/dist/index.js",
+      "@codemirror/state": "./vendor/codemirror/@codemirror/state/dist/index.js",
+      "@codemirror/streamparser": "./vendor/codemirror/@codemirror/streamparser/dist/index.js",
+      "@codemirror/view": "./vendor/codemirror/@codemirror/view/dist/index.js",
+      "@lezer/common": "./vendor/codemirror/@lezer/common/dist/index.js",
+      "@lezer/highlight": "./vendor/codemirror/@lezer/highlight/dist/index.js",
+      "@lezer/java": "./vendor/codemirror/@lezer/java/dist/index.js",
+      "@lezer/lr": "./vendor/codemirror/@lezer/lr/dist/index.js",
+      "@marijn/find-cluster-break": "./vendor/codemirror/@marijn/find-cluster-break/src/index.js",
+      "crelt": "./vendor/codemirror/crelt/index.js",
+      "style-mod": "./vendor/codemirror/style-mod/src/style-mod.js",
+      "w3c-keyname": "./vendor/codemirror/w3c-keyname/index.js"
+    } }
   </script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo" aria-hidden="true"></span>FTC Simulator <span id="seasonName" style="opacity: 0.65; font-weight: 500"></span></div>
     <div class="conn" id="conn" title="Connection to the simulator"><span class="dot"></span><span id="connText">Connecting…</span></div>
-    <div class="project" id="project" title="TeamCode being simulated"></div>
+    <button class="tb-btn" id="codeBtn" title="Edit this robot's TeamCode here: save, and the simulator rebuilds it">&lt;/&gt; Code</button>
     <div class="spacer"></div>
-    <label class="robotpick" id="robotPick"><span id="robotPickName">Robot</span>
-      <select id="robotSelect" title="Robot description (robots/*.json)"></select>
-    </label>
-    <button class="tb-btn" id="cadImportBtn" title="Make this robot from your CAD: pick the STEP file of its assembly, or drop it on the page">+ From CAD</button>
     <input type="file" id="cadFile" accept=".step,.stp" hidden>
     <div class="stat" id="heldStat" title="Game pieces inside this robot"><span class="k">In robot</span><span id="held">–</span></div>
     <div id="seasonStats" style="display: contents"></div>
-    <div class="stat" title="Battery voltage"><span class="k">Battery</span><span id="battery">–</span></div>
     <div class="stat" title="Simulated time / real time"><span class="k">Real-time</span><span id="rtf">–</span></div>
   </header>
 
   <main class="layout">
+    <section class="code-pane" id="codePane" aria-label="TeamCode editor" hidden>
+      <div class="code-bar">
+        <span class="code-robot" id="codeRobot" hidden></span>
+        <select id="codeFile" aria-label="File"></select>
+        <button class="tb-btn" id="codeNew" title="Add an OpMode to TeamCode">+ New</button>
+        <span class="spacer"></span>
+        <button class="tb-btn" id="codeSave" title="Save the file to the robot project (Ctrl+S). The simulator rebuilds this robot.">Save</button>
+        <button class="code-run" id="codeRun" title="Stop this robot's OpMode, save, rebuild, then INIT and START the OpMode in this file, or the one selected in the Driver Station (Ctrl+Enter)">▶ Save &amp; run</button>
+        <button class="ghost code-close" id="codeClose" title="Close the editor" aria-label="Close the editor">×</button>
+      </div>
+      <form class="code-new" id="codeNewForm" hidden>
+        <input id="codeNewName" placeholder="ClassName" aria-label="Class name" autocomplete="off" spellcheck="false">
+        <select id="codeNewKind" aria-label="Kind">
+          <option value="TeleOp">TeleOp</option>
+          <option value="Autonomous">Autonomous</option>
+        </select>
+        <button type="submit" class="secondary">Create</button>
+        <button type="button" class="ghost" id="codeNewCancel">Cancel</button>
+      </form>
+      <div class="code-info" id="codeInfo"></div>
+      <div class="code-editor" id="codeEditor"></div>
+      <div class="code-status" id="codeStatus" role="status"></div>
+    </section>
+    <div class="code-resizer" id="codeResizer" role="separator" aria-orientation="vertical" aria-label="Resize the editor" hidden></div>
     <section class="viewport" aria-label="3D field view">
       <canvas id="scene"></canvas>
       <div class="hud top-left">
@@ -78,6 +117,11 @@
       </div>
 
       <div class="card opmode-card single-only">
+        <!-- the robot's TeamCode folder and battery, its robot file and "+ From CAD": as on each robot's card with several robots -->
+        <div class="rr-info robot-info">
+          <span class="rr-project" id="project"></span>
+          <span class="rr-battery" id="battery" title="Battery voltage">–</span>
+        </div>
         <div class="row">
           <select id="opmodeSelect" aria-label="OpMode"></select>
           <label class="check" title="Also list the FTC SDK sample OpModes (they are @Disabled on a real robot)">
@@ -94,6 +138,12 @@
           <label class="check" title="Stop Autonomous OpModes after 30 seconds, like the Driver Station timer">
             <input type="checkbox" id="autoTimer" checked> 30 s auto timer
           </label>
+        </div>
+        <div class="row robot-file">
+          <label class="robotpick" id="robotPick"><span id="robotPickName">Robot</span>
+            <select id="robotSelect" title="Robot description (robots/*.json)"></select>
+          </label>
+          <button class="tb-btn" id="cadImportBtn" title="Make this robot from your CAD: pick the STEP file of its assembly, or drop it on the page">+ From CAD</button>
         </div>
       </div>
 
