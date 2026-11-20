@@ -166,9 +166,11 @@
               lens distortion or noise, the tag positions it reports in our tests are within 2 mm of ground truth.
             </p>
             <p>
-              Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads. We
-              describe the models, a test suite that runs on Windows, Linux and macOS, and a planned comparison with a
-              physical robot and field. The code is open source under the MIT license.
+              Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads.
+              They can edit that code in the same page, beside the field, and deploy it from there to the physical robot
+              through their project's own Android build. We describe the models, a test suite that runs on Windows, Linux
+              and macOS, and a planned comparison with a physical robot and field. The code is open source under the MIT
+              license.
             </p>
           </div>
         </div>
@@ -184,7 +186,7 @@
         <div class="column fact"><p class="fact-num">1,083</p><p class="fact-text">public members of 115 SDK 12.0 classes, all found in FIRST's jars</p></div>
         <div class="column fact"><p class="fact-num">41</p><p class="fact-text">of FIRST's sample files, bundled with the simulator, compile unmodified</p></div>
         <div class="column fact"><p class="fact-num">≤&nbsp;2&nbsp;mm</p><p class="fact-text">AprilTag position error on rendered, noise-free frames</p></div>
-        <div class="column fact"><p class="fact-num">91</p><p class="fact-text">tests, run on Windows, Linux and macOS (vision tests skip on macOS)</p></div>
+        <div class="column fact"><p class="fact-num">97</p><p class="fact-text">tests, run on Windows, Linux and macOS (vision tests skip on macOS)</p></div>
       </div>
       <p class="has-text-centered fact-note">The SDK, sample and AprilTag numbers come from the simulator's own tests; the 1&nbsp;ms step is a setting. None has been compared with a physical robot yet; Section 10 of the report plans that comparison.</p>
     </div>
@@ -221,9 +223,10 @@
         <h3 class="title is-4">One physics world, three inputs</h3>
         <p>The simulator is one Java process plus a browser page. The team's own project, a robot file for each robot and the
           season pack of the game being played describe what is simulated. They meet in one rigid-body world stepped every
-          millisecond, which the robots, sensors, webcams and Driver Station all read from or write to.</p>
-        <figure class="ftc-figure"><img src="figures/architecture.svg" alt="System architecture, from the team's project to the browser" loading="lazy">
-          <figcaption>System architecture, from the team's project to the browser.</figcaption></figure>
+          millisecond, which the robots, sensors, webcams and Driver Station all read from or write to. The page's code
+          editor saves the team's files, and deploy builds the same project for the real robot.</p>
+        <figure class="ftc-figure"><img src="figures/architecture.svg" alt="System architecture, from the code editor and the team's project to the browser and the real robot" loading="lazy">
+          <figcaption>System architecture, from the team's project to the browser, and back to the real robot.</figcaption></figure>
       </div>
 
       <div class="feature">
