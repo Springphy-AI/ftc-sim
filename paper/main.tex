@@ -5,7 +5,7 @@
 \documentclass[10pt,twocolumn,letterpaper]{article}
 \usepackage{springphy-report}
 
-\reportdate{2026-11-19}
+\reportdate{2026-11-20}
 \reportlogo{figures/springphy-wordmark.png}
 \reporttitle{Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge}
 \reportshorttitle{Programming the Robot Before It Exists: A Physics Simulator for FIRST Tech Challenge}
@@ -22,7 +22,7 @@ FIRST Tech Challenge (FTC) teams build a new robot for a new game every season, 
 
 Rigid-body physics runs in ODE4j with a 1~ms step, paced to the wall clock; on a desktop computer, four robots and all the game pieces run at 1.7 to 2.0 times real time. We model mecanum wheels with anisotropic contact friction, motors with their datasheet torque–speed curves, and the REV hub's firmware control loops, battery sag and hardware-call timing. The HIVE model is calibrated against the tipping table in FIRST's Event Field Setup Guide and against balls launched by a simulated robot. Webcam frames are rendered in software and passed to FIRST's own AprilTag pipeline; on these frames, which have no lens distortion or noise, the tag positions it reports in our tests are within 2~mm of ground truth.
 
-Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads. We describe the models, a test suite that runs on Windows, Linux and macOS, and a planned comparison with a physical robot and field. The code is open source under the MIT license.
+Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads. They can edit that code in the same page, beside the field, and deploy it from there to the physical robot through their project's own Android build. We describe the models, a test suite that runs on Windows, Linux and macOS, and a planned comparison with a physical robot and field. The code is open source under the MIT license.
 \end{abstract}
 \keywords{FIRST Tech Challenge, robot simulation, rigid-body physics, reality gap, AprilTag, robotics education}
 
@@ -51,8 +51,8 @@ Our contributions are:
 \item Robot models built from a JSON description or imported from CAD (STEP or URDF): mecanum and tank drivetrains, datasheet motor models, mechanisms (intake, flywheel launcher, hood, arms, slides), battery sag, the REV hub's firmware control loops and the timing of hardware calls. Imported mechanisms are rigid bodies on joints, driven by the robot's motors and servos (\cref{sec:robots}).
 \item Sensor and camera simulation: IMU, odometry pods, optical tracking, distance, color and touch sensors, and a software-rendered webcam whose frames go through FIRST's AprilTag pipeline (Sections~\ref{sec:robots}--\ref{sec:vision}).
 \item Matches with up to four robots, and a browser Driver Station that works with real gamepads (\cref{sec:matches}).
-\item Robots driven by teams’ own robot code, compiled unmodified against an SDK whose 115 classes and 1,083 public members all exist in FIRST’s; all 41 of FIRST’s sample files bundled with the simulator compile (\cref{sec:teamcode}).
-\item A test suite of 15 test classes that runs on Windows, Linux and macOS (\cref{sec:verification}), and a protocol, not yet run, for measuring the simulation against a physical robot and field (\cref{sec:evaluation}).
+\item Robots driven by teams’ own robot code, compiled unmodified against an SDK whose 115 classes and 1,083 public members all exist in FIRST’s; all 41 of FIRST’s sample files bundled with the simulator compile. The code can be edited in the page, beside the field, and deployed from there to the physical robot through the project's own build (\cref{sec:teamcode}).
+\item A test suite of 17 test classes that runs on Windows, Linux and macOS (\cref{sec:verification}), and a protocol, not yet run, for measuring the simulation against a physical robot and field (\cref{sec:evaluation}).
 \end{enumerate}
 
 \section{Related Work}\label{sec:related}
@@ -78,26 +78,28 @@ vr\_physics & 3D desktop (JavaFX) & Java OpModes against ``an abridged approxima
 Virtual Robot Simulator (VRS) & Beginner platform & Blocks and OnBot Java; a legacy Android Studio controller project & Not stated & \citep{virtualftc} \\
 FTCSIM & Browser, by pixelpad.io with FIRST Robotics Canada & FTC Blocks or OnBot Java & Not stated & \citep{ftcsim2026} \\
 Team 6448 FTCSimulator & Bridge to Webots & FTC API calls forwarded to Webots & Webots (ODE) & \citep{team6448ftcsimulator} \\
-\textbf{This work} & Desktop engine, browser Driver Station & Unmodified TeamCode, Java 8, SDK 12.0 API verified against FIRST's jars & ODE4j at 1~kHz, hub firmware and bus timing & — \\
+\textbf{This work} & Desktop engine, browser Driver Station & Unmodified TeamCode, Java 8, SDK 12.0 API verified against FIRST's jars; edited in the page or any editor, deployed to the robot from the page & ODE4j at 1~kHz, hub firmware and bus timing & — \\
 \bottomrule
 \end{tabularx}
 \end{table*}
 
 The closest earlier work is vr\_physics \citep{beta8397vrphysics}, which also uses ODE4j. Compared with it, we add the current season's field and game elements, the hub's firmware control loops and hardware-call timing, more sensors, rendered webcams and multi-robot matches. Our SDK is also checked against FIRST's published jars (\cref{sec:teamcode}), where vr\_physics provides ``an abridged approximation of the FTC SDK''. Path visualizers such as MeepMeep \citep{bres2026meepmeep} draw planned trajectories but do not simulate the robot.
 
+\paragraph{Editing and deploying.} VRS and FTCSIM run programs written in Blocks or OnBot Java (\cref{tab:simulators}). On a real robot, OnBot Java is edited in the Robot Controller's own web page and compiled on the robot, while an Android Studio project is built on a computer and installed on the robot with the Android Debug Bridge (ADB) \citep{android2026adb}. FTC Core, a Visual Studio Code extension, builds such a project with its own Gradle wrapper and installs it over ADB from inside that editor \citep{mallen2026ftccore}. Our page edits the files of the team's Android Studio project, so the same files run in the simulator and, through the project's own build, on the robot (\cref{sec:teamcode}).
+
 \section{System Architecture}\label{sec:architecture}
 
-The simulator is a single Java process plus a browser page. At its center is one physics world, stepped every millisecond (“Physics at 1~kHz” in \cref{fig:architecture}). Robots, sensors, cameras and the Driver Station all read from or write to it. Three inputs describe what is simulated: the team's project; a robot file for each robot, which can point at the robot's CAD model; and the season pack of the game being played.
+The simulator is a single Java process plus a browser page. At its center is one physics world, stepped every millisecond (“Physics at 1~kHz” in \cref{fig:architecture}). Robots, sensors, cameras and the Driver Station all read from or write to it. Three inputs describe what is simulated: the team's project; a robot file for each robot, which can point at the robot's CAD model; and the season pack of the game being played. The top row of the figure leads back to the robot: the page's code editor saves the team's files, and deploy builds the same project for the physical robot.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.967\textwidth]{figures/architecture.pdf}
-\caption{\textbf{Every robot, sensor and camera reads from one 1~kHz physics world.}}\label{fig:architecture}
+\caption{\textbf{Every robot, sensor and camera reads from one 1~kHz physics world.} The top row leads back to the robot: the page's code editor saves the team's files, and deploy builds the same project for the real robot.}\label{fig:architecture}
 \end{figure*}
 
 TeamCode is read from the team's own FtcRobotController project \citep{first2026ftcrobotcontroller}. The simulator recompiles it whenever a file is saved and loads it with a separate class loader for each robot \citep{liang1998dynamic}. TeamCode can use only the SDK 12.0 API. Behind that API, FIRST's own classes run unmodified, and stand-in classes forward hardware calls to a simulated hardware layer. That layer exchanges motor torques and sensor readings with the physics engine \citep{smith2004ode,zaschke2026ode4j} every millisecond, except that distance, color and touch sensors are read every 5~ms.
 
-The webcam renderer draws each camera's view from the physics state, and the frames go through the VisionPortal stand-in to FIRST's vision processors. A web server streams the world state to a Three.js \citep{threejs} page, which shows the 3D view and the Driver Station and sends gamepad input back. OpModes run on their own thread, separate from physics, and STOP interrupts them. The simulator never writes to the team's project, so teams deploy to the robot with their usual tools.
+The webcam renderer draws each camera's view from the physics state, and the frames go through the VisionPortal stand-in to FIRST's vision processors. A web server streams the world state to a Three.js \citep{threejs} page, which shows the 3D view and the Driver Station and sends gamepad input back. OpModes run on their own thread, separate from physics, and STOP interrupts them. The simulator writes to the team's project only when a file is saved in its code editor, and its deploy runs the project's own build (\cref{sec:teamcode}); teams who prefer can keep their usual editor and deploy as before.
 
 The engine holds what stays the same from season to season: the field's tiles and perimeter, the physics, the robots, the SDK and the Driver Station. Everything that belongs to one game is in its season pack (\cref{sec:field}), which a command-line option selects; BIOBUZZ is the default.
 
@@ -282,9 +284,9 @@ Up to four robots share one field, two per alliance. Each is a separate Robot Co
 
 \paragraph{Matches.} \emph{INIT all} and \emph{START all} act on every robot at the same moment, so their 30-second autonomous timers stay in step. Starting spots come from the season pack, two per alliance: on BIOBUZZ the blue spots are the red ones rotated 180° about the field center, and on DECODE they are the red ones mirrored. On BIOBUZZ each simulated robot starts with its 4 pre-loaded POLLEN, and the pre-loads of robots that are not simulated go in their alliance's LOADING ZONE, as the manual specifies \citep{first2026biobuzz}.
 
-\paragraph{Driver Station.} The browser page copies the Driver Station app: OpMode lists, INIT/START/STOP with the app's rules, telemetry (with its 250~ms transmission interval and HTML format), device readouts, the robot log and a camera preview. Error messages use the app's wording, for example \emph{User code threw an uncaught exception: IllegalArgumentException - Unable to find a hardware device with name ``left\_drive'' and type DcMotor.} Xbox and PlayStation controllers connect through the browser's Gamepad API, with rumble in Chrome and Edge, and the keyboard works as a fallback. Opening the page with \code{?robot=N} shows and controls only that robot, so each driver can have a separate screen. Each robot's readout shows how many game pieces it holds against the season's limit. With several robots, each robot's card shows its TeamCode folder and battery voltage and has its own robot-file menu and STEP import; a changed robot file takes effect only while that robot's OpMode is stopped. The season sets the human player's buttons and keys and the counts in the top bar.
+\paragraph{Driver Station.} The browser page copies the Driver Station app: OpMode lists, INIT/START/STOP with the app's rules, telemetry (with its 250~ms transmission interval and HTML format), device readouts, the robot log and a camera preview. Error messages use the app's wording, for example \emph{User code threw an uncaught exception: IllegalArgumentException - Unable to find a hardware device with name ``left\_drive'' and type DcMotor.} Xbox and PlayStation controllers connect through the browser's Gamepad API, with rumble in Chrome and Edge, and the keyboard works as a fallback. Opening the page with \code{?robot=N} shows and controls only that robot, so each driver can have a separate screen. Each robot's readout shows how many game pieces it holds against the season's limit. Each robot's card shows its TeamCode folder and battery voltage and has its own robot-file menu and STEP import (with one robot, the Driver Station's own card has them); a changed robot file takes effect only while that robot's OpMode is stopped. The season sets the human player's buttons and keys and the counts in the top bar, which holds only what the whole field shares. The page also opens a code editor beside the field (\cref{sec:teamcode}).
 
-\section{Running Team Code}\label{sec:teamcode}
+\section{Running, Editing and Deploying Team Code}\label{sec:teamcode}
 
 The simulated robots run the team's own TeamCode, so the simulator has to offer the same programming interface as the robot. Its SDK has no class or public member that FIRST's SDK 12.0 lacks. A test checks this for 115 stand-in classes and their 1,083 public members, so code that compiles against the simulator also compiles for the robot, unless it uses a protected member, which the test does not compare yet.
 
@@ -313,11 +315,19 @@ We replace FIRST's code only where it touches Android or hardware. For example, 
 
 \paragraph{Compilation.} TeamCode is compiled in-process with the Java compiler API at the Java 8 language level, which Android Studio uses for FTC projects. A file that uses something the simulator does not model, such as EasyOpenCV cameras or Android UI, is skipped and listed with the reason, and the rest of the project still runs. All 41 official FTC sample files bundled with the simulator compile without changes or skips, and the test suite runs several of them end to end (\cref{sec:verification}).
 
+\paragraph{Editing in the page.} Teams can keep their usual editor, or edit TeamCode in the browser page beside the field, in a CodeMirror 6 editor \citep{haverbeke2026codemirror}. The editor shows the files of the robot whose Driver Station is on screen and opens the file of the OpMode selected there; FIRST's samples are listed, read-only as on the robot, only while the Driver Station lists them. A save writes the file in the team's project, the file Android Studio builds, and keeps its line endings. It is refused if the file has changed on disk since the editor read it, so an edit made at the same time in Android Studio or VS Code is not silently overwritten. A save rebuilds every robot that runs the project at once, without waiting for the file watcher. The compiler reports each javac error with its start and end in the file, and the editor underlines it there. On the example projects (3 to 5 files) a rebuild after a save took 0.1 to 0.2~s, and the first build after starting 1.3 to 1.7~s, on the computer of the speed measurements in \cref{sec:robots}.
+
+\paragraph{Save and run.} One button stops the robot's OpMode, saves the file, waits for the build that contains the save, and then runs INIT and START on the OpMode the file declares, or on the one selected in the Driver Station if the file declares none. Each build request is numbered, and a save is answered with the number of the build that will contain it, so the page never starts code from a build that began before the save. A file with compile errors is not run, and its errors stay underlined.
+
+\paragraph{Deploying to the robot.} The page also puts the code on the physical robot, as Android Studio's Run button does. The simulator runs the project's own Gradle wrapper with the task \code{:TeamCode:\allowbreak{}installDebug}, which builds the Robot Controller app with the team's code and installs it over ADB \citep{android2026adb} on the Control Hub or phone picked from the devices ADB sees, by USB or over the Control Hub's Wi-Fi; then it starts the app again. Gradle runs on the JDK Android Studio would use, its own bundled JDK when it is installed, and the Android SDK is found where Android Studio puts it. Without a robot, \code{assembleDebug} only builds the app. That check is worth having on its own: the simulator compiles TeamCode against the SDK's API, while the robot's build also runs Android's tools and the project's own dependencies. With several robots, each one deploys its own project to the device picked for it, one at a time. Deploy has been tested only against stand-ins for Gradle and ADB, not yet on a Control Hub (\cref{sec:verification}).
+
+\paragraph{Only the simulator's own page.} Code saved in the editor runs, in the simulator and on the robot, so the server serves files, builds and deploys only to its own page. Any web page open in the same browser can send requests to a server on \code{localhost}. These requests must carry a header of the simulator's own, which a page from another site cannot add without the browser first asking the server, which never agrees; and they must address the server as \code{localhost} or 127.0.0.1, which stops a site whose domain name has been made to resolve to 127.0.0.1, an attack known as DNS rebinding \citep{jackson2007protecting}. Browsers let any site open a WebSocket, so the server also refuses WebSocket connections from other sites' pages: the state it streams includes compile errors that quote the team's code, and the messages it accepts drive the robots.
+
 \section{Verification}\label{sec:verification}
 
-The simulator has 15 JUnit test classes with 91 tests, and they run on Windows, Ubuntu and macOS for every push to the main branch and every pull request. \Cref{tab:tests} lists what each one checks and what it takes to pass. Two more classes hold the measurements in this report, the HIVE launch sweep (\cref{sec:field}) and E6 (\cref{sec:robots}); \code{gradlew :engine:experiment} runs them on demand, since they take minutes and their timings depend on the computer.
+The simulator has 17 JUnit test classes with 97 tests, and they run on Windows, Ubuntu and macOS for every push to the main branch and every pull request. \Cref{tab:tests} lists what each one checks and what it takes to pass. Two more classes hold the measurements in this report, the HIVE launch sweep (\cref{sec:field}) and E6 (\cref{sec:robots}); \code{gradlew :engine:experiment} runs them on demand, since they take minutes and their timings depend on the computer.
 
-\begin{table*}[t]
+\begin{table*}[tp]
 \centering
 \small
 \caption{The test classes, what each checks, and what it takes to pass.}\label{tab:tests}
@@ -335,6 +345,8 @@ The simulator has 15 JUnit test classes with 91 tests, and they run on Windows, 
 \code{CadImportTest} & STEP and URDF examples read into links, joints, wheels and masses; detection from part names; when a STEP file is converted again; CAD robots drive, lift, aim, take in and launch & Detected model matches the spelled-out one within 2~mm; forward 1.2–1.95~m/s with under 1.5° of turn; hood within 1° of its servo; ball leaves within 2~cm of the flywheel rim \\
 \code{AprilTagVisionTest}, \code{CameraStreamTest}, \code{VisionPortalBehaviorTest} & Tag poses from rendered frames, live view, portal lifecycle & Each tag position within 5~mm per axis and orientation within 3° (observed: within 2~mm and 1.7°); cluster origin within 10~mm \\
 \code{SampleOpModesTest} & Official samples compile and run & All 41 compile; \code{RobotAutoDriveByGyro\_\allowbreak{}Linear} ends within 0.15~m and 3° of its start \\
+\code{CodeEditorTest} & Saving from the page, error positions, other sites, two robots on one project & Line endings kept; stale saves, paths outside the source folders, non-Java files and samples refused; errors at their exact line and column; other sites refused; both robots rebuild \\
+\code{DeployTest} & Deploy, with stand-ins for Gradle and ADB & \code{installDebug} for the picked device, then the app restarts, also under a path with a space; \code{assembleDebug} without one; a failed build says why \\
 \code{ExampleOpModesTest} & Bundled BIOBUZZ examples: TeleOp, Pinpoint and Parking autonomous & Pinpoint auto returns within 1.5~in (38~mm) and 3° of its start (observed: 0.56~in); Parking ends within 5~cm and 3° of its target, back half in the red LOADING ZONE (observed in two runs: 4 and 10~mm, under 0.5°); from the near end, middle and far end of the shooting range, the first 2 shots land in the CELL and the 3rd tips the HIVE \\
 \bottomrule
 \end{tabularx}
@@ -342,7 +354,7 @@ The simulator has 15 JUnit test classes with 91 tests, and they run on Windows, 
 
 \paragraph{Continuous integration.} One GitHub Actions workflow per operating system runs the suite on JDK 21, plus JDK 17 on Ubuntu. Each run also starts the simulator through its launch script against a robot project whose path contains spaces. It then checks that TeamCode compiles with no files skipped and that the Driver Station page loads.
 
-\paragraph{Gaps.} The AprilTag native library is built only for Windows and Linux on x86-64, so the vision tests are skipped on macOS and ARM machines. All of these tests compare the simulator with itself or with FIRST's documents, not with a physical robot. \cref{sec:evaluation} plans that comparison.
+\paragraph{Gaps.} The AprilTag native library is built only for Windows and Linux on x86-64, so the vision tests are skipped on macOS and ARM machines. \code{DeployTest} replaces Gradle and ADB with scripts that print what they are asked to do, so it checks the simulator's side of a deploy but not an Android build or a Control Hub. All of these tests compare the simulator with itself or with FIRST's documents, not with a physical robot. \cref{sec:evaluation} plans that comparison.
 
 \section{Evaluation Plan}\label{sec:evaluation}
 
@@ -384,6 +396,8 @@ The main limitation is that the simulator has not yet been compared with a physi
 
 \paragraph{Platforms.} The physics, compiler and Driver Station are pure Java or browser code, and STEP files are converted in the browser by WebAssembly. The AprilTag native library is built only for Windows and Linux on x86-64, so AprilTag detection does not work on macOS or ARM yet. OpenCV's own libraries do exist for macOS and for Linux on ARM, but vision has not been tested there.
 
+\paragraph{Editing and deploying.} Deploy has not yet installed code on a Control Hub or phone; it has run only against stand-ins for Gradle and ADB. The page's editor highlights Java and shows compile errors, but it offers no code completion or navigation; teams who want those keep using Android Studio or VS Code, which work on the same files.
+
 \paragraph{Future work.}\mbox{}
 
 \begin{enumerate}
@@ -394,11 +408,11 @@ The main limitation is that the simulator has not yet been compared with a physi
 
 \section{Conclusion}\label{sec:conclusion}
 
-We have described a simulator for the 2026–27 FTC game, BIOBUZZ. Up to four robots, each running its team's own code, play on a physics model of the field with HIVES calibrated to FIRST's setup guide. Robots can be imported from their CAD models, and the game lives in a season pack, so the previous season's game, DECODE, runs on the same engine. The models of motors, hub firmware, hardware-call timing, sensors and webcams are meant to let teams tune control code before they have a working robot. Our tests check these models against FIRST's documents and against the simulator's own invariants. Every one of the SDK's 115 classes and 1,083 public members exists in FIRST's, all 41 of FIRST's sample files bundled with the simulator compile unmodified, the HIVE meets every “Necessary” row of FIRST's table, and simulated AprilTag positions are within 2~mm of ground truth. How well they match a physical robot is still unknown, and \cref{sec:evaluation} describes how we plan to measure it.
+We have described a simulator for the 2026–27 FTC game, BIOBUZZ. Up to four robots, each running its team's own code, play on a physics model of the field with HIVES calibrated to FIRST's setup guide. Teams can edit that code beside the field, and the same page deploys it to the robot through the project's own build, though so far only against stand-ins for the build tools. Robots can be imported from their CAD models, and the game lives in a season pack, so the previous season's game, DECODE, runs on the same engine. The models of motors, hub firmware, hardware-call timing, sensors and webcams are meant to let teams tune control code before they have a working robot. Our tests check these models against FIRST's documents and against the simulator's own invariants. Every one of the SDK's 115 classes and 1,083 public members exists in FIRST's, all 41 of FIRST's sample files bundled with the simulator compile unmodified, the HIVE meets every “Necessary” row of FIRST's table, and simulated AprilTag positions are within 2~mm of ground truth. How well they match a physical robot is still unknown, and \cref{sec:evaluation} describes how we plan to measure it.
 
 \section*{Availability}
 
-The source code is at \href{https://github.com/leelening/ftc-sim}{github.com/leelening/ftc-sim} under the MIT license. It needs JDK 17 or newer; continuous integration runs JDK 21 on Windows, Ubuntu and macOS and JDK 17 on Ubuntu. AprilTag detection needs Windows or Linux on x86-64. \code{gradlew test} runs the test suite of \cref{sec:verification}, and \code{-{}-{}season decode} starts the simulator on the DECODE field. This draft describes the main branch as of commit 362a7a0 (2026-11-19); no release has been tagged yet.
+The source code is at \href{https://github.com/leelening/ftc-sim}{github.com/leelening/ftc-sim} under the MIT license. It needs JDK 17 or newer; continuous integration runs JDK 21 on Windows, Ubuntu and macOS and JDK 17 on Ubuntu. AprilTag detection needs Windows or Linux on x86-64. \code{gradlew test} runs the test suite of \cref{sec:verification}, and \code{-{}-{}season decode} starts the simulator on the DECODE field. This draft describes the main branch as of commit 2a29ee2 (2026-11-20); no release has been tagged yet.
 
 \bibliographystyle{unsrtnat}
 \bibliography{ftcsim-references}
