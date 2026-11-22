@@ -92,15 +92,10 @@ export class DeployPanel {
 
   async start() {
     const i = this.robot;
-    // What's in the editor is what goes on the robot: save it first.
-    const dirty = this.code.dirtyFiles();
-    if (dirty.length) {
-      if (dirty.length === 1 && dirty[0] === this.code.buffer) {
-        if (!(await this.code.save())) return;
-      } else {
-        this.note(`Save your changes first: ${dirty.map((b) => b.path.split('/').pop()).join(', ')}`, 'err');
-        return;
-      }
+    // What's in the editor is what goes on the robot: every changed file is saved first, as
+    // Android Studio does.
+    for (const b of this.code.dirtyFiles()) {
+      if (!b.readOnly && !(await this.code.save({}, b))) return;   // not saved: the editor said why
     }
     const serial = $('deployTarget').value || null;
     const r = this.run(i);

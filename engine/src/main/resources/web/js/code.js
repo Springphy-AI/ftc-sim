@@ -683,6 +683,15 @@ export class CodeEditor {
         if (st() !== 'STOPPING') this.send({ type: 'stop', robot: i });
         await this.waitFor(() => st() === 'IDLE', 20000, 'the OpMode to stop');
       }
+      // As Android Studio's Run: the project's other changed files are saved too, so the run builds
+      // what the editor shows, not an older helper class on disk.
+      if (b) {
+        this.stash();
+        for (const other of [...b.project.buffers.values()]) {
+          if (other === b || other.readOnly || !(this.isDirty(other) || other.saving)) continue;
+          if (!(await this.save({}, other))) return;   // not saved: save() said why
+        }
+      }
       // Wait for the build that has the latest save in it (this one's, or one still on its way).
       if (b && !b.readOnly && (this.isDirty(b) || b.saving)) {
         const builds = await this.save({}, b);
