@@ -76,7 +76,9 @@ public final class SimDcMotorController implements DcMotorControllerEx {
     public void setMotorPower(int motor, double power) {
         MotorPort p = port(motor);
         if (!writable()) return;
-        power = Range.clip(power, -1.0, 1.0);
+        // The hub takes whole counts, which a NaN power becomes 0 of (here it stopped the motor's
+        // control loop, or let it coast).
+        power = Double.isNaN(power) ? 0 : Range.clip(power, -1.0, 1.0);
         if (p.velocityCommand || p.power != power) {
             Latency.command();
             p.enabled = true;   // as the hub's controller: a new power enables a disabled motor
@@ -185,7 +187,9 @@ public final class SimDcMotorController implements DcMotorControllerEx {
             setMotorMode(motor, DcMotor.RunMode.RUN_USING_ENCODER);
         }
         Latency.command();
-        p.velocityTarget = ticksPerSecond;
+        // As the hub's controller: whole ticks per second within a 16-bit command (NaN becomes 0,
+        // where here it used to stall the velocity loop for good).
+        p.velocityTarget = Math.max(-32767, Math.min(32767, Math.round(ticksPerSecond)));
         p.velocityCommand = true;
         p.enabled = true;
     }

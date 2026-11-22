@@ -48,6 +48,16 @@ class HubMotorControllerTest {
     }
 
     @Test
+    void aNotANumberCommandIsZeroAndTheNextOneWorks() {
+        launcher.setVelocity(Double.NaN);   // a division by zero in TeamCode, for one loop
+        assertEquals(0, launcher.getVelocity(), 1e-9);
+        run(0.02);
+        assertHoldsVelocity("a NaN velocity");   // the velocity loop wasn't left stuck on NaN
+        launcher.setPower(Double.NaN);
+        assertEquals(0.0, launcher.getPower(), "the hub sends 0 for a NaN power");
+    }
+
+    @Test
     void settingTheModeTheMotorHasDoesNothing() {
         MotorPort port = rig.motors.get("launcher").port;
         launcher.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
