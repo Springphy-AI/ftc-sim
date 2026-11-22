@@ -1,6 +1,7 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.OutputStream;
 import java.net.Socket;
@@ -124,6 +125,38 @@ class WebServerTest {
         for (String host : List.of("localhost", "127.0.0.1", "[::1]")) {
             assertEquals(200, rawStatus("GET / HTTP/1.1\r\nHost: " + host + ":" + port + "\r\n"), host);
         }
+    }
+
+    /** How many messages a WebSocket opened by a page of {@code origin} gets in its first second. */
+    private int messagesTo(String origin) throws Exception {
+        java.util.concurrent.atomic.AtomicInteger n = new java.util.concurrent.atomic.AtomicInteger();
+        WebSocket ws;
+        try {
+            ws = HttpClient.newHttpClient().newWebSocketBuilder().header("Origin", origin)
+                    .buildAsync(URI.create("ws://localhost:" + port + "/ws"), new WebSocket.Listener() {
+                        @Override
+                        public java.util.concurrent.CompletionStage<?> onText(WebSocket w, CharSequence data, boolean last) {
+                            if (last) n.incrementAndGet();
+                            w.request(1);
+                            return null;
+                        }
+                    }).get(5, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.ExecutionException e) {
+            return 0;   // refused outright
+        }
+        Thread.sleep(1000);
+        ws.abort();
+        return n.get();
+    }
+
+    @Test
+    void onlyTheSimulatorsOwnPageMayOpenTheWebSocket() throws Exception {
+        assertTrue(messagesTo("http://localhost:" + port) > 0, "the simulator's own page");
+        assertTrue(messagesTo("http://127.0.0.1:" + port) > 0, "the same page by address");
+        // Another program's page on this computer (a development server on port 3000, say) is
+        // another site: it may not watch or drive the robots.
+        assertEquals(0, messagesTo("http://localhost:" + (port == 3000 ? 3001 : 3000)));
+        assertEquals(0, messagesTo("http://localhost"));
     }
 
     @Test

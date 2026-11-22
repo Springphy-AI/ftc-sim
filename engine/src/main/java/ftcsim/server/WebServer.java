@@ -271,16 +271,31 @@ public final class WebServer {
     }
 
     /**
-     * A request addressed to this computer by name, from a page of this computer (or from no page:
-     * a program, which a web site can't make send it).
+     * A request addressed to this computer by name, from the simulator's own page (or from no page:
+     * a program, which a web site can't make send it). Its page is of this computer and of the port
+     * the request came to: a page another local server serves, on another port, is another site.
      */
     static boolean localPage(String origin, String host) {
         if (!isLocalHost(hostOf(host))) return false;
         if (origin == null) return true;
         try {
-            return isLocalHost(java.net.URI.create(origin).getHost());
+            java.net.URI o = java.net.URI.create(origin);
+            int originPort = o.getPort() >= 0 ? o.getPort() : "https".equals(o.getScheme()) ? 443 : 80;
+            return isLocalHost(o.getHost()) && originPort == portOf(host);
         } catch (IllegalArgumentException e) {
             return false;
+        }
+    }
+
+    /** The port in a Host header (80 when it names none). */
+    static int portOf(String host) {
+        int bracket = host.lastIndexOf(']');
+        int colon = host.lastIndexOf(':');
+        if (colon <= bracket) return 80;
+        try {
+            return Integer.parseInt(host.substring(colon + 1));
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
