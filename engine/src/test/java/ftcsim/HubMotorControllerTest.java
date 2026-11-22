@@ -1,6 +1,7 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -44,6 +45,19 @@ class HubMotorControllerTest {
         MotorPort port = rig.motors.get("launcher").port;
         return hardwareMap.getAll(LynxModule.class).stream()
                 .filter(m -> m.getModuleAddress() == port.hub.moduleAddress).findFirst().orElseThrow();
+    }
+
+    @Test
+    void aNewPowerOrModeEnablesADisabledMotor() {
+        launcher.setPower(0.2);
+        launcher.setMotorDisable();
+        launcher.setPower(0.2);   // the same power: nothing is sent, the motor stays off
+        assertFalse(launcher.isMotorEnabled());
+        launcher.setPower(0.5);
+        assertTrue(launcher.isMotorEnabled(), "a new power enables the motor, as on the hub");
+        launcher.setMotorDisable();
+        launcher.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        assertTrue(launcher.isMotorEnabled(), "a mode change sends the power again, which enables it");
     }
 
     @Test

@@ -60,8 +60,9 @@ public final class SimDcMotorController implements DcMotorControllerEx {
             p.mode = mode;
             p.modeGeneration++;
             // The hub's controller sends the last power again after a mode change, so a velocity
-            // command doesn't carry over into the new mode.
+            // command doesn't carry over into the new mode, and the motor is enabled.
             p.velocityCommand = false;
+            p.enabled = true;
         }
     }
 
@@ -77,6 +78,7 @@ public final class SimDcMotorController implements DcMotorControllerEx {
         power = Range.clip(power, -1.0, 1.0);
         if (p.velocityCommand || p.power != power) {
             Latency.command();
+            p.enabled = true;   // as the hub's controller: a new power enables a disabled motor
         }
         p.velocityCommand = false;
         p.power = power;
