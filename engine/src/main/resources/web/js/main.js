@@ -293,6 +293,7 @@ function onMessage(msg) {
       if (freshConnection) {
         ds.reset();   // nothing the previous connection said is current any more
         code.reconnected();
+        if (deploy.isOpen) deploy.refresh();   // a deploy's end may have come while disconnected
         freshConnection = false;
       }
       robots = msg.robots;

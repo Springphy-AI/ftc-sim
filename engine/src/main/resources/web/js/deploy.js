@@ -48,8 +48,10 @@ export class DeployPanel {
   async refresh() {
     const i = this.robot;
     this.note('Looking for robots…');
+    const asked = performance.now();
     try {
       const info = await api('GET', `/deploy/${i}/devices`);
+      this.reconcile(info.busyRobot, asked);
       if (i !== this.robot) return;
       this.info = info;
       this.note('');
@@ -114,6 +116,26 @@ export class DeployPanel {
       r.message = e.message;
       r.at = performance.now();
       this.render();
+    }
+  }
+
+  /**
+   * What the simulator says is deploying (as of {@code asked}) wins over what this page saw: a page
+   * opened during a deploy saw no start, and one that lost its connection may have missed the end.
+   */
+  reconcile(busyRobot, asked) {
+    for (const [robot, r] of this.runs) {
+      if (r.state === 'running' && robot !== busyRobot && r.at < asked) {
+        r.state = 'unknown';
+        r.message = 'This page missed how the deploy ended (it lost its connection to the simulator). Check the robot, or deploy again.';
+        r.at = performance.now();
+      }
+    }
+    if (busyRobot >= 0 && this.run(busyRobot).state !== 'running') {
+      const r = this.run(busyRobot);
+      r.state = 'running';
+      r.message = 'Deploying (it started before this page connected)…';
+      r.at = performance.now();
     }
   }
 
@@ -187,7 +209,7 @@ export class DeployPanel {
     else if (otherBusy) { text = `Robot ${this.info.busyRobot + 1} is being deployed; one at a time.`; kind = 'warn'; }
     else if (r.state !== 'idle' && (running || !note || r.at > note.at)) {
       text = r.message;
-      kind = { ok: 'ok', failed: 'err', canceled: 'warn' }[r.state] ?? '';
+      kind = { ok: 'ok', failed: 'err', canceled: 'warn', unknown: 'warn' }[r.state] ?? '';
     } else if (note) { text = note.text; kind = note.kind; }
     else if (this.info) text = `Builds ${this.info.project} with its own Gradle wrapper, as Android Studio does.`;
     msg.textContent = text;
