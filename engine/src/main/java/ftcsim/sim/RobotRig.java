@@ -134,6 +134,7 @@ public final class RobotRig {
         MotorModels.Spec driveSpec = MotorModels.get(config.drive.motor);
         for (Map.Entry<String, com.google.gson.JsonElement> e : config.drive.motors.entrySet()) {
             String name = e.getValue().getAsString();
+            if (motors.containsKey(name)) continue;   // one motor for several wheels: one port
             MotorPort port = alloc.motor(name, driveSpec);
             motors.put(name, new MotorUnit(port, driveSpec));
         }

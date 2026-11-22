@@ -427,6 +427,12 @@ public final class RobotBody {
                        String side, double gear, Wheel... driven) {
         if (name == null) return;
         MotorUnit mu = motorByName.apply(name);
+        for (DriveMotor dm : driveMotors) {
+            if (dm.motor == mu) {   // one motor chained to several wheels (a 2-motor tank4): it drives them together
+                java.util.Collections.addAll(dm.wheels, driven);
+                return;
+            }
+        }
         int sign = side.equals(config.drive.mirroredSide()) ? -1 : 1;
         DriveMotor dm = new DriveMotor(mu, sign, gear);
         for (Wheel w : driven) dm.wheels.add(w);

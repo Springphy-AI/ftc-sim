@@ -150,6 +150,64 @@ class DrivetrainPhysicsTest {
         assertEquals(-1.8288 + 0.2286, y, 0.02, "chassis front should rest against the wall");
     }
 
+    /** robots/mecanum.json as a tank4, with {@code motors} as its drive's motors. */
+    private static Path tank4(Path dir, String name, String motors) throws Exception {
+        String json = Files.readString(Path.of("robots/mecanum.json"));
+        String mecanumMotors = json.substring(json.indexOf("\"motors\": {"), json.indexOf('}', json.indexOf("\"motors\": {")) + 1);
+        Path file = dir.resolve(name + ".json");
+        Files.writeString(file, json.replace("\"type\": \"mecanum\"", "\"type\": \"tank4\"").replace(mecanumMotors, "\"motors\": " + motors));
+        return file;
+    }
+
+    /** Full power forward for {@code seconds} from x = -0.9: the forward speed reached, the left encoder's count and the distance. */
+    private static double[] driveForward(RobotRig rig, String leftMotor, String rightMotor, double seconds) {
+        port(rig, leftMotor).power = -1;   // the left side is mirrored
+        port(rig, rightMotor).power = 1;
+        run(rig, seconds);
+        return new double[]{rig.body.bodyVelocity()[0], port(rig, leftMotor).encoderPosition(), rig.body.position().get0() + 0.9};
+    }
+
+    @Test
+    void aTwoMotorTank4DrivesEachSidesWheelsWithOneMotor(@TempDir Path dir) throws Exception {
+        RobotRig four = rig(RobotConfig.load(tank4(dir, "four", """
+                {"front_left": "front_left_drive", "back_left": "back_left_drive", "front_right": "front_right_drive", "back_right": "back_right_drive"}""")));
+        four.place(-0.9, -1.0, 0);
+        port(four, "back_left_drive").power = -1;
+        port(four, "back_right_drive").power = 1;
+        double[] fourEarly = driveForward(four, "front_left_drive", "front_right_drive", 0.25);
+        // Two motors, each chained to both wheels of its side.
+        RobotRig two = rig(RobotConfig.load(tank4(dir, "two", """
+                {"front_left": "left_drive", "back_left": "left_drive", "front_right": "right_drive", "back_right": "right_drive"}""")));
+        two.place(-0.9, -1.0, 0);
+        double[] twoEarly = driveForward(two, "left_drive", "right_drive", 0.25);
+        System.out.printf("tank4 after 0.25 s: 4 motors %.3f m/s %d ticks, 2 motors %.3f m/s %d ticks%n",
+                fourEarly[0], (long) fourEarly[1], twoEarly[0], (long) twoEarly[1]);
+        // Half the motors, half the torque: slower off the line (each wheel got a whole motor's torque before).
+        assertTrue(twoEarly[0] < 0.85 * fourEarly[0], "2 motors accelerate slower than 4");
+        // One encoder per motor, counting its wheels' turns once (it counted them twice before):
+        // 537.7 ticks per turn of a 104 mm wheel is 1646 ticks per meter rolled.
+        double ticksPerMeter = 537.7 / (Math.PI * 0.104);
+        for (double[] r : new double[][]{fourEarly, twoEarly}) {
+            assertEquals(r[2] * ticksPerMeter, -r[1], 0.25 * r[2] * ticksPerMeter, "the encoder follows the wheels");
+        }
+        // One port per motor: the intake moves up to the Control Hub's free ports.
+        assertTrue(two.motors.get("intake").port.hub == port(two, "left_drive").hub, "intake on the Control Hub");
+    }
+
+    @Test
+    void driveTypesAndTheirMotorsAreChecked(@TempDir Path dir) throws Exception {
+        String json = Files.readString(Path.of("robots/mecanum.json"));
+        Path skid = dir.resolve("skid.json");
+        Files.writeString(skid, json.replace("\"type\": \"mecanum\"", "\"type\": \"skid\""));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(skid)).getMessage().contains("drive.type"));
+        Path missing = dir.resolve("missing.json");
+        Files.writeString(missing, json.replace("\"back_right\": \"back_right_drive\"", "\"back_rite\": \"back_right_drive\""));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(missing)).getMessage().contains("back_right is missing"));
+        Path crossed = tank4(dir, "crossed", """
+                {"front_left": "drive", "back_left": "drive", "front_right": "drive", "back_right": "right_drive"}""");
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(crossed)).getMessage().contains("both sides"));
+    }
+
     @Test
     void rightMirroredRobotDrivesForwardWhenItsCodeReversesTheRightSide(@TempDir Path dir) throws Exception {
         RobotRig rig = rig(RobotConfig.load(mecanumWith(dir, "\"mirrored_side\": \"right\",")));

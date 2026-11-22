@@ -126,7 +126,11 @@ public final class RobotConfig {
     }
 
     public static final class Drive {
-        /** "mecanum", "tank" (2 motors, traction rear + omni front) or "tank4" (4 motors). */
+        /**
+         * "mecanum" (4 motors), "tank" (6 wheels, drop center, one motor per side) or "tank4" (4
+         * wheels, traction rear and omni front, a motor per wheel; give two wheels the same motor
+         * for a 2-motor robot whose wheels are chained).
+         */
         public String type = "mecanum";
         public double wheelDiameterMm = 104;
         public double wheelbaseM = 0.336;
@@ -294,10 +298,40 @@ public final class RobotConfig {
             throw new IllegalArgumentException("drive.mirrored_side must be \"left\", \"right\" or \"none\", not \""
                     + drive.mirroredSide + "\"");
         }
+        validateDriveMotors();
         MotorModels.get(drive.motor);
         for (Device d : devices) {
             if ("motor".equals(d.type)) MotorModels.get(d.motor);
             if ("webcam".equals(d.type)) ftcsim.vision.WebcamModels.get(d.model);
+        }
+    }
+
+    /** Which motor key drives which side, for each drive type. */
+    private static final java.util.Map<String, java.util.Map<String, String>> DRIVE_SIDES = java.util.Map.of(
+            "mecanum", java.util.Map.of("front_left", "left", "back_left", "left", "front_right", "right", "back_right", "right"),
+            "tank4", java.util.Map.of("front_left", "left", "back_left", "left", "front_right", "right", "back_right", "right"),
+            "tank", java.util.Map.of("left", "left", "right", "right"));
+
+    /**
+     * A known drive type, a motor for each of its keys, and no motor on both sides (one motor may
+     * drive several wheels of one side: a 2-motor tank4).
+     */
+    private void validateDriveMotors() {
+        java.util.Map<String, String> sides = DRIVE_SIDES.get(drive.type);
+        if (sides == null) {
+            throw new IllegalArgumentException("drive.type must be \"mecanum\", \"tank\" or \"tank4\", not \"" + drive.type + "\"");
+        }
+        java.util.Map<String, String> sideOfMotor = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, String> e : new java.util.TreeMap<>(sides).entrySet()) {
+            String motor = driveMotorName(e.getKey());
+            if (motor == null || motor.isBlank()) {
+                throw new IllegalArgumentException("drive.motors needs " + String.join(", ", new java.util.TreeSet<>(sides.keySet()))
+                        + " for a " + drive.type + " drive (" + e.getKey() + " is missing)");
+            }
+            String other = sideOfMotor.put(motor, e.getValue());
+            if (other != null && !other.equals(e.getValue())) {
+                throw new IllegalArgumentException("drive.motors: \"" + motor + "\" drives wheels on both sides");
+            }
         }
     }
 
