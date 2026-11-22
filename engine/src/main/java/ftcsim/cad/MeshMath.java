@@ -24,17 +24,23 @@ public final class MeshMath {
     }
 
     /**
-     * Mass properties of a closed mesh by summing signed tetrahedra to the origin. A part whose
-     * triangles face inward counts as positive anyway; open meshes give approximate results.
+     * Mass properties of a closed mesh by summing signed tetrahedra to the middle of its bounds. A
+     * part whose triangles face inward counts as positive anyway. For a closed mesh the point the
+     * tetrahedra meet at doesn't matter; for an open one (a sheet, a face the tessellation left out)
+     * the result is approximate, but taken about its own middle it is about its own size: about the
+     * origin, a sheet far from it came out as a large solid.
      */
     public static MassProps massProps(MeshPart part) {
         float[] p = part.positions();
         int[] ix = part.indices();
+        double[] bounds = part.bounds();
+        double[] mid = MeshPart.isEmpty(bounds) ? new double[3]
+                : new double[]{(bounds[0] + bounds[3]) / 2, (bounds[1] + bounds[4]) / 2, (bounds[2] + bounds[5]) / 2};
         double vol = 0;
         double[] first = new double[3];
-        double[] second = new double[9];   // ∫ x x^T dV
+        double[] second = new double[9];   // ∫ x x^T dV, x from mid
         for (int t = 0; t < ix.length; t += 3) {
-            double[] a = vertex(p, ix[t]), b = vertex(p, ix[t + 1]), c = vertex(p, ix[t + 2]);
+            double[] a = Geom3.sub(vertex(p, ix[t]), mid), b = Geom3.sub(vertex(p, ix[t + 1]), mid), c = Geom3.sub(vertex(p, ix[t + 2]), mid);
             double v = Geom3.dot(a, Geom3.cross(b, c)) / 6.0;
             vol += v;
             for (int k = 0; k < 3; k++) first[k] += v * (a[k] + b[k] + c[k]) / 4.0;
@@ -55,7 +61,7 @@ public final class MeshMath {
         // Covariance about the center of mass, then inertia = tr(C) I - C.
         double[] cov = new double[9];
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) cov[i * 3 + j] = second[i * 3 + j] - vol * com[i] * com[j];
-        return new MassProps(vol, com, covarianceToInertia(cov));
+        return new MassProps(vol, Geom3.add(com, mid), covarianceToInertia(cov));
     }
 
     /** Combines bodies (each with its own mass) into one: total mass, center of mass, inertia about it. */

@@ -468,6 +468,20 @@ class CadImportTest {
         assertArrayEquals(expected, in, 1e-6);
     }
 
+    @Test
+    void anOpenSheetWeighsNothingWhereverItIs() {
+        // A 0.2 m square sheet (a decal, a surface body), 0.3 m up: open, it encloses nothing.
+        float[] sheet = {-0.1f, -0.1f, 0.3f, 0.1f, -0.1f, 0.3f, 0.1f, 0.1f, 0.3f, -0.1f, 0.1f, 0.3f};
+        MeshMath.MassProps mp = MeshMath.massProps(new MeshPart("decal", 0, sheet, new int[]{0, 1, 2, 0, 2, 3}));
+        assertEquals(0, mp.volume(), 1e-9, "summed to the origin it came out as 0.004 m^3, half the example robot");
+        // An open box (its top left out by the tessellation) still weighs about what it encloses, wherever it is.
+        MeshFiles.Mesh box = MeshFiles.box(0.2, 0.2, 0.2);
+        int[] open = java.util.Arrays.copyOf(box.indices(), box.indices().length - 6);
+        double near = MeshMath.massProps(new MeshPart("open box", 0, box.positions(), open)).volume();
+        float[] far = Geom3.apply(Geom3.transform(Geom3.IDENTITY, new double[]{1.5, -2, 0.8}), box.positions());
+        assertEquals(near, MeshMath.massProps(new MeshPart("open box", 0, far, open)).volume(), 1e-7);
+    }
+
     // ---- simulating -------------------------------------------------------------------------------
 
     @Test
