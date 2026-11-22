@@ -170,6 +170,10 @@ class SampleOpModesTest {
         }
         assertTrue(messages.stream().anyMatch(m -> m.contains("Tag Cluster (RED SCORING)")),
                 "FIRST's ConceptAprilTag sample reports the red HIVE's tag cluster");
+        // The camera thread draws a frame's live view after it has processed it, and the first draw
+        // takes a while: the frame's detections can reach the Driver Station before the view is up.
+        deadline = System.currentTimeMillis() + 5000;
+        while (ftcsim.hal.CameraPreviews.of(0).isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(20);
         assertTrue(!ftcsim.hal.CameraPreviews.of(0).isEmpty(), "the portal shows a live view");
         sim.handle("{\"type\":\"stop\"}");
         waitFor(sim, Simulator.DsState.IDLE, 5000);
