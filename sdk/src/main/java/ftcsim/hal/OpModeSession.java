@@ -1,7 +1,6 @@
 package ftcsim.hal;
 
 import java.util.List;
-import java.util.concurrent.locks.LockSupport;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
@@ -212,14 +211,15 @@ public final class OpModeSession {
         try {
             opMode.resetRuntime();
             opMode.internalPreInit();
-            if (linear) {
-                try {
+            try {
+                if (linear) {
                     ((LinearOpMode) opMode).runOpMode();
-                } catch (InterruptedException e) {
-                    // Normal: the OpMode was stopped while sleeping or waiting.
+                } else {
+                    runIterative();
                 }
-            } else {
-                runIterative();
+            } catch (InterruptedException e) {
+                // Normal, as in the SDK's OpModeInternal ("OpMode received an InterruptedException;
+                // shutting down"): the OpMode was stopped while sleeping or waiting.
             }
         } catch (OpModeManagerImpl.ForceStopException e) {
             // terminateOpModeNow(): nothing more of the OpMode runs.
@@ -238,7 +238,7 @@ public final class OpModeSession {
         }
     }
 
-    private void runIterative() {
+    private void runIterative() throws InterruptedException {
         opMode.time = opMode.getRuntime();
         opMode.init();
         opMode.internalPostInitLoop();
@@ -265,12 +265,14 @@ public final class OpModeSession {
     }
 
     /**
-     * As the SDK's OpMode.internalRunOpMode, which sleeps a millisecond after every init_loop() and
-     * loop(): a loop takes its own time plus 1 ms. (Parked rather than Thread.sleep: an iterative
-     * OpMode stops on its flag, not on an interrupt.)
+     * As the SDK's OpMode.internalRunOpMode, Thread.sleep(1) after every init_loop() and loop(): a
+     * loop takes its own time plus about a millisecond. Not LockSupport.parkNanos: on Windows the JVM
+     * raises the system timer to 1 ms resolution for a sleep but not for a park, which waits for the
+     * next tick of the default 15.6 ms timer, so a 3 ms loop() ran about every 15 ms (65 times a
+     * second, where the robot loops about 250 times).
      */
-    private static void sleepAfterLoop() {
-        LockSupport.parkNanos(1000000L);
+    private static void sleepAfterLoop() throws InterruptedException {
+        Thread.sleep(1);
     }
 
     private static boolean causedByInterrupt(Throwable t) {

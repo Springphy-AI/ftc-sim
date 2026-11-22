@@ -228,8 +228,9 @@ class OpModeLifecycleTest {
 
                 @TeleOp(name = "Three ms loop")
                 public class ThreeMsLoop extends OpMode {
+                    private final long[] starts = new long[201];
                     private int loops;
-                    private long first;
+                    private String median;
 
                     @Override
                     public void init() {
@@ -238,9 +239,17 @@ class OpModeLifecycleTest {
                     @Override
                     public void loop() {
                         long t = System.nanoTime();
-                        if (loops == 0) first = t;
+                        if (loops < starts.length) {
+                            starts[loops++] = t;
+                            if (loops == starts.length) {
+                                double[] ms = new double[starts.length - 1];
+                                for (int i = 0; i < ms.length; i++) ms[i] = (starts[i + 1] - starts[i]) / 1e6;
+                                java.util.Arrays.sort(ms);
+                                median = String.valueOf(ms[ms.length / 2]);
+                            }
+                        }
                         while (System.nanoTime() - t < 3_000_000L) { }   // 3 ms of work
-                        if (++loops == 201) telemetry.addData("ms per loop", (t - first) / 200 / 1e6);
+                        if (median != null) telemetry.addData("median ms per loop", median);
                     }
                 }
                 """);
@@ -248,13 +257,15 @@ class OpModeLifecycleTest {
         sim.handle("{\"type\":\"init\",\"opmode\":\"Three ms loop\"}");
         waitFor(Simulator.DsState.INIT);
         sim.handle("{\"type\":\"start\"}");
-        long deadline = System.currentTimeMillis() + 5000;
+        long deadline = System.currentTimeMillis() + 10000;
         String line;
-        while ((line = lastTelemetry("ms per loop")) == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        while ((line = lastTelemetry("median ms per loop")) == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
         assertTrue(line != null, "the OpMode reports its loop time");
         double ms = Double.parseDouble(line.substring(line.indexOf(':') + 1).trim());
-        // As the SDK, which sleeps 1 ms after every loop(): about 4 ms, not the 3 ms of the work alone.
-        assertTrue(ms > 3.8 && ms < 10, "ms per loop: " + ms);
+        // As the SDK, which sleeps 1 ms after every loop(): about 4 ms, not the 3 ms of the work alone,
+        // nor the 15 ms of a sleep that waits for Windows' default timer tick. The median, so that a
+        // busy CI machine pausing the OpMode now and then doesn't count (a mean measured 10.9 ms there).
+        assertTrue(ms > 3.8 && ms < 10, "median ms per loop: " + ms);
         sim.handle("{\"type\":\"stop\"}");
     }
 
