@@ -222,6 +222,43 @@ class OpModeLifecycleTest {
     }
 
     @Test
+    void anIterativeLoopTakesItsOwnTimePlusAMillisecond() throws Exception {
+        write("ThreeMsLoop", """
+                import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+
+                @TeleOp(name = "Three ms loop")
+                public class ThreeMsLoop extends OpMode {
+                    private int loops;
+                    private long first;
+
+                    @Override
+                    public void init() {
+                    }
+
+                    @Override
+                    public void loop() {
+                        long t = System.nanoTime();
+                        if (loops == 0) first = t;
+                        while (System.nanoTime() - t < 3_000_000L) { }   // 3 ms of work
+                        if (++loops == 201) telemetry.addData("ms per loop", (t - first) / 200 / 1e6);
+                    }
+                }
+                """);
+        start();
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Three ms loop\"}");
+        waitFor(Simulator.DsState.INIT);
+        sim.handle("{\"type\":\"start\"}");
+        long deadline = System.currentTimeMillis() + 5000;
+        String line;
+        while ((line = lastTelemetry("ms per loop")) == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        assertTrue(line != null, "the OpMode reports its loop time");
+        double ms = Double.parseDouble(line.substring(line.indexOf(':') + 1).trim());
+        // As the SDK, which sleeps 1 ms after every loop(): about 4 ms, not the 3 ms of the work alone.
+        assertTrue(ms > 3.8 && ms < 10, "ms per loop: " + ms);
+        sim.handle("{\"type\":\"stop\"}");
+    }
+
+    @Test
     void theRunningOpModeCanStillStopItself() throws Exception {
         write("StopsItself", """
                 @TeleOp(name = "Stops itself")

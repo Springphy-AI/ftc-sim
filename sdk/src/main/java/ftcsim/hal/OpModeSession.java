@@ -243,22 +243,20 @@ public final class OpModeSession {
         opMode.init();
         opMode.internalPostInitLoop();
         while (!startRequested && !stopRequested) {
-            long t0 = System.nanoTime();
             opMode.time = opMode.getRuntime();
             opMode.init_loop();
             opMode.internalPostInitLoop();
-            pace(t0);
+            sleepAfterLoop();
         }
         if (!stopRequested) {
             opMode.time = opMode.getRuntime();
             opMode.start();
             opMode.internalPostLoop();
             while (!stopRequested) {
-                long t0 = System.nanoTime();
                 opMode.time = opMode.getRuntime();
                 opMode.loop();
                 opMode.internalPostLoop();
-                pace(t0);
+                sleepAfterLoop();
             }
         }
         opMode.time = opMode.getRuntime();
@@ -266,14 +264,13 @@ public final class OpModeSession {
         opMode.internalPostLoop();
     }
 
-    /** The Robot Controller's event loop never spins faster than about once a millisecond. */
-    private static void pace(long loopStartNanos) {
-        long elapsed = System.nanoTime() - loopStartNanos;
-        if (elapsed < 1000000L) {
-            LockSupport.parkNanos(1000000L - elapsed);
-        } else {
-            Thread.yield();
-        }
+    /**
+     * As the SDK's OpMode.internalRunOpMode, which sleeps a millisecond after every init_loop() and
+     * loop(): a loop takes its own time plus 1 ms. (Parked rather than Thread.sleep: an iterative
+     * OpMode stops on its flag, not on an interrupt.)
+     */
+    private static void sleepAfterLoop() {
+        LockSupport.parkNanos(1000000L);
     }
 
     private static boolean causedByInterrupt(Throwable t) {
