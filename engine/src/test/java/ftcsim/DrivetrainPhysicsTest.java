@@ -1,11 +1,14 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 
@@ -21,7 +24,20 @@ class DrivetrainPhysicsTest {
     private static final double DT = 0.001;
 
     private static RobotRig mecanum() throws Exception {
-        RobotConfig cfg = RobotConfig.load(Path.of("robots/mecanum.json"));
+        return rig(RobotConfig.load(Path.of("robots/mecanum.json")));
+    }
+
+    /** robots/mecanum.json with its drive's {@code "mirrored_side": "left"} line replaced. */
+    private static Path mecanumWith(Path dir, String mirroredLine) throws Exception {
+        String json = Files.readString(Path.of("robots/mecanum.json"));
+        String left = "\"mirrored_side\": \"left\",";
+        assertTrue(json.contains(left), "robots/mecanum.json should say which side is mirrored");
+        Path file = dir.resolve("robot.json");
+        Files.writeString(file, json.replace(left, mirroredLine));
+        return file;
+    }
+
+    private static RobotRig rig(RobotConfig cfg) throws Exception {
         RobotRig rig = new RobotRig(cfg, new PhysicsWorld(FieldModel.loadBiobuzz()));
         Latency.commandNanos = 0;
         Latency.i2cNanos = 0;
@@ -132,5 +148,48 @@ class DrivetrainPhysicsTest {
         double y = rig.body.position().get1();
         System.out.printf("wall: y=%.3f m (wall face at -1.829, robot half-length 0.229)%n", y);
         assertEquals(-1.8288 + 0.2286, y, 0.02, "chassis front should rest against the wall");
+    }
+
+    @Test
+    void rightMirroredRobotDrivesForwardWhenItsCodeReversesTheRightSide(@TempDir Path dir) throws Exception {
+        RobotRig rig = rig(RobotConfig.load(mecanumWith(dir, "\"mirrored_side\": \"right\",")));
+        // setDirection(REVERSE) on the right motors: forward on the sticks is negative power at their ports.
+        port(rig, "front_left_drive").power = 1;
+        port(rig, "back_left_drive").power = 1;
+        port(rig, "front_right_drive").power = -1;
+        port(rig, "back_right_drive").power = -1;
+        run(rig, 1.0);
+        double[] v = rig.body.bodyVelocity();
+        System.out.printf("right mirrored: v=(%.3f, %.3f) m/s, heading %.2f deg%n", v[0], v[1], Math.toDegrees(rig.body.heading()));
+        assertTrue(v[0] > 1.2, "should drive forward, got " + v[0]);
+        assertEquals(0, v[1], 0.05, "no sideways drift");
+        assertEquals(0, Math.toDegrees(rig.body.heading()), 1.0, "no turning");
+    }
+
+    @Test
+    void robotWithNoMirroredSideDrivesForwardOnPlainPower(@TempDir Path dir) throws Exception {
+        RobotRig rig = rig(RobotConfig.load(mecanumWith(dir, "\"mirrored_side\": \"none\",")));
+        for (String n : new String[]{"front_left_drive", "back_left_drive", "front_right_drive", "back_right_drive"}) {
+            port(rig, n).power = 1;
+        }
+        run(rig, 1.0);
+        double[] v = rig.body.bodyVelocity();
+        assertTrue(v[0] > 1.2, "should drive forward, got " + v[0]);
+        assertEquals(0, Math.toDegrees(rig.body.heading()), 1.0, "no turning");
+    }
+
+    @Test
+    void olderRobotFilesStillSayWhichSideIsMirrored(@TempDir Path dir) throws Exception {
+        assertEquals("left", RobotConfig.load(mecanumWith(dir, "")).drive.mirroredSide(), "default");
+        assertEquals("left", RobotConfig.load(mecanumWith(dir, "\"left_side_mirrored\": true,")).drive.mirroredSide());
+        assertEquals("none", RobotConfig.load(mecanumWith(dir, "\"left_side_mirrored\": false,")).drive.mirroredSide());
+        assertEquals("right", RobotConfig.load(mecanumWith(dir, "\"mirrored_side\": \"Right\",")).drive.mirroredSide());
+    }
+
+    @Test
+    void rejectsAMirroredSideThatIsNotLeftRightOrNone(@TempDir Path dir) throws Exception {
+        Path file = mecanumWith(dir, "\"mirrored_side\": \"both\",");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(file));
+        assertTrue(e.getMessage().contains("mirrored_side"), e.getMessage());
     }
 }

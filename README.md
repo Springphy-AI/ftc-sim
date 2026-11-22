@@ -405,12 +405,19 @@ Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 | Section | What it sets |
 |---|---|
 | `chassis` | size, mass, color |
-| `drive` | `type` (`mecanum`, `tank`, `tank4`), wheel diameter, wheelbase, track width, `motor` model, external gear ratio, motor names, grip |
+| `drive` | `type` (`mecanum`, `tank`, `tank4`), wheel diameter, wheelbase, track width, `motor` model, external gear ratio, motor names, `mirrored_side`, grip |
 | `imu` | name and how the Control Hub is mounted (`logo`, `usb`, same words as `RevHubOrientationOnRobot`) |
 | `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` for the 3D model |
 | `io` | simulated bus latency (default 1 ms per hub command, 2.5 ms per I2C read) |
 | `start` | optional starting pose instead of the season's spot, per season: `{"biobuzz": [x, y, heading]}`; a plain `[x, y, heading]` is a BIOBUZZ spot |
 | `cad` | optional: the robot's CAD model, see below |
+
+`mirrored_side` is the side of the drivetrain whose motors are mounted facing the other way, so
+positive power rolls those wheels backward: `"left"` (the default, as in the FTC samples),
+`"right"` or `"none"`. It is the side your code calls `setDirection(DcMotor.Direction.REVERSE)`
+on. If your code reverses the right motors, set `"mirrored_side": "right"`; then your TeamCode
+drives the simulated robot the same way it drives the real one, with no changes. Older robot
+files say `"left_side_mirrored": true` (left) or `false` (none), which still works.
 
 Motor models come from vendor datasheets: goBILDA 5203 (all ratios), REV HD Hex (spur and
 UltraPlanetary), REV Core Hex, NeveRest, TETRIX. If you mount a sensor differently from what
@@ -636,7 +643,9 @@ The suite includes:
 - `HiveTipTest`: the HIVE calibration table from the Event Field Setup Guide (section 12.3), with
   balls gently placed or tossed in, and a tip dumping the CELL and turning the other CELL up.
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
-  contact, no drift at rest.
+  contact, no drift at rest. A robot whose right motors are mirrored drives forward under code
+  that reverses its right side; `mirrored_side` takes left, right or none, and older files'
+  `left_side_mirrored` still works.
 - `CadImportTest`: robots from CAD. The STEP and URDF examples are read into their links, joints,
   wheels and masses. The STEP example with nothing but its file name comes out the same as with
   everything spelled out, also exported y-up or modeled facing backward; a link with only its

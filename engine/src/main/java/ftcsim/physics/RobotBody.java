@@ -222,8 +222,8 @@ public final class RobotBody {
                 Wheel rm = addWheel("right_middle", 0, -b, null, d.tractionMu, d.tractionMu, spec, gear);
                 Wheel lb = addWheel("left_back", -a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
                 Wheel rb = addWheel("right_back", -a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                drive(motorByName, config.driveMotorName("left"), spec, -1, gear, lf, lm, lb);
-                drive(motorByName, config.driveMotorName("right"), spec, +1, gear, rf, rm, rb);
+                drive(motorByName, config.driveMotorName("left"), spec, "left", gear, lf, lm, lb);
+                drive(motorByName, config.driveMotorName("right"), spec, "right", gear, rf, rm, rb);
                 break;
             }
             case "tank4": {
@@ -233,10 +233,10 @@ public final class RobotBody {
                 Wheel lb = addWheel("left_back", -a, b, null, d.tractionMu, d.tractionMu, spec, gear);
                 Wheel rb = addWheel("right_back", -a, -b, null, d.tractionMu, d.tractionMu, spec, gear);
                 {
-                    drive(motorByName, config.driveMotorName("front_left"), spec, -1, gear, lf);
-                    drive(motorByName, config.driveMotorName("back_left"), spec, -1, gear, lb);
-                    drive(motorByName, config.driveMotorName("front_right"), spec, +1, gear, rf);
-                    drive(motorByName, config.driveMotorName("back_right"), spec, +1, gear, rb);
+                    drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, lf);
+                    drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, lb);
+                    drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, rf);
+                    drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, rb);
                 }
                 break;
             }
@@ -247,10 +247,10 @@ public final class RobotBody {
                 Wheel fr = addWheel("front_right", a, -b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
                 Wheel bl = addWheel("back_left", -a, b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
                 Wheel br = addWheel("back_right", -a, -b, new double[]{s, -s}, d.tractionMu, d.rollerMu, spec, gear);
-                drive(motorByName, config.driveMotorName("front_left"), spec, -1, gear, fl);
-                drive(motorByName, config.driveMotorName("back_left"), spec, -1, gear, bl);
-                drive(motorByName, config.driveMotorName("front_right"), spec, +1, gear, fr);
-                drive(motorByName, config.driveMotorName("back_right"), spec, +1, gear, br);
+                drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, fl);
+                drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, bl);
+                drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, fr);
+                drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, br);
             }
         }
 
@@ -424,10 +424,10 @@ public final class RobotBody {
     }
 
     private void drive(java.util.function.Function<String, MotorUnit> motorByName, String name, MotorModels.Spec spec,
-                       int mirroredSign, double gear, Wheel... driven) {
+                       String side, double gear, Wheel... driven) {
         if (name == null) return;
         MotorUnit mu = motorByName.apply(name);
-        int sign = config.drive.leftSideMirrored ? mirroredSign : 1;
+        int sign = side.equals(config.drive.mirroredSide()) ? -1 : 1;
         DriveMotor dm = new DriveMotor(mu, sign, gear);
         for (Wheel w : driven) dm.wheels.add(w);
         driveMotors.add(dm);

@@ -19,7 +19,7 @@
     "motor": "goBILDA 5203 312rpm",
     "external_gear_ratio": 1.0,
     "motors": { "left": "left_drive", "right": "right_drive" },
-    "left_side_mirrored": true,
+    "mirrored_side": "left",
     "traction_mu": 0.9,
     "roller_mu": 0.05
   },

@@ -135,8 +135,20 @@ public final class RobotConfig {
         public double externalGearRatio = 1.0;
         /** Keys depend on the type: front_left/front_right/back_left/back_right or left/right. */
         public JsonObject motors = new JsonObject();
-        /** Motors on the left side are mounted mirrored, so positive power drives those wheels backward. */
+        /**
+         * The side whose drive motors are mounted mirrored, so FORWARD power rolls those wheels
+         * backward: "left", "right" or "none". It is the side your code reverses with
+         * {@code setDirection(REVERSE)}. Left out, {@link #leftSideMirrored} decides.
+         */
+        public String mirroredSide;
+        /** Older files: true is {@code "mirrored_side": "left"}, false is "none". */
         public boolean leftSideMirrored = true;
+
+        /** The mirrored side, "left", "right" or "none". */
+        public String mirroredSide() {
+            if (mirroredSide == null) return leftSideMirrored ? "left" : "none";
+            return mirroredSide.trim().toLowerCase(java.util.Locale.ROOT);
+        }
         public double tractionMu = 0.9;
         public double rollerMu = 0.04;
     }
@@ -277,6 +289,10 @@ public final class RobotConfig {
         if (cad != null && (cad.file == null || cad.file.isBlank())) throw new IllegalArgumentException("cad needs a file (.step, .stp or .urdf)");
         for (Device d : devices) {
             if (d.type == null || d.name == null) throw new IllegalArgumentException("every device needs a type and a name");
+        }
+        if (!java.util.Set.of("left", "right", "none").contains(drive.mirroredSide())) {
+            throw new IllegalArgumentException("drive.mirrored_side must be \"left\", \"right\" or \"none\", not \""
+                    + drive.mirroredSide + "\"");
         }
         MotorModels.get(drive.motor);
         for (Device d : devices) {
