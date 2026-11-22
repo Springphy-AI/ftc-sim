@@ -48,6 +48,27 @@ class HubMotorControllerTest {
     }
 
     @Test
+    void settingTheModeTheMotorHasDoesNothing() {
+        MotorPort port = rig.motors.get("launcher").port;
+        launcher.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        launcher.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        launcher.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        port.rawTicks += 300;   // turned by hand meanwhile
+        // The hub sends nothing for the mode it already has, so the encoder isn't reset again...
+        launcher.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        assertEquals(300, launcher.getCurrentPosition());
+        // ...and it takes no bus time: a loop that sets its modes every time round stays fast.
+        Latency.commandNanos = 50_000_000L;
+        try {
+            long t0 = System.nanoTime();
+            for (int i = 0; i < 10; i++) launcher.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            assertTrue(System.nanoTime() - t0 < 50_000_000L, "no bus transaction for an unchanged mode");
+        } finally {
+            Latency.commandNanos = 0;
+        }
+    }
+
+    @Test
     void aNewPowerOrModeEnablesADisabledMotor() {
         launcher.setPower(0.2);
         launcher.setMotorDisable();

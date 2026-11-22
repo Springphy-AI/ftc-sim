@@ -49,6 +49,9 @@ public final class SimDcMotorController implements DcMotorControllerEx {
         MotorPort p = port(motor);
         if (!writable()) return;
         mode = mode.migrate();
+        // As the hub's controller: the mode it already has sends nothing, takes no bus time, and
+        // (for STOP_AND_RESET_ENCODER) doesn't reset the encoder again.
+        if (p.mode == mode) return;
         Latency.command();
         if (mode == DcMotor.RunMode.RUN_TO_POSITION && !p.targetPositionSet) {
             throw new TargetPositionNotSetException();
@@ -56,14 +59,12 @@ public final class SimDcMotorController implements DcMotorControllerEx {
         if (mode == DcMotor.RunMode.STOP_AND_RESET_ENCODER) {
             p.resetEncoder();
         }
-        if (p.mode != mode) {
-            p.mode = mode;
-            p.modeGeneration++;
-            // The hub's controller sends the last power again after a mode change, so a velocity
-            // command doesn't carry over into the new mode, and the motor is enabled.
-            p.velocityCommand = false;
-            p.enabled = true;
-        }
+        p.mode = mode;
+        p.modeGeneration++;
+        // The hub's controller sends the last power again after a mode change, so a velocity
+        // command doesn't carry over into the new mode, and the motor is enabled.
+        p.velocityCommand = false;
+        p.enabled = true;
     }
 
     @Override
