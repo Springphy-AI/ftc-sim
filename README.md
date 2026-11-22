@@ -1,8 +1,8 @@
 # FTC Simulator
 
-[![Windows](https://github.com/leelening/ftc-sim/actions/workflows/windows.yml/badge.svg?branch=main)](https://github.com/leelening/ftc-sim/actions/workflows/windows.yml)
-[![Ubuntu](https://github.com/leelening/ftc-sim/actions/workflows/ubuntu.yml/badge.svg?branch=main)](https://github.com/leelening/ftc-sim/actions/workflows/ubuntu.yml)
-[![macOS](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml/badge.svg?branch=main)](https://github.com/leelening/ftc-sim/actions/workflows/macos.yml)
+[![Windows](https://github.com/Springphy-AI/ftc-sim/actions/workflows/windows.yml/badge.svg?branch=main)](https://github.com/Springphy-AI/ftc-sim/actions/workflows/windows.yml)
+[![Ubuntu](https://github.com/Springphy-AI/ftc-sim/actions/workflows/ubuntu.yml/badge.svg?branch=main)](https://github.com/Springphy-AI/ftc-sim/actions/workflows/ubuntu.yml)
+[![macOS](https://github.com/Springphy-AI/ftc-sim/actions/workflows/macos.yml/badge.svg?branch=main)](https://github.com/Springphy-AI/ftc-sim/actions/workflows/macos.yml)
 
 Run your real FTC robot code (the `TeamCode` in your FtcRobotController project) against a
 simulated robot on the **BIOBUZZ** (2026–27) field, or on another season's field: **DECODE**
