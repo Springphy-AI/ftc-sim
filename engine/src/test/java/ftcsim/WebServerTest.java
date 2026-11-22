@@ -2,9 +2,12 @@ package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.io.OutputStream;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -13,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import ftcsim.physics.FieldModel;
 import ftcsim.runner.TeamCodeCompiler;
@@ -26,10 +30,14 @@ class WebServerTest {
     private WebServer server;
     private int port;
 
+    @TempDir
+    Path tmp;
+
     @BeforeEach
     void start() throws Exception {
         Path home = Path.of("").toAbsolutePath();
-        Path robot = home.resolve("robots/mecanum.json");
+        // A robots folder of its own: a CAD upload that got through would add a robot file to it.
+        Path robot = Files.copy(home.resolve("robots/mecanum.json"), Files.createDirectories(tmp.resolve("robots")).resolve("mecanum.json"));
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)),
                 Files.createTempDirectory("ftcsim-test"));
         sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(), compiler, "test");
@@ -85,6 +93,37 @@ class WebServerTest {
         WebSocket page = runTeleOp();
         page.abort();   // a crashed tab or a laptop gone to sleep: the connection drops without a close
         waitFor(Simulator.DsState.IDLE, 3000);
+    }
+
+    /** The status of a request sent as written (HttpClient won't send another Host header). */
+    private int rawStatus(String head) throws Exception {
+        try (Socket s = new Socket("127.0.0.1", port)) {
+            OutputStream out = s.getOutputStream();
+            out.write((head + "Connection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            String status = new String(s.getInputStream().readNBytes(12), StandardCharsets.US_ASCII);
+            return Integer.parseInt(status.substring(9, 12));
+        }
+    }
+
+    @Test
+    void onlyRequestsAddressedToThisComputerAreAnswered() throws Exception {
+        // A site that pointed its own name at 127.0.0.1 sends its name: refused everywhere, with or
+        // without the header the page's own requests carry.
+        String rebound = "Host: attacker.example:" + port + "\r\n";
+        for (String path : List.of("/", "/index.html", "/cad/0/model", "/cad/0/source", "/camera/0", "/code/0/files")) {
+            assertEquals(403, rawStatus("GET " + path + " HTTP/1.1\r\n" + rebound + "X-Ftcsim-Code: 1\r\n"), path);
+        }
+        assertEquals(403, rawStatus("POST /cad/0/import?name=Rebound.step HTTP/1.1\r\n" + rebound
+                + "X-Ftcsim-Upload: 1\r\nContent-Length: 0\r\n"));
+        assertEquals(403, rawStatus("POST /cad/0/mesh HTTP/1.1\r\n" + rebound + "X-Ftcsim-Upload: 1\r\nContent-Length: 0\r\n"));
+        try (var files = Files.list(tmp.resolve("robots"))) {
+            assertEquals(List.of("mecanum.json"), files.map(p -> p.getFileName().toString()).toList(), "no robot was added");
+        }
+        // This computer by name or address: the page loads.
+        for (String host : List.of("localhost", "127.0.0.1", "[::1]")) {
+            assertEquals(200, rawStatus("GET / HTTP/1.1\r\nHost: " + host + ":" + port + "\r\n"), host);
+        }
     }
 
     @Test

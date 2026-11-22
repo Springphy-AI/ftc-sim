@@ -110,6 +110,16 @@ public final class WebServer {
         app = Javalin.create(config -> {
             config.staticFiles.add("/web", Location.CLASSPATH);
             config.startup.showJavalinBanner = false;
+            // Every request must be addressed to this computer by name. A web site that points its
+            // own name at 127.0.0.1 (DNS rebinding) is the same site as its page to the browser, which
+            // then lets that page read what this server answers: robot files and their CAD, the
+            // webcams' view, the page itself, and upload a robot. (The WebSocket checks when it connects.)
+            config.routes.before(ctx -> {
+                if (!isLocalHost(hostOf(ctx.header("Host")))) {
+                    ctx.status(403).result("Only pages of this computer may use the simulator");
+                    ctx.skipRemainingHandlers();
+                }
+            });
             config.routes.get("/camera/{id}", WebServer::streamCamera);
             config.routes.get("/cad/{robot}/model", this::cadModel);
             config.routes.get("/cad/{robot}/source", this::cadSource);
