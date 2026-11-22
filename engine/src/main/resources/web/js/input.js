@@ -96,6 +96,14 @@ export class InputManager {
 
   onKey(e, down) {
     if (e.key === 'Shift') this.shift = down;
+    // A key let go always lets go, wherever the focus went and whatever else is held: held to drive
+    // and released in the code editor, or after pressing Ctrl, it would otherwise drive on by
+    // itself. macOS sends no key-up for keys released while Cmd is down, so letting go of Cmd
+    // lets go of everything.
+    if (!down) {
+      this.keys.delete(e.code);
+      if (e.key === 'Meta') this.keys.clear();
+    }
     if (e.ctrlKey || e.metaKey || e.altKey || this.typingIn(e.target)) return;
     // A dropdown or checkbox keeps the focus after a mouse click on it, and would take the driving
     // keys: arrows and letters change a dropdown's choice (a robot file, an OpMode). It lets go
@@ -109,8 +117,6 @@ export class InputManager {
     if (down) {
       this.keys.add(e.code);
       this.tapped.add(e.code);   // seen down at least once before the next send, even if released already
-    } else {
-      this.keys.delete(e.code);
     }
     if (e.code.startsWith('Arrow')) e.preventDefault();
   }
