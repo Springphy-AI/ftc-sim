@@ -60,6 +60,29 @@ class CodeEditorTest {
     }
 
     @Test
+    void aTeamsCopyOfASampleThatKeepsItsClassNameIsTheTeamsOwn() throws Exception {
+        // FIRST's instructions: copy a sample into TeamCode and remove @Disabled. Many teams keep its name.
+        Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java").resolve(PKG));
+        Files.writeString(teamCode.resolve("BasicOpMode_Linear.java"), String.join("\n",
+                "package org.firstinspires.ftc.teamcode;",
+                "import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;",
+                "import com.qualcomm.robotcore.eventloop.opmode.TeleOp;",
+                "@TeleOp(name = \"Our Linear OpMode\")",
+                "public class BasicOpMode_Linear extends LinearOpMode {",
+                "    @Override public void runOpMode() { waitForStart(); }",
+                "}", ""));
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
+                new TeamCodeCompiler.SourceRoot(tmp.resolve("TeamCode/src/main/java"), false),
+                new TeamCodeCompiler.SourceRoot(Path.of("examples/samples").toAbsolutePath(), true)), Files.createDirectories(tmp.resolve("out")));
+        TeamCodeCompiler.Result r = compiler.compile();
+        assertTrue(r.message().startsWith("Built"), r.message());
+        var ours = r.opModes().stream().filter(o -> o.name().equals("Our Linear OpMode")).findFirst().orElseThrow();
+        assertFalse(ours.sample(), "the team's copy is listed as the team's OpMode, not hidden with the samples");
+        var firsts = r.opModes().stream().filter(o -> o.name().equals("Basic: Linear OpMode")).findFirst().orElseThrow();
+        assertTrue(firsts.sample(), "FIRST's sample is still a sample");
+    }
+
+    @Test
     void sourcesAreReadWhileAnEditorWritesAndDeletesTemporaryFiles() throws Exception {
         Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
         Path pkg = Files.createDirectories(teamCode.resolve(PKG));

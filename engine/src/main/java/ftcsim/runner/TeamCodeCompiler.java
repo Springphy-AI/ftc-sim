@@ -65,6 +65,7 @@ public final class TeamCodeCompiler {
     }
 
     /** An import of the simulator's internals (group 1) or a use of ftcsim.hal (group 2). */
+    private static final Pattern PACKAGE = Pattern.compile("(?m)^\\s*package\\s+([\\w.]+)\\s*;");
     private static final Pattern SIM_INTERNALS = Pattern.compile("(?m)^[ \\t]*(import\\s+(?:static\\s+)?ftcsim\\.)|\\b(ftcsim\\.hal\\.)");
 
     private final List<SourceRoot> roots;
@@ -156,8 +157,15 @@ public final class TeamCodeCompiler {
         URLClassLoader loader;
         try {
             loader = new URLClassLoader(new URL[]{out.toUri().toURL()}, OpMode.class.getClassLoader());
+            // The samples by full name: a team's copy of one in TeamCode may keep its class name
+            // (FIRST's instructions are to copy a sample and remove @Disabled) and isn't a sample.
             Set<String> sampleClasses = new HashSet<>();
-            for (Path f : active) if (files.get(f)) sampleClasses.add(f.getFileName().toString().replace(".java", ""));
+            for (Path f : active) {
+                if (!files.get(f)) continue;
+                Matcher pkg = PACKAGE.matcher(texts.get(f));
+                String simple = f.getFileName().toString().replace(".java", "");
+                sampleClasses.add(pkg.find() ? pkg.group(1) + "." + simple : simple);
+            }
             opModes = scan(out, loader, sampleClasses);
         } catch (IOException e) {
             return new Result(false, "Could not load compiled classes: " + e.getMessage(), null, List.of(), skipped, problems, 0, 0);
@@ -246,8 +254,8 @@ public final class TeamCodeCompiler {
             String unique = name;
             for (int i = 2; names.contains(unique); i++) unique = name + " (" + i + ")";
             names.add(unique);
-            String outer = c.getSimpleName();
-            boolean sample = sampleClasses.contains(outer) || c.getName().startsWith("org.firstinspires.ftc.robotcontroller.external.samples");
+            String topLevel = c.getName().contains("$") ? c.getName().substring(0, c.getName().indexOf('$')) : c.getName();
+            boolean sample = sampleClasses.contains(topLevel);
             result.add(new OpModeInfo(unique, group, teleOp != null ? OpModeInfo.Kind.TELEOP : OpModeInfo.Kind.AUTONOMOUS,
                     c.getName(), c.isAnnotationPresent(Disabled.class), sample,
                     auto != null ? auto.preselectTeleOp() : "", c));
