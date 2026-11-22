@@ -129,7 +129,10 @@ export class InputManager {
   /** Options for the source pickers. */
   options() {
     const opts = [{ value: 'auto', label: 'Auto' }, { value: 'keyboard', label: 'Keyboard' }];
-    for (const p of this.pads()) opts.push({ value: `pad:${p.index}`, label: `${p.index + 1}: ${shortName(p.id)}` });
+    for (const p of this.pads()) {
+      const odd = p.mapping !== 'standard' ? ' (unknown button layout)' : '';
+      opts.push({ value: `pad:${p.index}`, label: `${p.index + 1}: ${shortName(p.id)}${odd}` });
+    }
     opts.push({ value: 'none', label: 'None' });
     return opts;
   }
@@ -163,7 +166,10 @@ export class InputManager {
         if (src === 'keyboard') keyboardTaken = true;
       }
     }
-    const free = pads.filter((p) => !explicitPads.has(p.index));
+    // Auto takes only controllers in the browser's standard layout: on others the sticks, triggers
+    // and buttons sit elsewhere (a trigger resting at -1 would read as a stick held left), so they
+    // drive only when picked by hand.
+    const free = pads.filter((p) => !explicitPads.has(p.index) && p.mapping === 'standard');
     const autos = [];
     for (const s of SLOTS) for (const r of robots) if (this.source(r, s) === 'auto') autos.push([r, s]);
     for (const r of robots) {
