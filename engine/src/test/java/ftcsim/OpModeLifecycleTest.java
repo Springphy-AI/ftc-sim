@@ -231,9 +231,23 @@ class OpModeLifecycleTest {
                     private final long[] starts = new long[201];
                     private int loops;
                     private String median;
+                    private double sleepMs;
 
                     @Override
                     public void init() {
+                        // What Thread.sleep(1) takes on this machine, on this thread.
+                        double[] ms = new double[50];
+                        for (int i = 0; i < ms.length; i++) {
+                            long t = System.nanoTime();
+                            try {
+                                Thread.sleep(1);
+                            } catch (InterruptedException e) {
+                                return;
+                            }
+                            ms[i] = (System.nanoTime() - t) / 1e6;
+                        }
+                        java.util.Arrays.sort(ms);
+                        sleepMs = ms[ms.length / 2];
                     }
 
                     @Override
@@ -249,7 +263,10 @@ class OpModeLifecycleTest {
                             }
                         }
                         while (System.nanoTime() - t < 3_000_000L) { }   // 3 ms of work
-                        if (median != null) telemetry.addData("median ms per loop", median);
+                        if (median != null) {
+                            telemetry.addData("median ms per loop", median);
+                            telemetry.addData("median ms per sleep", sleepMs);
+                        }
                     }
                 }
                 """);
@@ -262,10 +279,15 @@ class OpModeLifecycleTest {
         while ((line = lastTelemetry("median ms per loop")) == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
         assertTrue(line != null, "the OpMode reports its loop time");
         double ms = Double.parseDouble(line.substring(line.indexOf(':') + 1).trim());
-        // As the SDK, which sleeps 1 ms after every loop(): about 4 ms, not the 3 ms of the work alone,
-        // nor the 15 ms of a sleep that waits for Windows' default timer tick. The median, so that a
-        // busy CI machine pausing the OpMode now and then doesn't count (a mean measured 10.9 ms there).
-        assertTrue(ms > 3.8 && ms < 10, "median ms per loop: " + ms);
+        String sleepLine = lastTelemetry("median ms per sleep");
+        double sleepMs = Double.parseDouble(sleepLine.substring(sleepLine.indexOf(':') + 1).trim());
+        // As the SDK, which runs Thread.sleep(1) after every loop(): the 3 ms of work plus one such
+        // sleep on this machine. That is about 4 ms on a PC, but a CI virtual machine's sleep(1) can
+        // take 9 ms, hence the measured sleep rather than a fixed limit. Not the 3 ms of the work
+        // alone, nor a 15 ms wait for Windows' default timer tick where sleep(1) takes 1-2 ms. Medians,
+        // so that a busy machine pausing the OpMode now and then doesn't count.
+        assertTrue(ms > 3.8 && ms < 3 + sleepMs + 3,
+                "median ms per loop: " + ms + ", median ms per Thread.sleep(1): " + sleepMs);
         sim.handle("{\"type\":\"stop\"}");
     }
 
