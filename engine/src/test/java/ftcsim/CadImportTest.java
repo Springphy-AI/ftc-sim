@@ -466,6 +466,14 @@ class CadImportTest {
         double[] in = mp.inertiaForMass(2.0);
         double[] expected = MeshMath.boxInertia(2.0, 0.2, 0.1, 0.05);
         assertArrayEquals(expected, in, 1e-6);
+        // Turned (30 degrees about z, then 20 about x): the inertia turns with it, R I R^T, products of
+        // inertia and their signs included.
+        double[] r = Geom3.matMul(Geom3.axisAngle(new double[]{1, 0, 0}, Math.toRadians(20)), Geom3.axisAngle(new double[]{0, 0, 1}, Math.toRadians(30)));
+        MeshMath.MassProps turned = MeshMath.massProps(new MeshPart("box", 0, Geom3.apply(Geom3.transform(r, new double[]{1, 2, 3}), b.positions()), b.indices()));
+        double[] want = Geom3.matMul(Geom3.matMul(r, expected), Geom3.transpose(r));
+        assertTrue(Math.abs(want[1]) > 1e-4, "the turned box has products of inertia to check");
+        assertArrayEquals(want, turned.inertiaForMass(2.0), 1e-6);
+        assertArrayEquals(new double[]{1, 2, 3}, turned.com(), 1e-6);
     }
 
     @Test

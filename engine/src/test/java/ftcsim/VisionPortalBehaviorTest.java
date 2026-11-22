@@ -1,5 +1,6 @@
 package ftcsim;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,6 +56,58 @@ class VisionPortalBehaviorTest {
 
         @Override
         public void onDrawFrame(Canvas canvas, int width, int height, float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
+        }
+    }
+
+    /** Rotation about the robot's axis {@code axis} (0 x, 1 y, 2 z) by {@code deg}, right-handed. */
+    private static double[][] rot(int axis, double deg) {
+        double c = Math.cos(Math.toRadians(deg)), s = Math.sin(Math.toRadians(deg));
+        return switch (axis) {
+            case 0 -> new double[][]{{1, 0, 0}, {0, c, -s}, {0, s, c}};
+            case 1 -> new double[][]{{c, 0, s}, {0, 1, 0}, {-s, 0, c}};
+            default -> new double[][]{{c, -s, 0}, {s, c, 0}, {0, 0, 1}};
+        };
+    }
+
+    private static double[] apply(double[][] m, double[] v) {
+        return new double[]{m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2], m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+                m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2]};
+    }
+
+    /**
+     * The webcam's pose from its mount as the README describes it (robot frame x forward, y left,
+     * z up; yaw to the left, pitch up, roll clockwise seen from behind the camera), worked out here
+     * with rotation matrices rather than taken from SimCamera, whose pose the vision tests compare
+     * FIRST's solved poses with.
+     */
+    @Test
+    void theWebcamSitsAndLooksWhereItsMountSays() throws Exception {
+        CameraWorld world = new CameraWorld(FieldModel.loadBiobuzz());
+        world.update(List.of(), null);   // no robot: the robot frame is the field's
+        RobotConfig.Device mount = new RobotConfig.Device();
+        mount.type = "webcam";
+        mount.name = "Webcam 1";
+        mount.xM = 0.15;
+        mount.yM = -0.12;
+        mount.zM = 0.3;
+        mount.yawDeg = 25;
+        mount.pitchDeg = 15;
+        mount.rollDeg = 10;
+        double[][] pose = world.camera(0, mount).currentPose();
+        assertArrayEquals(new double[]{0.15, -0.12, 0.3}, pose[0], 1e-9, "where the camera is");
+        // Unturned, the camera looks forward (+x) with its right to -y and its down to -z. Roll turns it
+        // about its own forward axis, clockwise seen from behind (right toward down); pitch then tips it
+        // up about the robot's y axis, and yaw turns it left about z.
+        double c = Math.cos(Math.toRadians(10)), s = Math.sin(Math.toRadians(10));
+        double[] right0 = {0, -1, 0}, down0 = {0, 0, -1};
+        double[] rolledRight = {right0[0] * c + down0[0] * s, right0[1] * c + down0[1] * s, right0[2] * c + down0[2] * s};
+        double[] rolledDown = {down0[0] * c - right0[0] * s, down0[1] * c - right0[1] * s, down0[2] * c - right0[2] * s};
+        double[][] turn = rot(2, 25);
+        double[][] tip = rot(1, -15);   // about +y, a negative angle tips +x up toward +z
+        double[][] want = {apply(turn, apply(tip, rolledRight)), apply(turn, apply(tip, rolledDown)), apply(turn, apply(tip, new double[]{1, 0, 0}))};
+        String[] row = {"right", "down", "forward"};
+        for (int k = 0; k < 3; k++) {
+            assertArrayEquals(want[k], new double[]{pose[1][3 * k], pose[1][3 * k + 1], pose[1][3 * k + 2]}, 1e-9, "camera " + row[k]);
         }
     }
 

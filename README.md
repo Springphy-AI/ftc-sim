@@ -760,7 +760,7 @@ The suite includes:
   in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
 - `AprilTagVisionTest`: FIRST's `AprilTagProcessor` on the simulated webcam finds the HIVE's tags,
   the positions it solves match where the camera and tags really are within 2 mm (the test prints
-  each error, and fails beyond 5 mm) and their orientations within 2 degrees, and the
+  each error, and fails beyond 5 mm) and their orientations within 2 degrees (it fails beyond 3), and the
   `RED SCORING` cluster origin it reports sits at the CELL opening. `CameraStreamTest`: the live
   view reaches the Driver Station page.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
