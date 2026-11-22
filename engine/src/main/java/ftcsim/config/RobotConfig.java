@@ -289,10 +289,12 @@ public final class RobotConfig {
 
     private void validate() {
         if (chassis.widthM <= 0 || chassis.lengthM <= 0) throw new IllegalArgumentException("chassis size must be positive");
+        if (!(drive.wheelDiameterMm > 0)) throw new IllegalArgumentException("drive.wheel_diameter_mm must be positive");
         if (cad == null && drive.trackWidthM / 2 > chassis.widthM / 2) throw new IllegalArgumentException("wheels must fit inside the chassis width");
         if (cad != null && (cad.file == null || cad.file.isBlank())) throw new IllegalArgumentException("cad needs a file (.step, .stp or .urdf)");
         for (Device d : devices) {
             if (d.type == null || d.name == null) throw new IllegalArgumentException("every device needs a type and a name");
+            if ("motor".equals(d.type) && d.load == null) throw new IllegalArgumentException("device " + d.name + ": load must be an object");
         }
         if (!java.util.Set.of("left", "right", "none").contains(drive.mirroredSide())) {
             throw new IllegalArgumentException("drive.mirrored_side must be \"left\", \"right\" or \"none\", not \""

@@ -172,103 +172,110 @@ public final class RobotBody {
         double gear = d.externalGearRatio <= 0 ? 1 : d.externalGearRatio;
 
         int nWheels = "tank".equals(d.type) ? 6 : 4;
-        chassis = OdeHelper.createBody(world.world);
-        DMass m = OdeHelper.createMass();
-        PhysicsWorld.Material cm = new PhysicsWorld.Material("chassis");
-        cm.mu = cm.mu2 = 0.3;
-        cm.bounce = 0.05;
-        cm.owner = this;
-        if (model == null) {
-            double chassisMass = Math.max(1.0, c.massKg - nWheels * ModelBuilder.DEFAULT_WHEEL_MASS_KG);
-            m.setBoxTotal(chassisMass, c.lengthM, c.widthM, c.frameHeightM);
-            ox = 0;
-            oy = 0;
-            oz = c.groundClearanceM + c.frameHeightM / 2;
-            DGeom box = OdeHelper.createBox(world.space, c.lengthM, c.widthM, c.frameHeightM);
-            box.setBody(chassis);
-            chassisGeoms.add(box);
-        } else {
-            RobotModel.Group base = model.base();
-            setMass(m, Math.max(0.5, base.mass), base.inertia);
-            ox = base.com[0];
-            oy = base.com[1];
-            oz = base.com[2];
-            for (MeshMath.Box b : base.boxes) chassisGeoms.add(boxGeom(chassis, b, base.com));
-            if (chassisGeoms.isEmpty()) {   // a CAD with nothing but wheels: keep a small box so it can be pushed
-                DGeom box = OdeHelper.createBox(world.space, 0.1, 0.1, 0.05);
+        try {
+            chassis = OdeHelper.createBody(world.world);
+            DMass m = OdeHelper.createMass();
+            PhysicsWorld.Material cm = new PhysicsWorld.Material("chassis");
+            cm.mu = cm.mu2 = 0.3;
+            cm.bounce = 0.05;
+            cm.owner = this;
+            if (model == null) {
+                double chassisMass = Math.max(1.0, c.massKg - nWheels * ModelBuilder.DEFAULT_WHEEL_MASS_KG);
+                m.setBoxTotal(chassisMass, c.lengthM, c.widthM, c.frameHeightM);
+                ox = 0;
+                oy = 0;
+                oz = c.groundClearanceM + c.frameHeightM / 2;
+                DGeom box = OdeHelper.createBox(world.space, c.lengthM, c.widthM, c.frameHeightM);
                 box.setBody(chassis);
                 chassisGeoms.add(box);
-            }
-        }
-        chassis.setMass(m);
-        chassis.setPosition(ox, oy, oz);
-        chassis.setAutoDisableFlag(false);
-        // Other robots' chassis and wheels too; the world skips pairs that belong to the same robot.
-        for (DGeom g : chassisGeoms) {
-            world.register(g, cm, PhysicsWorld.CAT_CHASSIS, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
-                    | PhysicsWorld.CAT_BALL | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL);
-        }
-        world.addChassis(chassis);
-        if (model == null) addIntakeRoller(c);
-
-        double a = d.wheelbaseM / 2, b = d.trackWidthM / 2;
-        double s = Math.sqrt(0.5);
-        switch (d.type) {
-            case "tank": {
-                // Six-wheel drop-center drive: traction wheels in the middle, omni wheels at the
-                // corners, all chained to one motor per side. It turns in place about its center.
-                Wheel lf = addWheel("left_front", a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel rf = addWheel("right_front", a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel lm = addWheel("left_middle", 0, b, null, d.tractionMu, d.tractionMu, spec, gear);
-                Wheel rm = addWheel("right_middle", 0, -b, null, d.tractionMu, d.tractionMu, spec, gear);
-                Wheel lb = addWheel("left_back", -a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel rb = addWheel("right_back", -a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                drive(motorByName, config.driveMotorName("left"), spec, "left", gear, lf, lm, lb);
-                drive(motorByName, config.driveMotorName("right"), spec, "right", gear, rf, rm, rb);
-                break;
-            }
-            case "tank4": {
-                // Four-motor skid steer: traction wheels at the back, omni wheels at the front.
-                Wheel lf = addWheel("left_front", a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel rf = addWheel("right_front", a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel lb = addWheel("left_back", -a, b, null, d.tractionMu, d.tractionMu, spec, gear);
-                Wheel rb = addWheel("right_back", -a, -b, null, d.tractionMu, d.tractionMu, spec, gear);
-                {
-                    drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, lf);
-                    drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, lb);
-                    drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, rf);
-                    drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, rb);
+            } else {
+                RobotModel.Group base = model.base();
+                setMass(m, Math.max(0.5, base.mass), base.inertia);
+                ox = base.com[0];
+                oy = base.com[1];
+                oz = base.com[2];
+                for (MeshMath.Box b : base.boxes) chassisGeoms.add(boxGeom(chassis, b, base.com));
+                if (chassisGeoms.isEmpty()) {   // a CAD with nothing but wheels: keep a small box so it can be pushed
+                    DGeom box = OdeHelper.createBox(world.space, 0.1, 0.1, 0.05);
+                    box.setBody(chassis);
+                    chassisGeoms.add(box);
                 }
-                break;
             }
-            case "mecanum":
-            default: {
-                // Rollers in an "X" seen from above: spinning the front-left wheel forward pushes forward-right.
-                Wheel fl = addWheel("front_left", a, b, new double[]{s, -s}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel fr = addWheel("front_right", a, -b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel bl = addWheel("back_left", -a, b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
-                Wheel br = addWheel("back_right", -a, -b, new double[]{s, -s}, d.tractionMu, d.rollerMu, spec, gear);
-                drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, fl);
-                drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, bl);
-                drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, fr);
-                drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, br);
+            chassis.setMass(m);
+            chassis.setPosition(ox, oy, oz);
+            chassis.setAutoDisableFlag(false);
+            // Other robots' chassis and wheels too; the world skips pairs that belong to the same robot.
+            for (DGeom g : chassisGeoms) {
+                world.register(g, cm, PhysicsWorld.CAT_CHASSIS, PhysicsWorld.CAT_GROUND | PhysicsWorld.CAT_STATIC
+                        | PhysicsWorld.CAT_BALL | PhysicsWorld.CAT_CHASSIS | PhysicsWorld.CAT_WHEEL);
             }
-        }
-        // A motor that drives several wheels (a chain) has one rotor: its wheels share its inertia.
-        for (DriveMotor dm : driveMotors) {
-            for (Wheel w : dm.wheels) setWheelMass(w, spec.reflectedInertia() * gear * gear / dm.wheels.size());
-        }
+            world.addChassis(chassis);
+            if (model == null) addIntakeRoller(c);
 
-        linkOfGroup = new LinkBody[model == null ? 0 : model.groups.size()];
-        if (model != null) {
-            for (int i = 0; i < model.groups.size(); i++) {
-                RobotModel.Group g = model.groups.get(i);
-                if (g.kind == RobotModel.Kind.LINK) addLink(i, g, cm);
+            double a = d.wheelbaseM / 2, b = d.trackWidthM / 2;
+            double s = Math.sqrt(0.5);
+            switch (d.type) {
+                case "tank": {
+                    // Six-wheel drop-center drive: traction wheels in the middle, omni wheels at the
+                    // corners, all chained to one motor per side. It turns in place about its center.
+                    Wheel lf = addWheel("left_front", a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel rf = addWheel("right_front", a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel lm = addWheel("left_middle", 0, b, null, d.tractionMu, d.tractionMu, spec, gear);
+                    Wheel rm = addWheel("right_middle", 0, -b, null, d.tractionMu, d.tractionMu, spec, gear);
+                    Wheel lb = addWheel("left_back", -a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel rb = addWheel("right_back", -a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    drive(motorByName, config.driveMotorName("left"), spec, "left", gear, lf, lm, lb);
+                    drive(motorByName, config.driveMotorName("right"), spec, "right", gear, rf, rm, rb);
+                    break;
+                }
+                case "tank4": {
+                    // Four-motor skid steer: traction wheels at the back, omni wheels at the front.
+                    Wheel lf = addWheel("left_front", a, b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel rf = addWheel("right_front", a, -b, new double[]{1, 0}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel lb = addWheel("left_back", -a, b, null, d.tractionMu, d.tractionMu, spec, gear);
+                    Wheel rb = addWheel("right_back", -a, -b, null, d.tractionMu, d.tractionMu, spec, gear);
+                    {
+                        drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, lf);
+                        drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, lb);
+                        drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, rf);
+                        drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, rb);
+                    }
+                    break;
+                }
+                case "mecanum":
+                default: {
+                    // Rollers in an "X" seen from above: spinning the front-left wheel forward pushes forward-right.
+                    Wheel fl = addWheel("front_left", a, b, new double[]{s, -s}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel fr = addWheel("front_right", a, -b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel bl = addWheel("back_left", -a, b, new double[]{s, s}, d.tractionMu, d.rollerMu, spec, gear);
+                    Wheel br = addWheel("back_right", -a, -b, new double[]{s, -s}, d.tractionMu, d.rollerMu, spec, gear);
+                    drive(motorByName, config.driveMotorName("front_left"), spec, "left", gear, fl);
+                    drive(motorByName, config.driveMotorName("back_left"), spec, "left", gear, bl);
+                    drive(motorByName, config.driveMotorName("front_right"), spec, "right", gear, fr);
+                    drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, br);
+                }
             }
-            for (LinkBody lb : links) {
-                world.world.getGravity(lb.gravity);
-                for (LinkBody other : links) if (carries(lb, other)) lb.carried.add(other);
+            // A motor that drives several wheels (a chain) has one rotor: its wheels share its inertia.
+            for (DriveMotor dm : driveMotors) {
+                for (Wheel w : dm.wheels) setWheelMass(w, spec.reflectedInertia() * gear * gear / dm.wheels.size());
             }
+
+            linkOfGroup = new LinkBody[model == null ? 0 : model.groups.size()];
+            if (model != null) {
+                for (int i = 0; i < model.groups.size(); i++) {
+                    RobotModel.Group g = model.groups.get(i);
+                    if (g.kind == RobotModel.Kind.LINK) addLink(i, g, cm);
+                }
+                for (LinkBody lb : links) {
+                    world.world.getGravity(lb.gravity);
+                    for (LinkBody other : links) if (carries(lb, other)) lb.carried.add(other);
+                }
+            }
+        } catch (RuntimeException | Error e) {
+            // Whatever was built so far must not stay in the world, where other robots and the game
+            // pieces would still collide with it.
+            destroy();
+            throw e;
         }
     }
 
@@ -400,6 +407,7 @@ public final class RobotBody {
             if (cadWheel.mass > 0) mass = cadWheel.mass;
         }
         Wheel w = new Wheel(key, x, y);
+        wheels.add(w);   // from the start, so destroy() takes it apart if building it fails
         w.mass = mass;
         w.body = OdeHelper.createBody(world.world);
         double r = wheelRadius;
@@ -420,7 +428,6 @@ public final class RobotBody {
         w.hinge.attach(w.body, chassis);
         w.hinge.setAnchor(x, y, r);
         w.hinge.setAxis(0, 1, 0);
-        wheels.add(w);
         return w;
     }
 
@@ -539,13 +546,14 @@ public final class RobotBody {
             }
             lb.body.destroy();
         }
-        for (Wheel w : wheels) {
-            w.hinge.destroy();
-            world.unregister(w.geom);
-            w.geom.destroy();
-            w.body.destroy();
+        for (Wheel w : wheels) {   // (a wheel whose building failed has only some of its parts)
+            if (w.hinge != null) w.hinge.destroy();
+            if (w.geom != null) {
+                world.unregister(w.geom);
+                w.geom.destroy();
+            }
+            if (w.body != null) w.body.destroy();
         }
-        world.removeChassis(chassis);
         for (DGeom g : chassisGeoms) {
             world.unregister(g);
             g.destroy();
@@ -554,7 +562,10 @@ public final class RobotBody {
             world.unregister(intakeRoller);
             intakeRoller.destroy();
         }
-        chassis.destroy();
+        if (chassis != null) {   // (null when building it is what failed)
+            world.removeChassis(chassis);
+            chassis.destroy();
+        }
     }
 
     // ---- state ---------------------------------------------------------------------------------

@@ -256,6 +256,25 @@ class DrivetrainPhysicsTest {
     }
 
     @Test
+    void aRobotThatCantBeBuiltLeavesNothingInTheWorld(@TempDir Path dir) throws Exception {
+        String json = Files.readString(Path.of("robots/mecanum.json"));
+        // Built until its launcher, which has no load to move.
+        RobotConfig broken = RobotConfig.load(Path.of("robots/mecanum.json"));
+        broken.devices.stream().filter(d -> d.name.equals("launcher")).findFirst().orElseThrow().load = null;
+        PhysicsWorld world = new PhysicsWorld(FieldModel.loadBiobuzz());
+        int before = world.space.getNumGeoms();
+        assertThrows(RuntimeException.class, () -> new RobotRig(broken, world));
+        assertEquals(before, world.space.getNumGeoms(), "no chassis or wheels left behind to collide with");
+        // Such files are refused when they are read: a motor without a load, a wheel of no size.
+        Path tiny = dir.resolve("tiny.json");
+        Files.writeString(tiny, json.replace("\"wheel_diameter_mm\": 104", "\"wheel_diameter_mm\": -10"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(tiny)).getMessage().contains("wheel_diameter_mm"));
+        Path noLoad = dir.resolve("noload.json");
+        Files.writeString(noLoad, json.replace("\"load\": { \"kind\": \"flywheel\", \"inertia\": 0.0003 }", "\"load\": null"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(noLoad)).getMessage().contains("load"));
+    }
+
+    @Test
     void driveTypesAndTheirMotorsAreChecked(@TempDir Path dir) throws Exception {
         String json = Files.readString(Path.of("robots/mecanum.json"));
         Path skid = dir.resolve("skid.json");

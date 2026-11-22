@@ -193,25 +193,32 @@ public final class RobotRig {
         imu = new ImuBackend(Rotations.fromQuaternion(q.w, q.x, q.y, q.z));
 
         body = new RobotBody(world, config, motors::get);
-        // Motors and servos that drive CAD joints act on the physics bodies; the rest as before.
-        RobotModel model = body.model;
-        for (RobotConfig.Device d : motorDevices) {
-            RobotModel.Group g = model == null ? null : model.drivenBy(d.name);
-            if (g != null && g.kind == RobotModel.Kind.LINK) {
-                mechanisms.add(new Mechanism(d, motors.get(d.name), body.link(model.index(g)), Double.NaN));
-            } else if (g != null && g.kind == RobotModel.Kind.SPINNER) {
-                mechanisms.add(new Mechanism(d, motors.get(d.name), null, g.axisInertia));
-            } else {
-                mechanisms.add(new Mechanism(d, motors.get(d.name)));
+        try {
+            // Motors and servos that drive CAD joints act on the physics bodies; the rest as before.
+            RobotModel model = body.model;
+            for (RobotConfig.Device d : motorDevices) {
+                RobotModel.Group g = model == null ? null : model.drivenBy(d.name);
+                if (g != null && g.kind == RobotModel.Kind.LINK) {
+                    mechanisms.add(new Mechanism(d, motors.get(d.name), body.link(model.index(g)), Double.NaN));
+                } else if (g != null && g.kind == RobotModel.Kind.SPINNER) {
+                    mechanisms.add(new Mechanism(d, motors.get(d.name), null, g.axisInertia));
+                } else {
+                    mechanisms.add(new Mechanism(d, motors.get(d.name)));
+                }
             }
-        }
-        if (model != null) {
-            for (ServoUnit s : servos) {
-                RobotModel.Group g = model.drivenBy(s.device.name);
-                if (g != null && g.kind == RobotModel.Kind.LINK) servoJoints.add(new ServoJoint(s, body.link(model.index(g))));
+            if (model != null) {
+                for (ServoUnit s : servos) {
+                    RobotModel.Group g = model.drivenBy(s.device.name);
+                    if (g != null && g.kind == RobotModel.Kind.LINK) servoJoints.add(new ServoJoint(s, body.link(model.index(g))));
+                }
             }
+            place(this.start[0], this.start[1], Math.toRadians(this.start[2]));
+        } catch (RuntimeException | Error e) {
+            // A robot that can't be built (a bad robot file) must not leave its chassis and wheels
+            // in the world, where they would still collide with the other robots and the game pieces.
+            body.destroy();
+            throw e;
         }
-        place(this.start[0], this.start[1], Math.toRadians(this.start[2]));
     }
 
     /**
