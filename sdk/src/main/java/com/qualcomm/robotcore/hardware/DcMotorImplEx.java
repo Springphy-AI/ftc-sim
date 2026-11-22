@@ -6,8 +6,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 /** DcMotorImplEx is a motor that supports the DcMotorEx interface. */
 public class DcMotorImplEx extends DcMotorImpl implements DcMotorEx {
 
-    protected DcMotorControllerEx controllerEx;
-    protected int targetPositionTolerance = 5;
+    DcMotorControllerEx controllerEx;   // package-private, as in FIRST's
+    int targetPositionTolerance = 5;
 
     public DcMotorImplEx(DcMotorController controller, int portNumber) {
         this(controller, portNumber, Direction.FORWARD);

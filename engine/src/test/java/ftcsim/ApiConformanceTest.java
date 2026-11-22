@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Guards the "same TeamCode in the sim and on the robot" promise: every class in the simulator's
  * SDK that robot code can see must exist in the official FTC SDK, with no public or protected
- * member the official SDK lacks. Simulator internals live in ftcsim.* (TeamCode may not import
+ * member the official SDK lacks, and its constants must have the official values. Simulator internals live in ftcsim.* (TeamCode may not import
  * them) and android.* stand-ins are checked separately by hand.
  *
  * Deliberate exceptions are listed in {@link #ALLOWED} with the reason for each.
@@ -100,7 +100,10 @@ class ApiConformanceTest {
             for (String line : simLines.subList(1, simLines.size())) {
                 String member = normalize(line);
                 checkedMembers++;
+                // A protected member may be public in the FTC SDK (what compiles here still compiles
+                // there), but a public one must be public there too.
                 if (realMembers.contains(member) || OBJECT_METHODS.contains(member)) continue;
+                if (member.startsWith("protected ") && realMembers.contains("public " + member.substring("protected ".length()))) continue;
                 if (member.contains("ftcsim.")) continue; // only reachable with ftcsim types, which TeamCode can't import
                 if (ALLOWED.contains(cls + "#" + member)) continue;
                 problems.computeIfAbsent(cls, k -> new ArrayList<>()).add(member);
@@ -158,11 +161,14 @@ class ApiConformanceTest {
         return result;
     }
 
-    /** javap -public output: first element is the class header, the rest are members. */
+    /**
+     * javap -protected -constants output: first element is the class header, the rest are members,
+     * constants with their values (TeamCode that uses a constant has its value compiled in).
+     */
     private static List<String> javap(String classpath, String className) {
         StringWriter out = new StringWriter();
         StringWriter err = new StringWriter();
-        int rc = JAVAP.run(new PrintWriter(out), new PrintWriter(err), "-public", "-cp", classpath, className);
+        int rc = JAVAP.run(new PrintWriter(out), new PrintWriter(err), "-protected", "-constants", "-cp", classpath, className);
         List<String> lines = new ArrayList<>();
         if (rc != 0) return lines;
         for (String line : out.toString().split("\\R")) {

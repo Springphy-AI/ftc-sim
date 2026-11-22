@@ -406,7 +406,7 @@ public final class SimRobot {
             initNanos = System.nanoTime();
             final OpModeSession s = new OpModeSession(context, info.name(), opMode, hw, gamepad1, gamepad2, telemetry, sessionListener);
             session = s;
-            context.run(() -> RobotLog.i(RobotLog.OPMODE_START_TAG));
+            context.run(() -> RobotLog.i(RobotLog.OPMODE_START_TAG, s.getName()));
             log("INIT " + info.name() + " (" + info.className() + ")");
             s.init();
             broadcastDsLocked();
@@ -541,7 +541,7 @@ public final class SimRobot {
                     && build.opModes().stream().anyMatch(o -> o.name().equals(preselect))) {
                 selected = preselect;
             }
-            context.run(() -> RobotLog.i(RobotLog.OPMODE_STOP_TAG));
+            context.run(() -> RobotLog.i(RobotLog.OPMODE_STOP_TAG, s.getName()));
             session = null;
             hal = null;
             active = null;

@@ -12,8 +12,8 @@ import ftcsim.hal.SimLog;
  * console and to the "Robot log" panel of the browser Driver Station.
  */
 public class RobotLog {
-    public static final String OPMODE_START_TAG = "******************** START - OPMODE ********************";
-    public static final String OPMODE_STOP_TAG = "******************** STOP - OPMODE ********************";
+    public static final String OPMODE_START_TAG = "******************** START - OPMODE %s ********************";
+    public static final String OPMODE_STOP_TAG = "******************** STOP - OPMODE %s ********************";
     public static final String TAG = "RobotCore";
 
     /** Global messages of code running outside any simulated robot; each robot has its own. */
