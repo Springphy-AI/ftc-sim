@@ -60,6 +60,22 @@ class CodeEditorTest {
     }
 
     @Test
+    void theLastTwoBuildsAreKeptAndOlderOnesDeleted() throws Exception {
+        Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java").resolve(PKG));
+        Files.writeString(teamCode.resolve("EditorTest.java"), OPMODE);
+        Path out = Files.createDirectories(tmp.resolve("out"));
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(tmp.resolve("TeamCode/src/main/java"), false)), out);
+        for (int i = 1; i <= 12; i++) {
+            assertTrue(compiler.compile().ok());
+            try (var builds = Files.list(out)) {
+                List<String> left = builds.map(p -> p.getFileName().toString().replaceAll("-\\d+$", "")).sorted().toList();
+                // the newest build, and the one before it, which a running OpMode may still load classes from
+                assertEquals(i == 1 ? List.of("build-1") : List.of("build-" + (i - 1), "build-" + i).stream().sorted().toList(), left);
+            }
+        }
+    }
+
+    @Test
     void aNewFileIsNeverWrittenThroughALinkToNothing() throws Exception {
         Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
         Path outside = Files.createDirectories(tmp.resolve("outside")).resolve("escaped.txt");

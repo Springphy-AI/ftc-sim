@@ -71,7 +71,8 @@ public final class TeamCodeCompiler {
     private final List<SourceRoot> roots;
     private final Path workDir;
     private int buildNumber = 0;
-    private URLClassLoader lastLoader;
+    /** The previous successful build's classes, which a running OpMode may still be loading. */
+    private Path previousOut;
 
     public TeamCodeCompiler(List<SourceRoot> roots, Path workDir) {
         this.roots = roots;
@@ -170,12 +171,7 @@ public final class TeamCodeCompiler {
         } catch (IOException e) {
             return new Result(false, "Could not load compiled classes: " + e.getMessage(), null, List.of(), skipped, problems, 0, 0);
         }
-        URLClassLoader previous = lastLoader;
-        lastLoader = loader;
         cleanOldBuilds(out);
-        if (previous != null) {
-            // Old OpMode classes stay usable by a running OpMode; the loader is closed lazily by GC.
-        }
         long millis = System.currentTimeMillis() - t0;
         String msg = String.format(Locale.US, "Built %d file%s in %.1f s%s", active.size(), active.size() == 1 ? "" : "s",
                 millis / 1000.0, skipped.isEmpty() ? "" : String.format(Locale.US, "; %d skipped", skipped.size()));
@@ -299,12 +295,18 @@ public final class TeamCodeCompiler {
         return nl < 0 ? s : s.substring(0, nl);
     }
 
-    private void cleanOldBuilds(Path keep) {
+    /**
+     * Deletes every build folder but this one and the previous successful one, whose classes a
+     * running OpMode may still be loading (its loader is closed lazily, by the garbage collector).
+     */
+    private void cleanOldBuilds(Path current) {
+        Path previous = previousOut;
+        previousOut = current;
         try (Stream<Path> s = Files.list(workDir)) {
-            List<Path> old = s.filter(p -> p.getFileName().toString().startsWith("build-") && !p.equals(keep))
-                    .sorted(Comparator.comparing(Path::toString)).collect(Collectors.toList());
-            // keep the previous build too: a running OpMode may still be loading classes from it
-            for (int i = 0; i < old.size() - 1; i++) deleteTree(old.get(i));
+            for (Path p : s.filter(p -> p.getFileName().toString().startsWith("build-") && !p.equals(current) && !p.equals(previous))
+                    .collect(Collectors.toList())) {
+                deleteTree(p);
+            }
         } catch (IOException ignored) {
         }
     }
