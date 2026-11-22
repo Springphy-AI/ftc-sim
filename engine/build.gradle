@@ -240,7 +240,7 @@ tasks.named('test') {
     systemProperty 'ftcsim.simSdkClasses', "${rootDir}/sdk/build/classes/java/main"
     testLogging {
         events 'passed', 'failed', 'skipped'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
         showStandardStreams = true
     }
 }
@@ -259,7 +259,7 @@ tasks.register('experiment', Test) {
     outputs.upToDateWhen { false }
     testLogging {
         events 'passed', 'failed', 'skipped'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
         showStandardStreams = true
     }
 }
