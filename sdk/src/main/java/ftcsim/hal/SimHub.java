@@ -90,6 +90,18 @@ public final class SimHub {
         return s;
     }
 
+    /**
+     * LynxModule.getBulkData(): a bulk read now, which also becomes the cache the next reads use,
+     * as on the hub (so MANUAL-mode code may refresh with getBulkData() instead of clearBulkCache()).
+     */
+    public BulkSnapshot bulkRead() {
+        synchronized (cacheLock) {
+            cache = takeSnapshot();
+            java.util.Arrays.fill(readSinceRefresh, false);
+            return cache;
+        }
+    }
+
     private BulkSnapshot cached(int key) {
         synchronized (cacheLock) {
             if (cachingMode == LynxModule.BulkCachingMode.AUTO) {

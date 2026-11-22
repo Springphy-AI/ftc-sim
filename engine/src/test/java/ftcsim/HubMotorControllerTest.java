@@ -7,12 +7,15 @@ import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.Latency;
+import ftcsim.hal.MotorPort;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.sim.RobotRig;
@@ -22,6 +25,7 @@ class HubMotorControllerTest {
     private static final double DT = 0.001;
 
     private final RobotRig rig;
+    private final HardwareMap hardwareMap;
     /** robots/mecanum.json's flywheel: a goBILDA 6000 rpm motor, 28 ticks per revolution. */
     private final DcMotorEx launcher;
 
@@ -30,7 +34,28 @@ class HubMotorControllerTest {
         Latency.commandNanos = 0;
         Latency.i2cNanos = 0;
         rig.place(0, -1.0, 0);
-        launcher = rig.createHardwareMap(new HalSession()).get(DcMotorEx.class, "launcher");
+        hardwareMap = rig.createHardwareMap(new HalSession());
+        launcher = hardwareMap.get(DcMotorEx.class, "launcher");
+    }
+
+    /** The hub the launcher is on. */
+    private LynxModule launcherHub() {
+        MotorPort port = rig.motors.get("launcher").port;
+        return hardwareMap.getAll(LynxModule.class).stream()
+                .filter(m -> m.getModuleAddress() == port.hub.moduleAddress).findFirst().orElseThrow();
+    }
+
+    @Test
+    void getBulkDataRefreshesTheManualCache() {
+        LynxModule hub = launcherHub();
+        hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
+        MotorPort port = rig.motors.get("launcher").port;
+        int before = launcher.getCurrentPosition();   // cached now
+        port.rawTicks += 500;                         // the flywheel turned
+        assertEquals(before, launcher.getCurrentPosition(), "MANUAL: the cache holds until it is refreshed");
+        assertEquals(before + 500, hub.getBulkData().getMotorCurrentPosition(port.port));
+        // As on the hub, that bulk read is now the cache: code may refresh with getBulkData() instead of clearBulkCache().
+        assertEquals(before + 500, launcher.getCurrentPosition());
     }
 
     private void run(double seconds) {

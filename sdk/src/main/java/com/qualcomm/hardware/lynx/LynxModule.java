@@ -88,9 +88,9 @@ public class LynxModule implements HardwareDevice {
         hub.clearBulkCache();
     }
 
-    /** Performs a bulk read right away and returns the result. */
+    /** Performs a bulk read right away and returns the result, which the bulk cache then holds. */
     public BulkData getBulkData() {
-        return new BulkData(hub.takeSnapshot());
+        return new BulkData(hub.bulkRead());
     }
 
     public boolean isParent() {
