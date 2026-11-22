@@ -160,6 +160,22 @@ class WebServerTest {
     }
 
     @Test
+    void thePagesGamepadIsLetGoWhenItLeavesWhileOthersStay() throws Exception {
+        WebSocket overview = openPage();   // a page that drives nothing (on a projector, say)
+        WebSocket driver = openPage();
+        driver.sendText("{\"type\":\"gamepad\",\"robot\":0,\"gamepad\":1,\"kind\":\"XBOX_360\",\"axes\":[0,-1,0,0,0,0],\"buttons\":[]}", true)
+                .get(5, TimeUnit.SECONDS);
+        long deadline = System.currentTimeMillis() + 2000;
+        while (sim.robot(0).gamepad1.left_stick_y != -1 && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertEquals(-1, sim.robot(0).gamepad1.left_stick_y, "the driver holds the stick forward");
+        driver.abort();   // the driver's tab crashes, stick held
+        deadline = System.currentTimeMillis() + 2000;
+        while (sim.robot(0).gamepad1.left_stick_y != 0 && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertEquals(0, sim.robot(0).gamepad1.left_stick_y, "its gamepad is let go, though another page is still open");
+        overview.abort();
+    }
+
+    @Test
     void theOpModeKeepsRunningWhileAnotherPageIsOpen() throws Exception {
         WebSocket other = openPage();
         WebSocket page = runTeleOp();

@@ -57,6 +57,8 @@ public final class WebServer {
         });
         final AtomicReference<String> pendingState = new AtomicReference<>();
         final AtomicReference<String> pendingDevices = new AtomicReference<>();
+        /** The gamepads ("robot:slot") this page has sent input for. */
+        final Set<String> fed = ConcurrentHashMap.newKeySet();
 
         Client(WsContext ctx) {
             this.ctx = ctx;
@@ -146,7 +148,11 @@ public final class WebServer {
                     for (String m : sim.welcomeMessages()) c.send(m);
                 });
                 ws.onMessage(ctx -> {
-                    if (clients.stream().anyMatch(c -> c.ctx.sessionId().equals(ctx.sessionId()))) sim.handle(ctx.message());
+                    Client c = clients.stream().filter(x -> x.ctx.sessionId().equals(ctx.sessionId())).findFirst().orElse(null);
+                    if (c == null) return;
+                    String text = ctx.message();
+                    if (text.startsWith("{\"type\":\"gamepad\"")) noteGamepad(c, text);
+                    sim.handle(text);
                 });
                 // A page that loses its connection without closing it (a crashed tab, a laptop that
                 // went to sleep, a dropped network) shows up as an error, not a close.
@@ -164,8 +170,30 @@ public final class WebServer {
 
     /** A page closed or lost its connection: when it was the last one, every OpMode stops, as when a robot loses its Driver Station. */
     private void clientGone(WsContext ctx) {
-        boolean wasClient = clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId()));
-        if (wasClient && clients.isEmpty()) sim.onAllClientsDisconnected();
+        Client gone = clients.stream().filter(c -> c.ctx.sessionId().equals(ctx.sessionId())).findFirst().orElse(null);
+        if (gone == null || !clients.remove(gone)) return;
+        if (clients.isEmpty()) {
+            sim.onAllClientsDisconnected();
+            return;
+        }
+        // Other pages are still open: let go of the gamepads this one drove, as a robot does when its
+        // Driver Station's controller is unplugged. A page still feeding one sends it again at once.
+        for (String slot : gone.fed) {
+            String[] rs = slot.split(":");
+            sim.handle("{\"type\":\"gamepad\",\"robot\":" + rs[0] + ",\"gamepad\":" + rs[1]
+                    + ",\"axes\":[0,0,0,0,0,0],\"buttons\":[]}");
+        }
+    }
+
+    /** Remembers which gamepad a page sends input for, to let go of it when the page goes away. */
+    private static void noteGamepad(Client c, String text) {
+        try {
+            JsonObject m = com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+            int robot = m.has("robot") && !m.get("robot").isJsonNull() ? m.get("robot").getAsInt() : 0;
+            c.fed.add(robot + ":" + m.get("gamepad").getAsInt());
+        } catch (RuntimeException ignored) {
+            // not a gamepad message after all; Simulator.handle ignores it too
+        }
     }
 
     // ---- CAD models ----------------------------------------------------------------------------------

@@ -48,6 +48,7 @@ export class InputManager {
     this.sources = {};       // 'robot:slot' -> 'auto' | 'keyboard' | 'pad:N' | 'none'
     this.lastSent = {};
     this.lastTime = {};
+    this.fed = {};           // 'robot:slot' -> true while this page feeds it from a controller or the keyboard
     this.states = {};
     this.listeners = [];
 
@@ -220,9 +221,23 @@ export class InputManager {
     for (const robot of this.activeRobots()) {
       for (const slot of SLOTS) {
         const k = key(robot, slot);
-        const st = this.read(assign[k] ?? null);
+        const source = assign[k] ?? null;
+        const st = this.read(source);
         this.states[k] = st;
         const msg = JSON.stringify({ type: 'gamepad', robot, gamepad: slot, kind: st.kind, axes: st.axes, buttons: st.buttons });
+        if (source === null) {
+          // Nothing feeds this slot from here, so this page says nothing about it: another page (a
+          // driver's ?robot=N page) may be driving it. Only a slot fed until now gets one neutral
+          // state, so a controller taken away doesn't leave the robot driving.
+          if (this.fed[k]) {
+            this.send(msg);
+            this.lastSent[k] = msg;
+            this.lastTime[k] = now;
+            this.fed[k] = false;
+          }
+          continue;
+        }
+        this.fed[k] = true;
         if (msg !== this.lastSent[k] || now - (this.lastTime[k] ?? 0) > 250) {
           this.send(msg);
           this.lastSent[k] = msg;
