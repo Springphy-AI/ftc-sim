@@ -87,7 +87,6 @@ public class ServoImpl implements Servo {
     @Override
     public synchronized double getPosition() {
         double position = controller.getServoPosition(portNumber);
-        if (Double.isNaN(position)) return position;
         double unscaled = Range.scale(position, limitPositionMin, limitPositionMax, MIN_POSITION, MAX_POSITION);
         if (direction == Direction.REVERSE) unscaled = reverse(unscaled);
         return Range.clip(unscaled, MIN_POSITION, MAX_POSITION);

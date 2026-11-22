@@ -84,7 +84,6 @@ public class CRServoImpl implements CRServo {
     @Override
     public double getPower() {
         double position = controller.getServoPosition(portNumber);
-        if (Double.isNaN(position)) return 0;
         double power = Range.scale(position, apiServoPositionMin, apiServoPositionMax, apiPowerMin, apiPowerMax);
         if (direction == Direction.REVERSE) power = -power;
         return power;

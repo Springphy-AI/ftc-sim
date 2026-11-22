@@ -45,8 +45,7 @@ public class CRServoImplEx extends CRServoImpl implements PwmControl {
     public double getPulseWidth() {
         if (!isPwmEnabled()) return 0;
         PwmRange r = getPwmRange();
-        double position = controllerEx.getServoPosition(portNumber);
-        return Double.isNaN(position) ? 0 : r.usPulseLower + position * (r.usPulseUpper - r.usPulseLower);
+        return r.usPulseLower + controllerEx.getServoPosition(portNumber) * (r.usPulseUpper - r.usPulseLower);
     }
 
     @Override

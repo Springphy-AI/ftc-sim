@@ -2,7 +2,6 @@ package ftcsim.hal;
 
 import com.qualcomm.robotcore.hardware.PwmControl;
 import com.qualcomm.robotcore.hardware.ServoControllerEx;
-import com.qualcomm.robotcore.util.Range;
 
 /** The servo controller of one simulated hub, as seen by one OpMode run. */
 public final class SimServoController implements ServoControllerEx {
@@ -51,8 +50,12 @@ public final class SimServoController implements ServoControllerEx {
     @Override
     public void setServoPosition(int servo, double position) {
         ServoPort p = port(servo);
+        // As the hub's controller (validateApiServoPosition): NaN or a position outside [0, 1] is an
+        // error. (Servo.setPosition clips to [0, 1] before it gets here, so NaN is what reaches it.)
+        if (!(position >= 0.0 && position <= 1.0)) {
+            throw new IllegalArgumentException(String.format("illegal servo position %f; must be in interval [%f,%f]", position, 0.0, 1.0));
+        }
         if (!session.isActive()) return;
-        position = Range.clip(position, 0.0, 1.0);
         if (!p.pwmEnabled || p.position != position) {
             Latency.command();
         }
@@ -60,9 +63,11 @@ public final class SimServoController implements ServoControllerEx {
         p.pwmEnabled = true;
     }
 
+    /** The last commanded position; 0 before the first one, as the hub reads it from a pulse width of 0. */
     @Override
     public double getServoPosition(int servo) {
-        return port(servo).position;
+        double position = port(servo).position;
+        return Double.isNaN(position) ? 0.0 : position;
     }
 
     @Override
