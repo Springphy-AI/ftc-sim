@@ -15,12 +15,19 @@ public class Rev2mDistanceSensor implements DistanceSensor {
         this.backend = backend;
     }
 
+    /** What the VL53L0X reads when nothing is in range, in millimeters. */
+    private static final int OUT_OF_RANGE_MM = 8190;
+
+    /**
+     * As FIRST's VL53L0X driver: the whole millimeters the chip reads, in the unit asked for. It has
+     * no special value for "nothing in range": the chip then reads 8190 mm.
+     */
     @Override
     public double getDistance(DistanceUnit unit) {
         Latency.i2c();
         double m = backend.meters;
-        if (m == Double.MAX_VALUE) return distanceOutOfRange;
-        return unit.fromMeters(m);
+        int mm = m == Double.MAX_VALUE ? OUT_OF_RANGE_MM : (int) Math.round(m * 1000);
+        return unit.fromUnit(DistanceUnit.MM, mm);
     }
 
     public byte getModelID() {

@@ -103,22 +103,27 @@ public class RevColorSensorV3 implements ColorRangeSensor, Light {
         return address;
     }
 
+    // FIRST's driver turns the proximity counts into inches with this fit (inFromOptical), at most 6 in.
+    private static final double FIT_A = 325.961, FIT_BINV = -0.75934, FIT_C = 26.98, MAX_INCHES = 6.0;
+
+    /** As FIRST's: the distance its fit makes of the proximity counts, so at most 6 in. */
     @Override
     public double getDistance(DistanceUnit unit) {
-        Latency.i2c();
-        double m = backend.distanceMeters;
-        if (m == Double.MAX_VALUE || m > 0.10) {
-            return unit.fromCm(12.0);   // the V3's proximity reading saturates a little past 10 cm
-        }
-        return unit.fromMeters(m);
+        return unit.fromUnit(DistanceUnit.INCH, inFromOptical(rawOptical()));
     }
 
-    /** Proximity as raw optical counts (0..2047, larger is closer). */
+    protected double inFromOptical(int rawOptical) {
+        if (rawOptical <= FIT_C) return MAX_INCHES;
+        return Math.min(Math.pow((rawOptical - FIT_C) / FIT_A, FIT_BINV), MAX_INCHES);
+    }
+
+    /** Proximity as raw optical counts (0..2047, larger is closer): FIRST's fit, inverted. */
     public int rawOptical() {
         Latency.i2c();
         double m = backend.distanceMeters;
-        if (m == Double.MAX_VALUE || m > 0.10) return 0;
-        return (int) Math.round(2047 * Math.max(0, 1 - m / 0.10));
+        if (m == Double.MAX_VALUE) return 0;
+        double inches = Math.max(m / 0.0254, 1e-3);
+        return (int) Math.round(Math.min(2047, FIT_C + FIT_A * Math.pow(inches, 1 / FIT_BINV)));
     }
 
     @Override

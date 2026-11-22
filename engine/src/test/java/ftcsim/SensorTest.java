@@ -8,6 +8,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.junit.jupiter.api.Test;
 
+import com.qualcomm.hardware.rev.Rev2mDistanceSensor;
+import com.qualcomm.hardware.rev.RevColorSensorV3;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -16,6 +18,7 @@ import com.qualcomm.robotcore.hardware.IMU;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.Latency;
+import ftcsim.hal.SensorBackends;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.sim.RobotRig;
@@ -66,6 +69,33 @@ class SensorTest {
         rig.powerCycle();
         turnTo(60);
         assertEquals(30, yaw(imu(rig.createHardwareMap(new HalSession()))), 0.5);
+    }
+
+    @Test
+    void the2mDistanceSensorReadsWholeMillimetersAnd8190WithNothingInRange() {
+        SensorBackends.Range range = new SensorBackends.Range();
+        Rev2mDistanceSensor sensor = new Rev2mDistanceSensor(range);
+        assertEquals(8190, sensor.getDistance(DistanceUnit.MM), "nothing in range: the chip's out-of-range reading");
+        assertEquals(819.0, sensor.getDistance(DistanceUnit.CM), 1e-9);
+        range.meters = 0.5004;
+        assertEquals(500, sensor.getDistance(DistanceUnit.MM));
+        assertEquals(500 / 25.4, sensor.getDistance(DistanceUnit.INCH), 1e-9);
+    }
+
+    @Test
+    void theColorSensorsDistanceComesFromItsProximityFitAndStopsAtSixInches() {
+        SensorBackends.Color seen = new SensorBackends.Color();
+        RevColorSensorV3 sensor = new RevColorSensorV3(seen);
+        // Nothing in front of it, or something past the fit's reach: 6 in, as FIRST's driver says.
+        assertEquals(6.0, sensor.getDistance(DistanceUnit.INCH), 1e-9);
+        seen.distanceMeters = 0.20;
+        assertEquals(6.0, sensor.getDistance(DistanceUnit.INCH), 1e-9);
+        // Close up, the counts it reads go back through FIRST's fit to about the true distance.
+        seen.distanceMeters = 0.0254;
+        assertEquals(1.0, sensor.getDistance(DistanceUnit.INCH), 0.01);
+        assertEquals(353, sensor.rawOptical(), 1);
+        seen.distanceMeters = 0.10;
+        assertEquals(10.0, sensor.getDistance(DistanceUnit.CM), 0.1);
     }
 
     @Test
