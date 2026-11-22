@@ -24,6 +24,7 @@ public final class MotorUnit {
     private double lastError = 0;
     private int seenModeGeneration = -1;
     private double lastCurrent = 0;
+    private double lastBatteryCurrent = 0;
 
     public MotorUnit(MotorPort port, MotorModels.Spec spec) {
         this.port = port;
@@ -34,8 +35,18 @@ public final class MotorUnit {
         return angle;
     }
 
+    /** The motor's own current (what the hub reports for it). */
     public double currentAmps() {
         return lastCurrent;
+    }
+
+    /**
+     * What the motor draws from the battery. The hub's H-bridge passes duty x the winding current
+     * (and the motor's losses), so a braking motor, whose current only circulates through the
+     * bridge, draws nothing; a motor fed back faster than its duty would push current back.
+     */
+    public double batteryAmps() {
+        return lastBatteryCurrent;
     }
 
     /**
@@ -48,21 +59,30 @@ public final class MotorUnit {
         double free = spec.freeSpeedRadPerSec();
         double tau;
         double current;
+        double battery;
         if (Double.isNaN(duty)) {
             // Coasting (FLOAT or disabled): windings open, only gearbox friction.
             tau = 0;
             current = 0;
+            battery = 0;
             port.appliedDuty = 0;
         } else {
-            double volts = clamp(duty, -1, 1) * batteryVolts;
+            double d = clamp(duty, -1, 1);
+            double volts = d * batteryVolts;
             tau = stall * (volts / NOMINAL_VOLTS) - (stall / free) * omega;
-            current = Math.abs(spec.stallCurrentA() * (volts / NOMINAL_VOLTS - omega / free));
-            if (volts != 0) current += spec.freeCurrentA();
-            port.appliedDuty = clamp(duty, -1, 1);
+            double winding = spec.stallCurrentA() * (volts / NOMINAL_VOLTS - omega / free);
+            current = Math.abs(winding);
+            battery = d * winding;
+            if (volts != 0) {
+                current += spec.freeCurrentA();
+                battery += Math.abs(d) * spec.freeCurrentA();
+            }
+            port.appliedDuty = d;
         }
         // Gearbox friction: a little viscous drag plus smoothed Coulomb friction.
         tau -= 0.01 * (stall / free) * omega + 0.01 * stall * Math.tanh(omega / 0.5);
         lastCurrent = current;
+        lastBatteryCurrent = battery;
         port.currentAmps = current;
         return tau;
     }

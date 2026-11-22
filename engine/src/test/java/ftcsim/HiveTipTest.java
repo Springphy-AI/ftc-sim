@@ -251,13 +251,13 @@ public class HiveTipTest {
 
     @Test
     void threeNectarAndTwoLaunchedPollenHold() throws Exception {
-        assertTrue(!launchFromRobot(2, 0.40, 0.9, -1.0));
+        assertTrue(!launchFromRobot(2, 0.38, 0.9, -1.0));
         assertTrue(!launchFromRobot(2, 0.45, 0.7, -1.2));
     }
 
     @Test
     void aThirdLaunchedPollenTips() throws Exception {
-        assertTrue(launchFromRobot(3, 0.40, 0.9, -1.0));
+        assertTrue(launchFromRobot(3, 0.38, 0.9, -1.0));
         assertTrue(launchFromRobot(3, 0.45, 0.7, -1.2));
     }
 

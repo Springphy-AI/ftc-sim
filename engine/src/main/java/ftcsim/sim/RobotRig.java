@@ -387,7 +387,8 @@ public final class RobotRig {
 
     private void updateBattery(double dt) {
         double current = 0;
-        for (MotorUnit u : motors.values()) current += u.currentAmps();
+        for (MotorUnit u : motors.values()) current += u.batteryAmps();
+        current = Math.max(0, current);   // (the battery isn't charged by motors pushing current back)
         double target = BATTERY_OPEN_CIRCUIT_V - BATTERY_RESISTANCE_OHM * current;
         batteryVolts += (target - batteryVolts) * Math.min(1, dt / 0.03);
         batteryVolts = Math.max(7.0, batteryVolts);

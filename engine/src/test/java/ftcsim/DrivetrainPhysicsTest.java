@@ -198,6 +198,31 @@ class DrivetrainPhysicsTest {
     }
 
     @Test
+    void theBatterySagsUnderLoadButNotWhileTheMotorsBrake() throws Exception {
+        RobotRig rig = mecanum();
+        run(rig, 0.2);
+        double rest = rig.batteryVolts();
+        drive(rig, 1, 1, 1, 1);
+        run(rig, 0.1);
+        double accelerating = rig.batteryVolts();
+        run(rig, 0.9);
+        double cruising = rig.batteryVolts();
+        // Full speed to power 0 on BRAKE: the motors short their windings, and that current only
+        // circulates through the hub's H-bridges.
+        drive(rig, 0, 0, 0, 0);
+        double braking = Double.MAX_VALUE;
+        for (int i = 0; i < 300; i++) {
+            rig.step(DT);
+            braking = Math.min(braking, rig.batteryVolts());
+        }
+        System.out.printf("battery: rest %.2f V, accelerating %.2f V, cruising %.2f V, lowest while braking %.2f V%n",
+                rest, accelerating, cruising, braking);
+        assertTrue(accelerating < rest - 0.3, "four motors starting up pull the battery down");
+        assertTrue(cruising > accelerating, "less current at speed");
+        assertTrue(braking > cruising - 0.02, "braking draws nothing from the battery");
+    }
+
+    @Test
     void wheelsChainedToOneMotorShareItsRotor() throws Exception {
         RobotConfig cfg = RobotConfig.load(Path.of("robots/tank.json"));
         RobotRig rig = rig(cfg);
