@@ -2,9 +2,11 @@ package ftcsim.runner;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -136,7 +138,17 @@ public final class TeamCodeFiles {
         }
         if (body.length > MAX_BYTES) throw new Refused(413, path + " is too big to save here");
         Files.createDirectories(file.getParent());
-        Files.write(file, body);
+        if (old == null) {
+            // A new file is created, never written through something that turned up meanwhile
+            // (a file, or a link pointing out of the source folder).
+            try {
+                Files.write(file, body, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            } catch (FileAlreadyExistsException e) {
+                throw new Refused(409, path + " already exists", null);
+            }
+        } else {
+            Files.write(file, body);
+        }
         return new Saved(file, hash(body));
     }
 
@@ -166,6 +178,8 @@ public final class TeamCodeFiles {
     private Path writable(Root r, String path) throws Refused, IOException {
         Path file = inside(r, path);
         if (Files.exists(file)) return existing(r, path);
+        // A link to nothing: writing the "new" file would create the link's target, wherever it points.
+        if (Files.isSymbolicLink(file)) throw new Refused(403, path + " is a link to a file that doesn't exist");
         String[] parts = path.replace('\\', '/').split("/");
         for (int i = 0; i < parts.length; i++) {
             String name = i == parts.length - 1 ? parts[i].substring(0, parts[i].length() - ".java".length()) : parts[i];

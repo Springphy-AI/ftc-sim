@@ -60,6 +60,21 @@ class CodeEditorTest {
     }
 
     @Test
+    void aNewFileIsNeverWrittenThroughALinkToNothing() throws Exception {
+        Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
+        Path outside = Files.createDirectories(tmp.resolve("outside")).resolve("escaped.txt");
+        try {
+            Files.createSymbolicLink(teamCode.resolve("Escape.java"), outside);   // its target doesn't exist
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "no symbolic links here: " + e);
+        }
+        TeamCodeFiles f = files(teamCode, Files.createDirectories(tmp.resolve("samples")));
+        TeamCodeFiles.Refused e = assertThrows(TeamCodeFiles.Refused.class, () -> f.write(0, "Escape.java", "class Escape {}\n", null));
+        assertEquals(403, e.status);
+        assertFalse(Files.exists(outside), "nothing was written outside the source folder");
+    }
+
+    @Test
     void aTeamsCopyOfASampleThatKeepsItsClassNameIsTheTeamsOwn() throws Exception {
         // FIRST's instructions: copy a sample into TeamCode and remove @Disabled. Many teams keep its name.
         Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java").resolve(PKG));
