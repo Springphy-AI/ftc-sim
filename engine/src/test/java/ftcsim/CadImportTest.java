@@ -157,6 +157,32 @@ class CadImportTest {
         sameWheels(upright, m);
     }
 
+    /** The example's wheels, each named for where it is (FL Wheel...), as a CAD whose wheels aren't found by name would be listed. */
+    private static List<MeshPart> namedWheels(List<MeshPart> cad) {
+        double[] all = MeshPart.emptyBounds();   // the wheels' middle: the CAD's origin is elsewhere
+        for (MeshPart p : cad) if (p.path().contains("Mecanum Wheel")) p.addBounds(all);
+        double mx = (all[0] + all[3]) / 2, my = (all[1] + all[4]) / 2;
+        return cad.stream().map(p -> {
+            if (!p.path().contains("Mecanum Wheel")) return p;
+            double[] b = p.bounds();   // forward +y, up +z: left is -x
+            String where = ((b[1] + b[4]) / 2 > my ? "F" : "B") + ((b[0] + b[3]) / 2 < mx ? "L" : "R");
+            return new MeshPart("Robot/" + where + " Pod/" + p.name(), p.rgb(), p.positions(), p.indices());
+        }).collect(Collectors.toList());
+    }
+
+    @Test
+    void listedWheelsShowWhichWayTheRobotFacesToo(@TempDir Path dir) throws Exception {
+        List<MeshPart> cad = namedWheels(exampleParts());
+        String listed = "{ \"file\": \"FILE\", \"wheels\": { \"front_left\": \"FL Pod*\", \"front_right\": \"FR Pod*\","
+                + " \"back_left\": \"BL Pod*\", \"back_right\": \"BR Pod*\" } }";
+        RobotModel upright = stepRobot(dir, "listed", cad, listed).model();
+        // Exported y-up: the listed wheels say up is +y (it was taken as +z, a guess, and the robot lay on its side).
+        double[] yUp = Geom3.transform(Geom3.axisAngle(new double[]{1, 0, 0}, -Math.PI / 2), new double[]{0.1, 0.2, -0.3});
+        RobotModel m = stepRobot(dir, "listed-y-up", transformed(cad, yUp), listed).model();
+        assertTrue(m.notes.stream().anyMatch(n -> n.contains("up is CAD +y (from the wheels)")), m.notes.toString());
+        sameWheels(upright, m);
+    }
+
     @Test
     void aLinkNeedsLittleMoreThanItsNameAndDevice(@TempDir Path dir) throws Exception {
         RobotModel listed = load("mecanum-cad.json").model();

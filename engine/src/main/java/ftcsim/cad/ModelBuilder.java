@@ -165,8 +165,21 @@ public final class ModelBuilder {
         List<Integer> free = new ArrayList<>();
         for (int i = 0; i < raw.size(); i++) if (!owner.containsKey(i)) free.add(i);
 
-        // which way the robot faces: as the robot file says, or worked out from the wheels and names
-        List<AutoDetect.Wheel> wheelSets = cad.wheels == null ? AutoDetect.wheels(raw, free) : List.of();
+        // which way the robot faces: as the robot file says, or worked out from the wheels and names.
+        // Wheels the robot file lists (by name, whichever way the CAD is turned) show it as well as
+        // wheels found would: the robot file says to list them when they aren't found.
+        Map<String, List<Integer>> listed = cad.wheels == null ? null : listedWheels(new ArrayList<>(free), i -> raw.get(i).path());
+        List<AutoDetect.Wheel> wheelSets;
+        if (listed == null) {
+            wheelSets = AutoDetect.wheels(raw, free);
+        } else {
+            wheelSets = new ArrayList<>();
+            for (List<Integer> ix : listed.values()) {
+                double[] b = MeshPart.emptyBounds();
+                for (int i : ix) raw.get(i).addBounds(b);
+                wheelSets.add(new AutoDetect.Wheel(ix, b));
+            }
+        }
         String forward = given(cad.forward), up = given(cad.up);
         if (forward == null || up == null) {
             AutoDetect.Axes ax = AutoDetect.orient(raw, wheelSets, forward, up);
@@ -181,8 +194,8 @@ public final class ModelBuilder {
 
         // wheels
         Map<String, List<Integer>> wheelParts = new LinkedHashMap<>();
-        if (cad.wheels != null) {
-            wheelParts = listedWheels(new ArrayList<>(free), i -> parts.get(i).path());
+        if (listed != null) {
+            wheelParts = listed;
         } else {
             List<AutoDetect.Wheel> drive = AutoDetect.onTheFloor(wheelSets, parts);
             for (Map.Entry<String, List<AutoDetect.Wheel>> e : placeWheels(drive, AutoDetect.Wheel::center).entrySet()) {
