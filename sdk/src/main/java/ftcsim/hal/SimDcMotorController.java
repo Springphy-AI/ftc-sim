@@ -59,6 +59,9 @@ public final class SimDcMotorController implements DcMotorControllerEx {
         if (p.mode != mode) {
             p.mode = mode;
             p.modeGeneration++;
+            // The hub's controller sends the last power again after a mode change, so a velocity
+            // command doesn't carry over into the new mode.
+            p.velocityCommand = false;
         }
     }
 
@@ -172,9 +175,16 @@ public final class SimDcMotorController implements DcMotorControllerEx {
     public void setMotorVelocity(int motor, double ticksPerSecond) {
         MotorPort p = port(motor);
         if (!writable()) return;
+        // As the hub's controller does (LynxDcMotorController.setMotorVelocity): a velocity is held
+        // with the encoder, so a motor in RUN_WITHOUT_ENCODER or STOP_AND_RESET_ENCODER switches to
+        // RUN_USING_ENCODER first, and the command enables a disabled motor.
+        if (p.mode != DcMotor.RunMode.RUN_USING_ENCODER && p.mode != DcMotor.RunMode.RUN_TO_POSITION) {
+            setMotorMode(motor, DcMotor.RunMode.RUN_USING_ENCODER);
+        }
         Latency.command();
         p.velocityTarget = ticksPerSecond;
         p.velocityCommand = true;
+        p.enabled = true;
     }
 
     @Override

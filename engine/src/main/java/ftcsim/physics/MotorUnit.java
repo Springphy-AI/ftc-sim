@@ -104,10 +104,9 @@ public final class MotorUnit {
                 return pidf(port.velocityPidf, target, measuredTps, dt);
             }
             case RUN_WITHOUT_ENCODER:
-            default: {
-                double duty = velocity ? (maxTps > 0 ? port.velocityTarget / maxTps : 0) : power;
-                return duty == 0 ? zeroPower() : duty;
-            }
+            default:
+                // (no velocity command here: setVelocity switches to RUN_USING_ENCODER, and a mode change drops it)
+                return power == 0 ? zeroPower() : power;
         }
     }
 
