@@ -30,6 +30,19 @@ public final class OpModeSession {
 
     private static final OpModeAccess ACCESS = OpModeAccess.get();
 
+    /** The session whose OpMode the calling thread belongs to: its OpMode thread and every thread that starts. */
+    private static final InheritableThreadLocal<OpModeSession> CURRENT = new InheritableThreadLocal<OpModeSession>();
+
+    /**
+     * Called by every hardware call ({@link Latency}). In an OpMode STOP gave up on, it throws the
+     * SDK's ForceStopException, which unwinds a loop that ignores isStopRequested() as soon as it
+     * touches the hardware (as the SDK unwinds a stuck OpMode's hardware calls).
+     */
+    static void checkStillRunning() {
+        OpModeSession s = CURRENT.get();
+        if (s != null && s.abandoned) throw new OpModeManagerImpl.ForceStopException();
+    }
+
     private final String name;
     private final OpMode opMode;
     private final RobotContext robot;
@@ -41,6 +54,8 @@ public final class OpModeSession {
     private volatile boolean stopRequested = false;
     private volatile Throwable error = null;
     private volatile boolean stuck = false;
+    /** STOP gave up on this OpMode's thread (see {@link #abandon()}). */
+    private volatile boolean abandoned = false;
     private Thread thread;
     /** This OpMode's own cleanups (VisionPortals...), run when its thread ends. */
     private List<Runnable> stopHooks;
@@ -116,6 +131,7 @@ public final class OpModeSession {
             @Override
             public void run() {
                 if (robot != null) robot.enter();
+                CURRENT.set(OpModeSession.this);
                 runOpModeThread();
             }
         }, "OpMode " + name);
@@ -158,9 +174,23 @@ public final class OpModeSession {
         }
         if (thread.isAlive()) {
             stuck = true;
+            abandon();
             return false;
         }
         return true;
+    }
+
+    /**
+     * The OpMode's thread ignores STOP and Java can't kill it, so it lets go of the robot instead:
+     * its next hardware call throws ({@link #checkStillRunning()}), its cleanups run now (a
+     * VisionPortal's camera stops), and it gets gamepads of its own, so a loop still polling
+     * gamepad1.aWasPressed() doesn't take the presses meant for the next OpMode.
+     */
+    private void abandon() {
+        abandoned = true;
+        opMode.gamepad1 = new Gamepad();
+        opMode.gamepad2 = new Gamepad();
+        if (stopHooks != null) RobotContext.runOpModeStopHooks(stopHooks);
     }
 
     private void markStopRequested() {

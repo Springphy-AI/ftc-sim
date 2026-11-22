@@ -18,12 +18,17 @@ public final class Latency {
     private Latency() {
     }
 
+    // Every hardware call comes through here, which is where an OpMode STOP gave up on gets unwound
+    // (OpModeSession.checkStillRunning).
+
     public static void command() {
+        OpModeSession.checkStillRunning();
         RobotContext c = RobotContext.current();
         spin(c == null ? commandNanos : c.commandNanos);
     }
 
     public static void i2c() {
+        OpModeSession.checkStillRunning();
         RobotContext c = RobotContext.current();
         spin(c == null ? i2cNanos : c.i2cNanos);
     }
