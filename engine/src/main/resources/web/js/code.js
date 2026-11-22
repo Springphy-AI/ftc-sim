@@ -155,6 +155,11 @@ export class CodeEditor {
           { key: 'Mod-Enter', run: () => { this.run(); return true; } },
         ])),
         keymap.of([indentWithTab]),
+        // A file dropped on the editor is a robot's CAD for the page to import (main.js takes the
+        // drop on the window), not text for this Java file: CodeMirror's own drop handler would
+        // read even a large STEP file into it. Handled here, that one doesn't run; the drop still
+        // reaches the window.
+        EditorView.domEventHandlers({ drop: (e) => (e.dataTransfer?.files?.length ?? 0) > 0 }),
         java(),
         lintGutter(),
         indentUnit.of('    '),
