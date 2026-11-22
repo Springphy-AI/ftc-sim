@@ -506,6 +506,7 @@ public final class RobotRig {
         for (PinpointMount pm : pinpoints) pm.backend.powerCycle();
         for (OtosMount om : otoses) om.backend.powerCycle();
         for (MotorUnit u : motors.values()) u.resetState();
+        imu.yawOffsetRad = 0;
         captureImuReference();
     }
 

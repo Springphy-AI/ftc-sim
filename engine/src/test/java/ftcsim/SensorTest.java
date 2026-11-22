@@ -8,8 +8,10 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.junit.jupiter.api.Test;
 
+import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.IMU;
 
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.HalSession;
@@ -30,6 +32,40 @@ class SensorTest {
         Latency.i2cNanos = 0;
         rig.place(0, -1.0, 0);
         hardwareMap = rig.createHardwareMap(new HalSession());
+    }
+
+    /** Turns the robot to {@code deg} without moving the IMU's power-on reference (as driving there would). */
+    private void turnTo(double deg) {
+        rig.body.place(0, -1.0, Math.toRadians(deg));
+        for (int i = 0; i < 5; i++) rig.step(0.001);
+    }
+
+    private IMU imu(HardwareMap map) {
+        IMU imu = map.get(IMU.class, "imu");
+        imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(
+                RevHubOrientationOnRobot.LogoFacingDirection.UP, RevHubOrientationOnRobot.UsbFacingDirection.FORWARD)));
+        return imu;
+    }
+
+    private static double yaw(IMU imu) {
+        return imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.DEGREES);
+    }
+
+    @Test
+    void resetYawCarriesOverToTheNextOpModeUntilAPowerCycle() {
+        turnTo(30);
+        IMU first = imu(hardwareMap);
+        assertEquals(30, yaw(first), 0.5);
+        first.resetYaw();
+        assertEquals(0, yaw(first), 0.5);
+        // The next OpMode initializes the IMU again: the zero the driver set stays, as on the robot.
+        rig.resetForOpMode();
+        IMU next = imu(rig.createHardwareMap(new HalSession()));
+        assertEquals(0, yaw(next), 0.5);
+        // Turning the robot off and on clears it.
+        rig.powerCycle();
+        turnTo(60);
+        assertEquals(30, yaw(imu(rig.createHardwareMap(new HalSession()))), 0.5);
     }
 
     @Test

@@ -22,6 +22,12 @@ public final class ImuBackend {
 
     /** How the hub is physically mounted (hub axes in robot coordinates). */
     public final double[][] hubToRobot;
+    /**
+     * IMU.resetYaw()'s offset (radians). The Control Hub's IMU object lives as long as the robot
+     * app, so it carries over from one OpMode to the next (initialize() leaves it); a power cycle
+     * clears it.
+     */
+    public volatile double yawOffsetRad = 0;
     private volatile State state = new State(Rotations.identity(), new double[]{0, 0, 0}, System.nanoTime());
 
     public ImuBackend(double[][] hubToRobot) {

@@ -24,7 +24,6 @@ import ftcsim.hal.Rotations;
 public class BHI260IMU implements IMU {
     private final ImuBackend backend;
     private volatile double[][] assumedHubToRobot = Rotations.identity();
-    private volatile double yawOffsetRad = 0;
 
     public BHI260IMU(ImuBackend backend) {
         this.backend = backend;
@@ -36,8 +35,7 @@ public class BHI260IMU implements IMU {
         ImuOrientationOnRobot o = parameters.imuOrientationOnRobot;
         Quaternion q = o.imuCoordinateSystemOrientationFromPerspectiveOfRobot();
         assumedHubToRobot = Rotations.fromQuaternion(q.w, q.x, q.y, q.z);
-        yawOffsetRad = 0;
-        return true;
+        return true;   // (resetYaw's offset stays, as FIRST's initialize leaves it)
     }
 
     /** Robot orientation as the IMU believes it (before yaw reset). */
@@ -47,7 +45,7 @@ public class BHI260IMU implements IMU {
     }
 
     private double[][] reportedRobotToWorld(ImuBackend.State s) {
-        return Rotations.multiply(Rotations.axis(2, -yawOffsetRad), believedRobotToWorld(s));
+        return Rotations.multiply(Rotations.axis(2, -backend.yawOffsetRad), believedRobotToWorld(s));
     }
 
     @Override
@@ -55,7 +53,7 @@ public class BHI260IMU implements IMU {
         Latency.i2c();
         double[][] m = believedRobotToWorld(backend.get());
         double[] ypr = Rotations.toEuler(m, AxesReference.INTRINSIC, AxesOrder.ZXY);
-        yawOffsetRad = ypr[0];
+        backend.yawOffsetRad = ypr[0];
     }
 
     @Override
