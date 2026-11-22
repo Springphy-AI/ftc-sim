@@ -299,6 +299,13 @@ function onMessage(msg) {
       robots = msg.robots;
       robotFiles = msg.robotFiles;
       if (current >= robots.length) current = locked !== null ? robots.length - 1 : 0;
+      // A ?robot=N page for a robot that isn't on the field (the simulator restarted with fewer)
+      // shows the last one but drives nothing: that robot has a driver of its own.
+      if (locked !== null && locked >= robots.length) {
+        setConnection(false, `Robot ${locked + 1} isn't on the field: ${robots.length} robot${robots.length === 1 ? ' is' : 's are'}`);
+      } else if (locked !== null) {
+        setConnection(true, 'Connected');
+      }
       view.setField(msg.field, msg.season);
       setSeason(msg.season, msg.actions);
       view.setRobots(robots);
@@ -308,7 +315,7 @@ function onMessage(msg) {
       ds.setMulti(robots.length > 1 && locked === null);
       code.setRobots(robots.length);
       deploy.setRobots(robots.length);
-      input.setRobots(robots.length, current, locked === null ? null : current);
+      input.setRobots(robots.length, current, locked);
       showRobot(current);
       checkCad();
       break;

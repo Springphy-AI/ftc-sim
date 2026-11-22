@@ -77,9 +77,9 @@ export class InputManager {
     this.emit();
   }
 
-  /** Robots this page sends gamepad input for. */
+  /** Robots this page sends gamepad input for: none when its ?robot=N isn't on the field. */
   activeRobots() {
-    if (this.locked !== null) return [this.locked];
+    if (this.locked !== null) return this.locked < this.robotCount ? [this.locked] : [];
     return Array.from({ length: this.robotCount }, (_, i) => i);
   }
 
