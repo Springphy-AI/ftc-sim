@@ -193,6 +193,25 @@ class PhysicsLoopTest {
     }
 
     @Test
+    void aResetWhileAnOpModeIsBeingCreatedIsRefused(@TempDir Path dir) throws Exception {
+        writeSlowOpMode(dir);
+        Simulator sim = start(dir);
+        try {
+            Thread init = initInBackground(sim);
+            Thread.sleep(300);
+            sim.handle("{\"type\":\"reset\"}");   // the power cycle would wipe what the OpMode's init() sets
+            long deadline = System.currentTimeMillis() + 2000;
+            while (sim.lastError() == null && System.currentTimeMillis() < deadline) Thread.sleep(20);
+            assertTrue(String.valueOf(sim.lastError()).contains("Stop the OpMode before resetting"), String.valueOf(sim.lastError()));
+            init.join(5000);
+            assertEquals(Simulator.DsState.INIT, sim.dsState());
+            sim.handle("{\"type\":\"stop\"}");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
+    @Test
     void whatATaskOnThePhysicsThreadThrowsReachesItsCaller(@TempDir Path dir) throws Exception {
         Simulator sim = start(dir);
         try {

@@ -411,17 +411,25 @@ public final class Simulator {
 
     /** Every robot power-cycled and back at its start, game pieces staged for a new MATCH. */
     private void resetField(SimRobot requester) {
-        List<String> busy = robots.stream().filter(r -> !r.isIdle()).map(SimRobot::label).collect(Collectors.toList());
-        if (!busy.isEmpty()) {
-            requester.setError(robots.size() == 1 ? "Stop the OpMode before resetting the robot."
-                    : "Stop every robot's OpMode before resetting the field (" + String.join(" and ", busy)
-                    + (busy.size() == 1 ? " is" : " are") + " still running).");
-            return;
-        }
-        post(() -> {
+        // Checked and done on the physics thread holding every robot's lock, so no INIT can come in
+        // between and have the power cycle wipe the modes and PIDF its init() just set.
+        post(() -> holdingEveryRobot(0, () -> {
+            List<String> busy = robots.stream().filter(r -> !r.isIdle()).map(SimRobot::label).collect(Collectors.toList());
+            if (!busy.isEmpty()) {
+                requester.setError(robots.size() == 1 ? "Stop the OpMode before resetting the robot."
+                        : "Stop every robot's OpMode before resetting the field (" + String.join(" and ", busy)
+                        + (busy.size() == 1 ? " is" : " are") + " still running).");
+                return;
+            }
             for (SimRobot r : robots) r.resetOnPhysicsThread();
             elements.restage();
-        });
+        }));
+    }
+
+    /** Runs {@code task} holding the locks of robots {@code from} on, taken in robot order. */
+    private void holdingEveryRobot(int from, Runnable task) {
+        if (from == robots.size()) task.run();
+        else robots.get(from).holding(() -> holdingEveryRobot(from + 1, task));
     }
 
     static String describe(Throwable t) {

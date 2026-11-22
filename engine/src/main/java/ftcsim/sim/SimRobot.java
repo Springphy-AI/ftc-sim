@@ -988,8 +988,18 @@ public final class SimRobot {
         }
     }
 
+    /** No OpMode running, stopping, or being created for an INIT. */
     public boolean isIdle() {
-        return dsState() == DsState.IDLE;
+        synchronized (lock) {
+            return state == DsState.IDLE && !constructing;
+        }
+    }
+
+    /** Runs {@code task} holding this robot's lock: nothing can INIT it meanwhile. */
+    void holding(Runnable task) {
+        synchronized (lock) {
+            task.run();
+        }
     }
 
     public String lastError() {
