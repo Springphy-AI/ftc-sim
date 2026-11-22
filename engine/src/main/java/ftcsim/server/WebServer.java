@@ -138,11 +138,10 @@ public final class WebServer {
                 ws.onMessage(ctx -> {
                     if (clients.stream().anyMatch(c -> c.ctx.sessionId().equals(ctx.sessionId()))) sim.handle(ctx.message());
                 });
-                ws.onClose(ctx -> {
-                    boolean wasClient = clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId()));
-                    if (wasClient && clients.isEmpty()) sim.onAllClientsDisconnected();
-                });
-                ws.onError(ctx -> clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId())));
+                // A page that loses its connection without closing it (a crashed tab, a laptop that
+                // went to sleep, a dropped network) shows up as an error, not a close.
+                ws.onClose(this::clientGone);
+                ws.onError(this::clientGone);
             });
         });
         app.start("127.0.0.1", port);
@@ -151,6 +150,12 @@ public final class WebServer {
 
     public void stop() {
         if (app != null) app.stop();
+    }
+
+    /** A page closed or lost its connection: when it was the last one, every OpMode stops, as when a robot loses its Driver Station. */
+    private void clientGone(WsContext ctx) {
+        boolean wasClient = clients.removeIf(c -> c.ctx.sessionId().equals(ctx.sessionId()));
+        if (wasClient && clients.isEmpty()) sim.onAllClientsDisconnected();
     }
 
     // ---- CAD models ----------------------------------------------------------------------------------
