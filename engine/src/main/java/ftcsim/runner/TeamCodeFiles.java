@@ -88,7 +88,14 @@ public final class TeamCodeFiles {
         Path file = existing(r, path);
         byte[] bytes = Files.readAllBytes(file);
         if (bytes.length > MAX_BYTES) throw new Refused(413, path + " is too big to edit here");
-        String text = new String(bytes, StandardCharsets.UTF_8);
+        String text;
+        try {
+            // Strictly: saving what a lenient decoder made of other bytes would write U+FFFD over them.
+            text = StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            throw new Refused(422, path + " isn't UTF-8 text, so it can't be edited here without changing it. "
+                    + "Save it as UTF-8 in Android Studio (which builds TeamCode as UTF-8 too).");
+        }
         if (text.startsWith("﻿")) text = text.substring(1);
         return new Content(text, hash(bytes), r.readOnly());
     }

@@ -115,6 +115,9 @@ public final class TeamCodeCompiler {
                     int g = internals.start(1) >= 0 ? 1 : 2;
                     problems.add(problem(f, src, internals.start(g), internals.end(g), why));
                 }
+            } catch (java.nio.charset.CharacterCodingException e) {
+                active.remove(f);
+                skipped.add(new Skipped(display(f), "not UTF-8 text: javac reads TeamCode as UTF-8, for the robot too; save it as UTF-8"));
             } catch (IOException e) {
                 active.remove(f);
                 skipped.add(new Skipped(display(f), "unreadable: " + e.getMessage()));

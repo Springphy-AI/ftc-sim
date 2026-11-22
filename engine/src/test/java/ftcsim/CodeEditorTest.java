@@ -60,6 +60,24 @@ class CodeEditorTest {
     }
 
     @Test
+    void aFileThatIsntUtf8IsLeftAsItIs() throws Exception {
+        Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
+        byte[] latin1 = "// café\nclass Latin1 { String s = \"résumé\"; }\n".getBytes(StandardCharsets.ISO_8859_1);
+        Files.write(teamCode.resolve("Latin1.java"), latin1);
+        TeamCodeFiles f = files(teamCode, Files.createDirectories(tmp.resolve("samples")));
+        TeamCodeFiles.Refused e = assertThrows(TeamCodeFiles.Refused.class, () -> f.read(0, "Latin1.java"));
+        assertEquals(422, e.status);
+        assertTrue(e.getMessage().contains("UTF-8"), e.getMessage());
+        assertTrue(java.util.Arrays.equals(latin1, Files.readAllBytes(teamCode.resolve("Latin1.java"))), "untouched");
+        // The build says why it leaves it out (javac reads TeamCode as UTF-8 on the robot too).
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(teamCode, false)),
+                Files.createDirectories(tmp.resolve("out")));
+        var skipped = compiler.compile().skipped();
+        assertEquals(1, skipped.size());
+        assertTrue(skipped.get(0).reason().contains("not UTF-8"), skipped.get(0).reason());
+    }
+
+    @Test
     void theLastTwoBuildsAreKeptAndOlderOnesDeleted() throws Exception {
         Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java").resolve(PKG));
         Files.writeString(teamCode.resolve("EditorTest.java"), OPMODE);
