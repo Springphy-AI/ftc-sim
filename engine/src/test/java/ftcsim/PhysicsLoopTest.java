@@ -26,6 +26,7 @@ class PhysicsLoopTest {
 
     private final List<String> messages = new CopyOnWriteArrayList<>();
     private final AtomicReference<String> lastState = new AtomicReference<>();
+    private final AtomicReference<String> lastDevices = new AtomicReference<>();
 
     private Simulator start(Path teamCode) throws Exception {
         Path home = Path.of("").toAbsolutePath();
@@ -42,6 +43,7 @@ class PhysicsLoopTest {
             @Override
             public void broadcastState(String json) {
                 if (json.startsWith("{\"type\":\"state\"")) lastState.set(json);
+                if (json.startsWith("{\"type\":\"devices\"")) lastDevices.set(json);
             }
         });
         sim.start();
@@ -206,6 +208,22 @@ class PhysicsLoopTest {
             init.join(5000);
             assertEquals(Simulator.DsState.INIT, sim.dsState());
             sim.handle("{\"type\":\"stop\"}");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
+    @Test
+    void theDevicePanelIsToldWhatHasNoValue(@TempDir Path dir) throws Exception {
+        Simulator sim = start(dir);
+        try {
+            long deadline = System.currentTimeMillis() + 2000;
+            while (lastDevices.get() == null && System.currentTimeMillis() < deadline) Thread.sleep(20);
+            String devices = lastDevices.get();
+            // No motor is commanding a velocity: the page shows their powers, and needs to see that the
+            // velocity is null rather than missing (and an out-of-range sensor as null, not gone).
+            assertTrue(devices.contains("\"velocityTarget\":null"), devices);
+            assertTrue(devices.contains("\"sensor_distance\":"), "the distance sensor is listed, in range or not: " + devices);
         } finally {
             sim.shutdown();
         }

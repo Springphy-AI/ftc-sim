@@ -63,6 +63,8 @@ public final class Simulator {
     static final double DT = 0.001;
     static final double AUTO_PERIOD_S = 30.0;
     static final Gson GSON = new GsonBuilder().serializeSpecialFloatingPointValues().create();
+    /** For the device panel, whose nulls mean something: no power (a velocity is commanded), out of range... */
+    private static final Gson GSON_WITH_NULLS = new GsonBuilder().serializeSpecialFloatingPointValues().serializeNulls().create();
 
     final FieldModel field;
     final Path robotsDir;
@@ -527,7 +529,7 @@ public final class Simulator {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "devices");
         m.put("robots", robots.stream().map(SimRobot::devices).collect(Collectors.toList()));
-        output.broadcastState(GSON.toJson(m));
+        output.broadcastState(GSON_WITH_NULLS.toJson(m));
     }
 
     // ---- read-only views (tests and tools) ---------------------------------------------------------

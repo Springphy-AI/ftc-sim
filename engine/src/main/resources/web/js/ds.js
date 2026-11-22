@@ -560,16 +560,17 @@ export class DriverStation {
     };
     const fmt = (v, n = 2) => (v === null || v === undefined ? '–' : Number(v).toFixed(n));
     $('motorTable').tBodies[0].innerHTML = d.motors.map((m) => {
-      const power = m.power !== null ? `${bar(m.power)}${fmt(m.power)}` : `${bar(m.duty)}v ${m.velocityTarget}`;
-      const target = m.target !== null && m.mode === 'RUN_TO_POSITION' ? ` → ${m.target}` : '';
+      // (== null: a missing value counts as null too)
+      const power = m.power != null ? `${bar(m.power)}${fmt(m.power)}` : `${bar(m.duty)}v ${m.velocityTarget}`;
+      const target = m.target != null && m.mode === 'RUN_TO_POSITION' ? ` → ${m.target}` : '';
       const mode = { RUN_WITHOUT_ENCODER: 'NO_ENC', RUN_USING_ENCODER: 'USING_ENC', RUN_TO_POSITION: 'TO_POS', STOP_AND_RESET_ENCODER: 'RESET' }[m.mode] || m.mode;
       return `<tr title="${esc(m.hub)} motor port ${m.port}, ${esc(m.zpb)}"><td>${esc(m.name)}</td><td>${mode}</td><td>${power}</td><td>${m.pos}${target}</td><td>${m.vel}</td><td>${fmt(m.amps, 1)}</td></tr>`;
     }).join('');
     $('servoTable').tBodies[0].innerHTML = d.servos.map((s) =>
-      `<tr title="${esc(s.hub)} servo port ${s.port}"><td>${esc(s.name)}${s.continuous ? ' (CR)' : ''}</td><td>${s.pos === null ? '–' : fmt(s.pos, 3)}</td><td>${fmt(s.angle, 1)}°</td><td>${s.pwm ? 'on' : 'off'}</td></tr>`).join('');
+      `<tr title="${esc(s.hub)} servo port ${s.port}"><td>${esc(s.name)}${s.continuous ? ' (CR)' : ''}</td><td>${s.pos == null ? '–' : fmt(s.pos, 3)}</td><td>${fmt(s.angle, 1)}°</td><td>${s.pwm ? 'on' : 'off'}</td></tr>`).join('');
     $('sensorTable').tBodies[0].innerHTML = Object.entries(d.sensors).map(([name, v]) => {
       let text;
-      if (v === null) text = 'out of range';
+      if (v == null) text = 'out of range';
       else if (typeof v === 'boolean') text = v ? 'pressed' : 'released';
       else if (typeof v === 'number') text = `${(v * 100).toFixed(1)} cm`;
       else if (Array.isArray(v) && v.length === 4) text = `r ${v[0].toFixed(3)} g ${v[1].toFixed(3)} b ${v[2].toFixed(3)} a ${v[3].toFixed(3)}`;
