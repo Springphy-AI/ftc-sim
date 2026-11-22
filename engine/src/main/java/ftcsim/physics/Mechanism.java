@@ -129,6 +129,16 @@ public final class Mechanism {
         position = joint.position();
     }
 
+    /**
+     * Back where it starts, at rest (a Reset): an arm at its start angle, a slide retracted, a
+     * roller or flywheel still. A CAD joint's link is put back by the robot's body, and its
+     * position is read from it after every step.
+     */
+    public void reset() {
+        omegaMotor = 0;
+        if (joint == null) position = "arm".equals(load.kind) ? Math.toRadians(load.startDeg) : 0;
+    }
+
     /** Mechanism coordinate: radians (roller/flywheel/arm) or meters (slide). */
     public double position() {
         return position;

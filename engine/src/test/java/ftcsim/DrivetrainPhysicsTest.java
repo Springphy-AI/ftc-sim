@@ -18,6 +18,7 @@ import ftcsim.config.RobotConfig;
 import ftcsim.hal.Latency;
 import ftcsim.hal.MotorPort;
 import ftcsim.physics.FieldModel;
+import ftcsim.physics.Mechanism;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.physics.RobotBody;
 import ftcsim.sim.RobotRig;
@@ -220,6 +221,20 @@ class DrivetrainPhysicsTest {
         assertTrue(accelerating < rest - 0.3, "four motors starting up pull the battery down");
         assertTrue(cruising > accelerating, "less current at speed");
         assertTrue(braking > cruising - 0.02, "braking draws nothing from the battery");
+    }
+
+    @Test
+    void aResetPutsTheArmBackWhereItsEncoderSaysItIs() throws Exception {
+        RobotRig rig = rig(RobotConfig.load(Path.of("robots/tank.json")));
+        Mechanism arm = rig.mechanisms.stream().filter(m -> m.device.name.equals("left_arm")).findFirst().orElseThrow();
+        port(rig, "left_arm").power = 1;
+        run(rig, 2.0);
+        assertEquals(120, Math.toDegrees(arm.position()), 1, "raised to its stop");
+        port(rig, "left_arm").power = 0;
+        rig.powerCycle();   // what Reset does, with the robot back at its start
+        run(rig, 0.2);
+        assertEquals(0, port(rig, "left_arm").encoderPosition(), "the encoder starts from 0");
+        assertEquals(-35, Math.toDegrees(arm.position()), 0.5, "and the arm from its start angle (it stayed raised before)");
     }
 
     @Test
