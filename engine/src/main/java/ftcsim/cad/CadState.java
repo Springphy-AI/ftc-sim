@@ -104,6 +104,12 @@ public final class CadState {
         } catch (IOException | RuntimeException e) {
             String why = e.getMessage() == null ? e.toString() : e.getMessage();
             return new CadState(Status.ERROR, "Can't use " + name + ": " + why, null, file, null, null);
+        } catch (OutOfMemoryError e) {
+            // A huge conversion: the robot falls back on its robot file's numbers instead of the
+            // simulator failing to start.
+            return new CadState(Status.ERROR, "Can't use " + name + ": it needs more memory than Java has ("
+                    + Runtime.getRuntime().maxMemory() / (1 << 20) + " MB). Simplify the CAD model, or give Java more.",
+                    null, file, null, null);
         }
     }
 }

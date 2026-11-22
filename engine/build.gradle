@@ -179,7 +179,9 @@ def aprilTagNatives = rootProject.file("natives/apriltag/${rootProject.simPlatfo
 application {
     mainClass = 'ftcsim.Main'
     applicationName = 'ftc-sim'
-    applicationDefaultJvmArgs = ['-Djava.library.path=__APP_HOME__/natives']
+    // Up to half the computer's memory (Java's default is a quarter): reading a large robot CAD
+    // conversion takes a few times its size while it is turned into the robot.
+    applicationDefaultJvmArgs = ['-Djava.library.path=__APP_HOME__/natives', '-XX:MaxRAMPercentage=50']
 }
 
 distributions {
