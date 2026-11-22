@@ -122,6 +122,76 @@ class PhysicsLoopTest {
         }
     }
 
+    /** An OpMode whose field initializer takes 2 s, as building a big lookup table might. */
+    private static void writeSlowOpMode(Path dir) throws Exception {
+        Path pkg = Files.createDirectories(dir.resolve("org/firstinspires/ftc/teamcode"));
+        Files.writeString(pkg.resolve("SlowToCreate.java"), """
+                package org.firstinspires.ftc.teamcode;
+
+                import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+                import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+                @TeleOp(name = "Slow to create")
+                public class SlowToCreate extends LinearOpMode {
+                    private final long table = build();
+
+                    private static long build() {
+                        long end = System.nanoTime() + 2_000_000_000L;
+                        long n = 0;
+                        while (System.nanoTime() < end) n++;
+                        return n;
+                    }
+
+                    @Override
+                    public void runOpMode() {
+                        waitForStart();
+                        while (opModeIsActive()) idle();
+                    }
+                }
+                """);
+    }
+
+    private static Thread initInBackground(Simulator sim) {
+        Thread init = new Thread(() -> sim.handle("{\"type\":\"init\",\"opmode\":\"Slow to create\"}"), "test INIT");
+        init.start();
+        return init;
+    }
+
+    @Test
+    void aSlowOpModeConstructorDoesNotStopTheField(@TempDir Path dir) throws Exception {
+        writeSlowOpMode(dir);
+        Simulator sim = start(dir);
+        try {
+            Thread init = initInBackground(sim);
+            Thread.sleep(200);
+            assertTrue(init.isAlive(), "the constructor is still running");
+            assertFieldMoves("while the OpMode's constructor runs");
+            assertEquals(Simulator.DsState.IDLE, sim.dsState(), "the Driver Station answers meanwhile");
+            init.join(5000);
+            assertEquals(Simulator.DsState.INIT, sim.dsState(), sim.lastError());
+            sim.handle("{\"type\":\"stop\"}");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
+    @Test
+    void stopWhileTheOpModeIsBeingCreatedCancelsTheInit(@TempDir Path dir) throws Exception {
+        writeSlowOpMode(dir);
+        Simulator sim = start(dir);
+        try {
+            Thread init = initInBackground(sim);
+            Thread.sleep(300);
+            sim.handle("{\"type\":\"init\",\"opmode\":\"Slow to create\"}");   // a second INIT meanwhile
+            assertTrue(sim.lastError() != null && sim.lastError().contains("still being created"), String.valueOf(sim.lastError()));
+            sim.handle("{\"type\":\"stop\"}");
+            init.join(5000);
+            assertEquals(Simulator.DsState.IDLE, sim.dsState(), "the INIT was cancelled");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
     @Test
     void whatATaskOnThePhysicsThreadThrowsReachesItsCaller(@TempDir Path dir) throws Exception {
         Simulator sim = start(dir);

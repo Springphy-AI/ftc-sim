@@ -81,6 +81,11 @@ public final class SimRobot {
     // driver station
     private final Object lock = new Object();
     private DsState state = DsState.IDLE;
+    /** An INIT is constructing its OpMode, outside the lock (the constructor is TeamCode); still IDLE meanwhile. */
+    private boolean constructing;
+    private String constructingName;
+    /** STOP was pressed while {@link #constructing}: the OpMode is dropped once its constructor returns. */
+    private boolean constructionCancelled;
     private OpModeSession session;
     private HalSession hal;
     private SimTelemetry telemetry;
@@ -334,25 +339,51 @@ public final class SimRobot {
         // TeamCode may create OpenCV objects as soon as it is constructed. Wait for the native
         // libraries outside the lock: the physics thread takes it every 20 ms.
         VisionNatives.await();
+        OpModeInfo info;
         synchronized (lock) {
+            if (constructing) {
+                lastError = "The OpMode \"" + constructingName + "\" is still being created: its constructor (or a field "
+                        + "initializer) has not returned yet.";
+                broadcastDsLocked();
+                return;
+            }
             if (state != DsState.IDLE || name == null) return;
             TeamCodeCompiler.Result b = build;
-            OpModeInfo info = b == null ? null : b.opModes().stream().filter(o -> o.name().equals(name)).findFirst().orElse(null);
+            info = b == null ? null : b.opModes().stream().filter(o -> o.name().equals(name)).findFirst().orElse(null);
             if (info == null) {
                 lastError = "OpMode \"" + name + "\" is not available. Check the build output.";
                 broadcastDsLocked();
                 return;
             }
-            OpMode opMode;
-            try {
-                opMode = (OpMode) info.type().getDeclaredConstructor().newInstance();
-            } catch (Throwable t) {
-                Throwable cause = t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null ? t.getCause() : t;
+            constructing = true;
+            constructingName = info.name();
+            constructionCancelled = false;
+        }
+        // The OpMode's constructor, field initializers and static initializers are TeamCode, and
+        // may take a while (or never return). They run outside the lock, which the physics thread
+        // takes every 20 ms: holding it would stop the field for every robot meanwhile.
+        OpMode constructed = null;
+        Throwable failure = null;
+        try {
+            constructed = (OpMode) info.type().getDeclaredConstructor().newInstance();
+        } catch (Throwable t) {
+            failure = t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null ? t.getCause() : t;
+        }
+        synchronized (lock) {
+            constructing = false;
+            if (constructionCancelled) {
+                log("INIT " + info.name() + " cancelled: STOP was pressed while its constructor ran");
+                broadcastDsLocked();
+                return;
+            }
+            if (failure != null) {
+                Throwable cause = failure;
                 lastError = "Could not create " + info.className() + ": " + Simulator.describe(cause);
                 context.run(() -> RobotLog.ee("Simulator", cause, "OpMode construction failed"));
                 broadcastDsLocked();
                 return;
             }
+            OpMode opMode = constructed;
             RobotRig r = rig;
             r.resetForOpMode();
             hal = new HalSession();
@@ -392,6 +423,10 @@ public final class SimRobot {
     void stopOpMode() {
         final OpModeSession s;
         synchronized (lock) {
+            if (constructing) {
+                constructionCancelled = true;   // initOpMode drops the OpMode when its constructor returns
+                return;
+            }
             if ((state != DsState.INIT && state != DsState.RUNNING) || session == null) return;
             state = DsState.STOPPING;
             s = session;
