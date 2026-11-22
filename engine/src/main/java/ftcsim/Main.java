@@ -75,7 +75,7 @@ public final class Main {
                 }
                 String v = args[++i];
                 switch (m.group(1)) {
-                    case "project" -> project[k] = v;
+                    case "project" -> project[k] = fromCaller(v, System.getenv("FTCSIM_CALLER_DIR"));
                     case "robot" -> robot[k] = v;
                     default -> alliance[k] = v;
                 }
@@ -84,7 +84,7 @@ public final class Main {
             }
             switch (args[i]) {
                 case "--season", "-s" -> season = args[++i];
-                case "--project", "-p" -> project[1] = args[++i];
+                case "--project", "-p" -> project[1] = fromCaller(args[++i], System.getenv("FTCSIM_CALLER_DIR"));
                 case "--robot", "-r" -> robot[1] = args[++i];
                 case "--alliance" -> alliance[1] = args[++i];
                 case "--robots" -> robots = Integer.parseInt(args[++i]);
@@ -194,6 +194,16 @@ public final class Main {
 
     /** The TeamCode source folders of one project (or the bundled examples), and how to describe it. */
     private record Project(List<TeamCodeCompiler.SourceRoot> roots, String label) {
+    }
+
+    /**
+     * A project folder typed on the command line. run-sim changes to the simulator's folder before
+     * starting it and says in {@code callerDir} where it was started: a relative path is relative to
+     * that, where the user typed it. (sim.properties paths stay relative to the simulator's folder.)
+     */
+    static String fromCaller(String path, String callerDir) {
+        if (callerDir == null || callerDir.isBlank() || Paths.get(path).isAbsolute()) return path;
+        return Paths.get(callerDir).resolve(path).normalize().toString();
     }
 
     /** @param who "" with one robot, else "Robot K: ", to say whose folder is wrong */

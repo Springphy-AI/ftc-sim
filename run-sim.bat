@@ -5,12 +5,15 @@ rem   .\run-sim.bat --project "C:\path\to\FtcRobotController" --robot robots\tan
 rem   .\run-sim.bat --project "C:\path\to\FtcRobotController" --project2 "C:\path\to\OtherFtcRobotController"
 rem Or put project=... and robot=... in sim.properties and just run .\run-sim.bat
 setlocal
+rem A relative --project is relative to where this was started, not to the simulator's folder.
+set "FTCSIM_CALLER_DIR=%CD%"
 cd /d "%~dp0"
 
-rem Find a JDK 17+ : JAVA_HOME, then java on PATH, then the newest JDK in %USERPROFILE%\.jdks
+rem Find a JDK 17+ : JAVA_HOME, then java on PATH, then a JDK in %USERPROFILE%\.jdks (whatever its
+rem vendor calls the folder: jdk-21..., temurin-21..., corretto-21...; by name, newest first)
 if defined JAVA_HOME if exist "%JAVA_HOME%\bin\javac.exe" goto run
 where javac >nul 2>nul && goto run
-for /f "delims=" %%d in ('dir /b /ad /o-n "%USERPROFILE%\.jdks\jdk-*" 2^>nul') do (
+for /f "delims=" %%d in ('dir /b /ad /o-n "%USERPROFILE%\.jdks" 2^>nul') do (
     if exist "%USERPROFILE%\.jdks\%%d\bin\javac.exe" (
         set "JAVA_HOME=%USERPROFILE%\.jdks\%%d"
         goto run
