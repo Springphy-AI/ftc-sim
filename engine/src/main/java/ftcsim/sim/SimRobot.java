@@ -880,7 +880,8 @@ public final class SimRobot {
         List<Map<String, Object>> servos = new ArrayList<>();
         List<Map<String, Object>> hubs = new ArrayList<>();
         for (SimHub h : r.hubs) {
-            hubs.add(Map.of("name", h.name, "led", String.format("#%06x", h.ledColor), "cache", h.getBulkCachingMode().name()));
+            // String.valueOf: TeamCode may have set null (setBulkCachingMode(null) is accepted, as on the robot)
+            hubs.add(Map.of("name", h.name, "led", String.format("#%06x", h.ledColor), "cache", String.valueOf(h.getBulkCachingMode())));
             for (MotorPort mp : h.motors) {
                 if (mp == null) continue;
                 Map<String, Object> d = new LinkedHashMap<>();
@@ -895,7 +896,7 @@ public final class SimRobot {
                 d.put("vel", Math.round(mp.velocityTicksPerSecond));
                 d.put("amps", Math.round(mp.currentAmps * 100) / 100.0);
                 d.put("duty", Math.round(mp.appliedDuty * 1000) / 1000.0);
-                d.put("zpb", mp.zeroPowerBehavior.name());
+                d.put("zpb", String.valueOf(mp.zeroPowerBehavior));
                 motors.add(d);
             }
             for (ServoPort sp : h.servos) {

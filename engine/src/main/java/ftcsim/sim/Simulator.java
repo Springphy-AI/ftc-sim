@@ -227,14 +227,15 @@ public final class Simulator {
         long rtfWindowStart = t0;
         long rtfSteps = 0;
         List<RobotRig> rigs = new ArrayList<>();
+        // Nothing that fails in here may end the loop: this one thread moves every robot and game
+        // piece, so it would freeze the field for everyone while their OpModes kept running.
         while (running) {
             Runnable task;
             while ((task = physicsTasks.poll()) != null) {
                 try {
                     task.run();
-                } catch (RuntimeException | OutOfMemoryError | StackOverflowError e) {
-                    // One failed task (changing a robot, say) must not stop the field for every robot.
-                    RobotLog.ee("Simulator", e, "physics task failed");
+                } catch (Throwable e) {
+                    loopFailed("A physics task (changing a robot, say)", e);
                 }
             }
             long now = System.nanoTime();
@@ -243,19 +244,27 @@ public final class Simulator {
             int n = 0;
             rigs.clear();
             for (SimRobot r : robots) rigs.add(r.rig());
-            while (steps < due && n < 100) {
-                elements.beforeStep(DT);
-                for (RobotRig rig : rigs) rig.beforeWorldStep(DT);
-                world.step(DT);
-                for (RobotRig rig : rigs) rig.afterWorldStep(DT);
-                simTime += DT;
-                steps++;
-                n++;
-                rtfSteps++;
+            try {
+                while (steps < due && n < 100) {
+                    elements.beforeStep(DT);
+                    for (RobotRig rig : rigs) rig.beforeWorldStep(DT);
+                    world.step(DT);
+                    for (RobotRig rig : rigs) rig.afterWorldStep(DT);
+                    simTime += DT;
+                    steps++;
+                    n++;
+                    rtfSteps++;
+                }
+            } catch (Throwable e) {
+                loopFailed("The physics step", e);
             }
             if (n > 0) {
-                // Cameras see the field's moving parts (a HIVE that tipped...) where they are now.
-                cameras.update(rigs, elements, world.moverAngles());
+                try {
+                    // Cameras see the field's moving parts (a HIVE that tipped...) where they are now.
+                    cameras.update(rigs, elements, world.moverAngles());
+                } catch (Throwable e) {
+                    loopFailed("The webcams' view of the field", e);
+                }
             }
             if (now - rtfWindowStart > 1_000_000_000L) {
                 realTimeFactor = rtfSteps * DT / ((now - rtfWindowStart) / 1e9);
@@ -264,15 +273,52 @@ public final class Simulator {
             }
             if (now - lastPublish >= 20_000_000L) {
                 lastPublish = now;
-                publishState(now);
-                for (SimRobot r : robots) r.checkAutoTimer(now);
+                try {
+                    publishLogs();
+                    publishState(now);
+                } catch (Throwable e) {
+                    loopFailed("The field state for the Driver Stations", e);
+                }
+                for (SimRobot r : robots) {
+                    try {
+                        r.checkAutoTimer(now);
+                    } catch (Throwable e) {
+                        loopFailed("The autonomous timer", e);
+                    }
+                }
             }
             if (now - lastDevices >= 100_000_000L) {
                 lastDevices = now;
-                publishDevices();
+                try {
+                    publishDevices();
+                } catch (Throwable e) {
+                    loopFailed("The device panel", e);
+                }
             }
             LockSupport.parkNanos(400_000L);
         }
+    }
+
+    /**
+     * Each failure seen on the physics thread (where, and the exception's class: the JVM drops the
+     * message of an exception thrown over and over) → {when it was last logged, times since}, so a
+     * failure that repeats every loop is logged every 5 s, not thousands of times a second.
+     */
+    private final Map<String, long[]> loopFailures = new HashMap<>();
+
+    /** Something on the physics thread threw: say so in every Driver Station's log, and carry on. */
+    private void loopFailed(String what, Throwable e) {
+        String key = what + " " + e.getClass().getName();
+        long now = System.nanoTime();
+        long[] seen = loopFailures.get(key);
+        if (seen != null && now - seen[0] < 5_000_000_000L) {
+            seen[1]++;
+            return;
+        }
+        String again = seen != null && seen[1] > 0
+                ? " (" + seen[1] + " more time" + (seen[1] == 1 ? "" : "s") + " since it was last logged)" : "";
+        loopFailures.put(key, new long[]{now, 0});
+        RobotLog.ee("Simulator", e, what + " failed" + again + "; the simulator carries on");
     }
 
     private void watchSources() {
@@ -438,12 +484,16 @@ public final class Simulator {
         return robots.get(0).dsJson();
     }
 
-    private void publishState(long now) {
-        List<Map<String, Object>> rs = new ArrayList<>();
-        for (SimRobot r : robots) rs.add(r.state(now));
+    /** RobotLog lines, before the state: they still go out when building the state is what fails. */
+    private void publishLogs() {
         Map<String, Object> log;
         int n = 0;
         while (n++ < 40 && (log = logQueue.poll()) != null) broadcast(GSON.toJson(log));
+    }
+
+    private void publishState(long now) {
+        List<Map<String, Object>> rs = new ArrayList<>();
+        for (SimRobot r : robots) rs.add(r.state(now));
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "state");
@@ -505,17 +555,27 @@ public final class Simulator {
         return elements;
     }
 
-    /** Runs a task on the physics thread and waits for it. */
+    /**
+     * Runs a task on the physics thread and waits for it. What the task throws (a test's failed
+     * assertion, say) is thrown here, to the caller.
+     */
     public void onPhysicsThread(Runnable task) throws InterruptedException {
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        Throwable[] failure = new Throwable[1];
         physicsTasks.add(() -> {
             try {
                 task.run();
+            } catch (Throwable t) {
+                failure[0] = t;
             } finally {
                 done.countDown();
             }
         });
         done.await();
+        Throwable t = failure[0];   // written before countDown(), so visible after await()
+        if (t instanceof RuntimeException re) throw re;
+        if (t instanceof Error er) throw er;
+        if (t != null) throw new RuntimeException(t);
     }
 
     static Thread daemon(Runnable r, String name) {
