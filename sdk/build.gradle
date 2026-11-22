@@ -137,13 +137,19 @@ dependencies {
     api files(aarDir.map { it.file("apriltag-${aprilTagPluginVersion}.jar") }).builtBy(unpackFtcAars)
 
     // OpenCV's Java API at the robot's version (FTC SDK 12.0 ships OpenCV 4.10.0), with the native
-    // libraries for this machine.
-    api 'org.bytedeco:opencv:4.10.0-1.5.11'
+    // libraries for this machine. macOS gets 4.11.0, bytedeco's next release: its 4.10.0 build for
+    // Apple Silicon links an Orbbec camera library (libOrbbecSDK.1.9.dylib) that the jar doesn't
+    // ship, so OpenCV's Java bindings can't load there.
+    def macos = rootProject.simPlatform.startsWith('macos')
+    def opencv = macos ? '4.11.0-1.5.12' : '4.10.0-1.5.11'
+    def openblas = macos ? '0.3.30-1.5.12' : '0.3.28-1.5.11'
+    def javacpp = macos ? '1.5.12' : '1.5.11'
+    api "org.bytedeco:opencv:${opencv}"
     def natives = rootProject.javacppPlatform
     if (natives != null) {
-        runtimeOnly "org.bytedeco:opencv:4.10.0-1.5.11:${natives}"
-        runtimeOnly "org.bytedeco:openblas:0.3.28-1.5.11:${natives}"
-        runtimeOnly "org.bytedeco:javacpp:1.5.11:${natives}"
+        runtimeOnly "org.bytedeco:opencv:${opencv}:${natives}"
+        runtimeOnly "org.bytedeco:openblas:${openblas}:${natives}"
+        runtimeOnly "org.bytedeco:javacpp:${javacpp}:${natives}"
     } else {
         logger.lifecycle("No OpenCV build for this machine: the simulator runs without vision (VisionPortal).")
     }

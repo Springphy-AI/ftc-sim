@@ -11,8 +11,8 @@ robot. `run-sim` and Gradle put this machine's folder on `java.library.path`.
 | `windows-x86_64/` | `apriltag.dll` | yes (MinGW-w64 gcc 13.2, `--local`) |
 | `linux-x86_64/` | `libapriltag.so` | yes (gcc 13.3, `--local`; needs glibc 2.38+) |
 | `linux-aarch64/` | `libapriltag.so` | not yet: run `build.sh` (Zig) |
-| `macos-x86_64/` | `libapriltag.dylib` | not yet: run `build.sh` (Zig) |
-| `macos-aarch64/` | `libapriltag.dylib` | not yet: run `build.sh` (Zig) |
+| `macos-x86_64/` | `libapriltag.dylib` | yes (Zig 0.16.0, macOS 11+; not yet run on an Intel Mac) |
+| `macos-aarch64/` | `libapriltag.dylib` | yes (Zig 0.16.0, macOS 11+, ad-hoc signed by the linker) |
 
 Without a library for its platform the simulator still runs; AprilTag detection reports that the
 detector is missing, and the tests that need it are skipped.

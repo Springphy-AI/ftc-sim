@@ -5,7 +5,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Loads the native libraries robot vision code runs on, as the Robot Controller app does at
- * startup: OpenCV (4.10.0, the robot's version) and the AprilTag detector (natives/apriltag/, the
+ * startup: OpenCV (4.10.0, the robot's version; 4.11.0 on macOS, see sdk/build.gradle) and the
+ * AprilTag detector (natives/apriltag/, the
  * same source FIRST ships, compiled for this PC). TeamCode may create OpenCV objects as soon as an
  * OpMode is constructed, so the simulator starts this early and waits for it before INIT.
  */
