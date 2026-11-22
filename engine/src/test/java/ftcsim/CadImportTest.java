@@ -274,6 +274,28 @@ class CadImportTest {
         }
     }
 
+    /** A wheel link whose mesh file is missing (moved, or a path's case wrong on Linux). */
+    @Test
+    void aUrdfWheelWithoutItsMeshSaysWhichMeshIsMissing(@TempDir Path dir) throws Exception {
+        Path src = Path.of("robots/cad/arm-bot");
+        try (var files = Files.walk(src)) {
+            for (Path f : files.collect(Collectors.toList())) {
+                Path to = dir.resolve("arm-bot").resolve(src.relativize(f).toString());
+                if (Files.isDirectory(f)) Files.createDirectories(to);
+                else Files.copy(f, to);
+            }
+        }
+        Files.delete(dir.resolve("arm-bot/meshes/wheel.stl"));
+        Files.writeString(dir.resolve("robot.json"), Files.readString(Path.of("robots/tank-urdf.json")).replace("cad/arm-bot/", "arm-bot/"));
+        RobotConfig cfg = RobotConfig.load(dir.resolve("robot.json"));
+        assertEquals(CadState.Status.ERROR, cfg.cadState.status, cfg.cadState.message);
+        assertTrue(cfg.cadState.message.contains("wheel") && cfg.cadState.message.contains("mesh not found: package://arm-bot/meshes/wheel.stl"),
+                cfg.cadState.message);
+        // The robot file's own numbers instead of an infinite wheel, so the robot is still built.
+        assertTrue(cfg.drive.wheelDiameterMm > 0 && Double.isFinite(cfg.drive.wheelDiameterMm), "wheel diameter " + cfg.drive.wheelDiameterMm);
+        assertNotNull(new RobotRig(cfg, new PhysicsWorld(FieldModel.loadBiobuzz())).body);
+    }
+
     @Test
     void meshFileRoundTripsAndRejectsDamage() throws Exception {
         MeshPart p = new MeshPart("Robot/Arm/Bar", 0x336699, new float[]{0, 0, 0, 1, 0, 0, 0, 1, 0}, new int[]{0, 1, 2});

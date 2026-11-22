@@ -720,6 +720,13 @@ public final class ModelBuilder {
         for (RobotModel.Group w : groups) {
             if (w.kind != RobotModel.Kind.WHEEL) continue;
             double[] b = w.bounds();
+            if (MeshPart.isEmpty(b)) {
+                // Its size would come out as -infinity and the physics engine would refuse the robot.
+                // Said here, the robot falls back on its robot file's numbers.
+                List<String> meshes = notes.stream().filter(n -> n.toLowerCase(Locale.ROOT).contains("mesh")).toList();
+                throw new IllegalArgumentException("the wheel " + w.wheelKey + " has no shape to size it from"
+                        + (meshes.isEmpty() ? "" : " (" + String.join("; ", meshes) + ")"));
+            }
             w.anchor = centerOf(b);
             w.axis = new double[]{0, 1, 0};
             w.wheelRadius = Math.max(b[3] - b[0], b[5] - b[2]) / 2;
