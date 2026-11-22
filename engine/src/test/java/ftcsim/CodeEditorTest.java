@@ -60,6 +60,41 @@ class CodeEditorTest {
     }
 
     @Test
+    void sourcesAreReadWhileAnEditorWritesAndDeletesTemporaryFiles() throws Exception {
+        Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
+        Path pkg = Files.createDirectories(teamCode.resolve(PKG));
+        Files.writeString(pkg.resolve("EditorTest.java"), OPMODE);
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(teamCode, false)),
+                Files.createDirectories(tmp.resolve("out")));
+        TeamCodeFiles files = files(teamCode, Files.createDirectories(tmp.resolve("samples")));
+        // Android Studio's "safe write": a temporary file next to the real one, written and gone again.
+        java.util.concurrent.atomic.AtomicBoolean editing = new java.util.concurrent.atomic.AtomicBoolean(true);
+        Thread editor = new Thread(() -> {
+            for (int i = 0; editing.get(); i++) {
+                try {
+                    Path t = pkg.resolve("EditorTest.java___jb_tmp___" + (i % 20));
+                    Files.writeString(t, "x");
+                    Files.deleteIfExists(t);
+                } catch (java.io.IOException ignored) {
+                }
+            }
+        });
+        editor.start();
+        try {
+            long end = System.currentTimeMillis() + 2000;
+            int compiles = 0;
+            while (System.currentTimeMillis() < end) {
+                compiler.fingerprint();   // threw UncheckedIOException once a file vanished mid-walk, ending the source watcher
+                assertTrue(files.list().contains(new TeamCodeFiles.Entry(0, PKG + "EditorTest.java")));
+                if (compiles++ < 3) assertTrue(compiler.compile().message().startsWith("Built"), "builds while the editor writes");
+            }
+        } finally {
+            editing.set(false);
+            editor.join();
+        }
+    }
+
+    @Test
     void savesKeepTheFilesLineEndingsAndRefuseStaleOrOutsideWrites() throws Exception {
         Path teamCode = Files.createDirectories(tmp.resolve("TeamCode/src/main/java"));
         Path samples = Files.createDirectories(tmp.resolve("samples"));

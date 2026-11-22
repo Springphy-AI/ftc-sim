@@ -6,9 +6,12 @@ import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -88,8 +91,8 @@ public final class TeamCodeCompiler {
         Map<Path, Boolean> files = new LinkedHashMap<>();   // file -> is sample
         for (SourceRoot root : roots) {
             if (!Files.isDirectory(root.dir())) continue;
-            try (Stream<Path> s = Files.walk(root.dir())) {
-                s.filter(p -> p.toString().endsWith(".java")).sorted().forEach(p -> files.put(p, root.samples()));
+            try {
+                for (Path p : javaFiles(root.dir())) files.put(p, root.samples());
             } catch (IOException e) {
                 return new Result(false, "Could not read " + root.dir() + ": " + e.getMessage(), null, List.of(), List.of(), List.of(), 0, 0);
             }
@@ -310,16 +313,45 @@ public final class TeamCodeCompiler {
         StringBuilder sb = new StringBuilder();
         for (SourceRoot root : roots) {
             if (!Files.isDirectory(root.dir())) continue;
-            try (Stream<Path> s = Files.walk(root.dir())) {
-                s.filter(p -> p.toString().endsWith(".java")).sorted().forEach(p -> {
+            try {
+                for (Path p : javaFiles(root.dir())) {
                     try {
                         sb.append(p).append(':').append(Files.getLastModifiedTime(p).toMillis()).append(':').append(Files.size(p)).append(';');
                     } catch (IOException ignored) {
+                        // gone since the folder was walked
                     }
-                });
+                }
             } catch (IOException ignored) {
             }
         }
         return Integer.toHexString(sb.toString().hashCode()) + ":" + sb.length();
+    }
+
+    /**
+     * The .java files under {@code dir}, in path order. Files come and go while a folder is
+     * walked (editors' temporary files, Android Studio's "safe write"): one that disappears meanwhile
+     * is left out, where Files.walk would fail the whole walk with an UncheckedIOException.
+     */
+    public static List<Path> javaFiles(Path dir) throws IOException {
+        List<Path> out = new ArrayList<>();
+        Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (file.getFileName().toString().endsWith(".java")) out.add(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException e) {
+                return FileVisitResult.CONTINUE;   // gone since its folder was listed
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path d, IOException e) {
+                return FileVisitResult.CONTINUE;   // a folder that went away while it was listed
+            }
+        });
+        out.sort(null);
+        return out;
     }
 }

@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -75,11 +74,8 @@ public final class TeamCodeFiles {
         List<Entry> out = new ArrayList<>();
         for (Root r : roots) {
             if (!Files.isDirectory(r.dir())) continue;
-            try (Stream<Path> s = Files.walk(r.dir())) {
-                for (Path p : s.filter(p -> p.toString().endsWith(".java") && Files.isRegularFile(p))
-                        .sorted().collect(Collectors.toList())) {
-                    out.add(new Entry(r.index(), relative(r, p)));
-                }
+            for (Path p : TeamCodeCompiler.javaFiles(r.dir())) {
+                if (Files.isRegularFile(p)) out.add(new Entry(r.index(), relative(r, p)));
             }
         }
         return out;

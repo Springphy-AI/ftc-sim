@@ -324,7 +324,14 @@ public final class Simulator {
     private void watchSources() {
         while (running) {
             LockSupport.parkNanos(1_000_000_000L);
-            for (SimRobot r : robots) r.checkSources();
+            for (SimRobot r : robots) {
+                try {
+                    r.checkSources();
+                } catch (Throwable e) {
+                    // This thread is what notices edits made outside the page: it must outlive any one failure.
+                    RobotLog.ee("Simulator", e, "Looking for TeamCode changes failed; still watching");
+                }
+            }
         }
     }
 
