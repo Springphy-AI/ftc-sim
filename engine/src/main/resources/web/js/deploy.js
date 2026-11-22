@@ -211,6 +211,7 @@ export class DeployPanel {
       text = r.message;
       kind = { ok: 'ok', failed: 'err', canceled: 'warn', unknown: 'warn' }[r.state] ?? '';
     } else if (note) { text = note.text; kind = note.kind; }
+    else if (this.info?.deviceProblem) { text = `${this.info.deviceProblem}, so no robot is listed.`; kind = 'warn'; }
     else if (this.info) text = `Builds ${this.info.project} with its own Gradle wrapper, as Android Studio does.`;
     msg.textContent = text;
     msg.className = 'deploy-msg' + (kind ? ' ' + kind : '');
