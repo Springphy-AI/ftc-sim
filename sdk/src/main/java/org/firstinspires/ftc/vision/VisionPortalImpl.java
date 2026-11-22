@@ -339,17 +339,34 @@ public class VisionPortalImpl extends VisionPortal {
         captureNextFrame = filename;
     }
 
+    /**
+     * As FIRST's: stops a stream that is starting or running, does nothing when none is, and throws
+     * while the camera is opening, closed or failed. Code that stops the stream right after build(),
+     * before the camera has opened, fails on the robot, so it fails here too.
+     */
     @Override
     public void stopStreaming() {
-        if (streamRequested) {
+        CameraState st = cameraState;
+        if (st == CameraState.STREAMING || st == CameraState.STARTING_STREAM) {
             cameraState = CameraState.STOPPING_STREAM;
             streamRequested = false;
+        } else if (st == CameraState.CAMERA_DEVICE_READY || st == CameraState.STOPPING_STREAM || st == CameraState.CLOSING_CAMERA_DEVICE) {
+            streamRequested = false;   // nothing streams
+        } else {
+            throw new RuntimeException(String.format("Illegal CameraState %s when calling stopStreaming()", st));
         }
     }
 
+    /** As FIRST's: starts the stream of an open camera, does nothing while one streams, and throws otherwise. */
     @Override
     public void resumeStreaming() {
-        streamRequested = true;
+        CameraState st = cameraState;
+        if (st == CameraState.CAMERA_DEVICE_READY || st == CameraState.STOPPING_STREAM
+                || st == CameraState.STREAMING || st == CameraState.STARTING_STREAM) {
+            streamRequested = true;
+        } else {
+            throw new RuntimeException(String.format("Illegal CameraState %s when calling resumeStreaming()", st));
+        }
     }
 
     @Override
