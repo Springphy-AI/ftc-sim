@@ -167,8 +167,8 @@ public class SparkFunOTOS implements HardwareDevice {
         return distanceUnit;
     }
 
+    /** Any unit, as FIRST's driver takes it (MM and CM included). */
     public void setLinearUnit(DistanceUnit unit) {
-        if (unit == DistanceUnit.CM || unit == DistanceUnit.MM) unit = DistanceUnit.METER;
         distanceUnit = unit;
     }
 
@@ -219,12 +219,12 @@ public class SparkFunOTOS implements HardwareDevice {
         return new Status();
     }
 
+    /**
+     * Into the user's units, as FIRST's driver converts every pose it reads (regsToPose), rates
+     * included: its angle unit normalizes, so a heading rate over 180 deg/s wraps on the robot too.
+     */
     private Pose2D toUser(double x, double y, double h) {
         return new Pose2D(distanceUnit.fromMeters(x), distanceUnit.fromMeters(y), angularUnit.fromRadians(h));
-    }
-
-    private Pose2D toUserRate(double x, double y, double h) {
-        return new Pose2D(distanceUnit.fromMeters(x), distanceUnit.fromMeters(y), angularUnit.getUnnormalized().fromRadians(h));
     }
 
     public Pose2D getOffset() {
@@ -251,13 +251,13 @@ public class SparkFunOTOS implements HardwareDevice {
     public Pose2D getVelocity() {
         Latency.i2c();
         double[] v = backend.velocity();
-        return toUserRate(v[0], v[1], v[2]);
+        return toUser(v[0], v[1], v[2]);
     }
 
     public Pose2D getAcceleration() {
         Latency.i2c();
         double[] a = backend.acceleration();
-        return toUserRate(a[0], a[1], a[2]);
+        return toUser(a[0], a[1], a[2]);
     }
 
     public Pose2D getPositionStdDev() {
@@ -265,11 +265,11 @@ public class SparkFunOTOS implements HardwareDevice {
     }
 
     public Pose2D getVelocityStdDev() {
-        return toUserRate(0.001, 0.001, 0.001);
+        return toUser(0.001, 0.001, 0.001);
     }
 
     public Pose2D getAccelerationStdDev() {
-        return toUserRate(0.01, 0.01, 0.01);
+        return toUser(0.01, 0.01, 0.01);
     }
 
     public void getPosVelAcc(Pose2D pos, Pose2D vel, Pose2D acc) {
