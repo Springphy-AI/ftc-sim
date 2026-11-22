@@ -405,7 +405,8 @@ work as on the robot, because they **are** the robot's code. The simulator runs 
 compiled classes from the FTC SDK 12.0 Vision package, unmodified, along with the pure-Java parts
 of RobotCore they use (units, poses, matrices, camera calibration). The AprilTag detector is the
 C library FIRST ships (OpenFTC's EOCV-AprilTag-Plugin 2.1.0), built from the same source for PCs
-(see [`natives/apriltag/`](natives/apriltag/README.md)). OpenCV is 4.10.0, the robot's version.
+(see [`natives/apriltag/`](natives/apriltag/README.md)). OpenCV is 4.10.0, the robot's version
+(4.11.0 on macOS, whose 4.10.0 build needs a camera library it doesn't ship).
 
 Only what touches hardware is the simulator's:
 
@@ -413,7 +414,12 @@ Only what touches hardware is the simulator's:
   HIVES with their real tag36h11 AprilTags (IDs 30–45), robots and balls. Its lens is the camera
   model's entry in the SDK's own calibration table. FIRST's AprilTag processor looks up the same
   entry by the webcam's USB ids, so poses come out right, just as with a calibrated webcam on the
-  robot. Frames arrive at the camera's frame rate (default 30 fps), each showing the world as it was
+  robot. A resolution the table has no entry for (the C270's and the LifeCam HD-3000's 16:9 ones,
+  and every resolution of the Arducam, which isn't in it) behaves as on the robot too: the image
+  keeps the camera's real field of view, FIRST's processor warns that pose estimates will likely be
+  inaccurate and assumes its default lens, and the ranges it solves are off by the difference
+  (about 0.7 times the true range for a C270 at 640×360, 1.3 times for an Arducam at 640×480).
+  Frames arrive at the camera's frame rate (default 30 fps), each showing the world as it was
   `latency_ms` earlier (default 50 ms), with that capture time.
 - **The portal's plumbing**: opening the camera, camera states, `getFps()`, `stopStreaming()`,
   `saveNextFrameRaw()` (saved to `captures/`), the camera controls (exposure, gain, focus, white
