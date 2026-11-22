@@ -47,6 +47,8 @@ public final class SimTelemetry implements Telemetry {
     private int minDecimals = -1;
     private int maxDecimals = -1;
     private boolean dirty = false;
+    /** Set by update() with auto-clear on: the next line or item added clears what is shown first. */
+    private boolean clearOnAdd = false;
 
     private List<String> lastComposedLines = Collections.emptyList();
     private Frame pending = null;
@@ -108,9 +110,9 @@ public final class SimTelemetry implements Telemetry {
             pending = new Frame(lastComposedLines, log.snapshot(), displayFormat);
             long now = System.nanoTime();
             boolean transmitted = now - lastTransmitNanos >= msTransmissionInterval * 1000000L;
-            if (autoClear) {
-                clear();
-            }
+            // As FIRST's TelemetryImpl: auto-clear clears when the next data is added, not now, so
+            // another update() with nothing new shows the same lines again.
+            clearOnAdd = autoClear;
             dirty = false;
             return transmitted;
         }
@@ -170,7 +172,15 @@ public final class SimTelemetry implements Telemetry {
         }
     }
 
+    /** A line or an item is about to be added: clears what update() left, if it asked for that. */
+    private void onAddData() {
+        if (clearOnAdd) {
+            clear();
+        }
+    }
+
     private LineImpl newLine(String caption) {
+        onAddData();
         LineImpl line = new LineImpl(caption == null ? "null" : caption);
         lines.add(line);
         dirty = true;
@@ -201,6 +211,7 @@ public final class SimTelemetry implements Telemetry {
     @Override
     public void clear() {
         synchronized (lock) {
+            clearOnAdd = false;
             for (Iterator<LineImpl> it = lines.iterator(); it.hasNext(); ) {
                 LineImpl line = it.next();
                 for (Iterator<ItemImpl> items = line.items.iterator(); items.hasNext(); ) {
@@ -214,6 +225,7 @@ public final class SimTelemetry implements Telemetry {
     @Override
     public void clearAll() {
         synchronized (lock) {
+            clearOnAdd = false;
             lines.clear();
             actions.clear();
         }
@@ -349,6 +361,7 @@ public final class SimTelemetry implements Telemetry {
         }
 
         ItemImpl addItem(String caption) {
+            onAddData();
             ItemImpl item = new ItemImpl(this, caption);
             items.add(item);
             dirty = true;
