@@ -11,6 +11,7 @@ import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.configuration.typecontainers.MotorConfigurationType;
 
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.HalSession;
@@ -43,6 +44,24 @@ class HubMotorControllerTest {
         MotorPort port = rig.motors.get("launcher").port;
         return hardwareMap.getAll(LynxModule.class).stream()
                 .filter(m -> m.getModuleAddress() == port.hub.moduleAddress).findFirst().orElseThrow();
+    }
+
+    @Test
+    void theNextOpModeStartsWithTheConfiguredMotorTypeAndPidf() {
+        double fraction = launcher.getMotorType().getAchieveableMaxRPMFraction();
+        double positionP = launcher.getPIDFCoefficients(DcMotor.RunMode.RUN_TO_POSITION).p;
+        // One OpMode tunes the motor, as Road Runner and PIDF tuning OpModes do...
+        MotorConfigurationType tuned = launcher.getMotorType();
+        tuned.setAchieveableMaxRPMFraction(1.0);
+        launcher.setMotorType(tuned);
+        launcher.setPositionPIDFCoefficients(3);
+        launcher.setVelocityPIDFCoefficients(20, 1, 0, 12);
+        // ...the next one finds the motor as configured, as on the robot.
+        rig.resetForOpMode();
+        DcMotorEx next = rig.createHardwareMap(new HalSession()).get(DcMotorEx.class, "launcher");
+        assertEquals(fraction, next.getMotorType().getAchieveableMaxRPMFraction(), 1e-9);
+        assertEquals(positionP, next.getPIDFCoefficients(DcMotor.RunMode.RUN_TO_POSITION).p, 1e-9);
+        assertEquals(10, next.getPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER).p, 1e-9);
     }
 
     @Test

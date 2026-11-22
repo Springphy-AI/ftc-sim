@@ -490,7 +490,11 @@ public final class RobotRig {
                 p.velocityCommand = false;
                 p.power = 0;
                 p.enabled = true;
+                // As the SDK's resetDeviceConfigurationForOpMode: the configured motor type and the
+                // original PIDF, whatever the last OpMode set (setMotorType, setPositionPIDFCoefficients...).
                 p.velocityPidf = MotorPort.defaultVelocityPidf(p.physicalType);
+                p.positionPidf = MotorPort.defaultPositionPidf();
+                p.configuredType = p.physicalType.clone();
                 p.modeGeneration++;
             }
         }

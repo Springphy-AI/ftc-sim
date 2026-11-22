@@ -49,7 +49,12 @@ public final class MotorPort {
         this.physicalType = physicalType;
         this.configuredType = physicalType.clone();
         this.velocityPidf = defaultVelocityPidf(physicalType);
-        this.positionPidf = new PIDFCoefficients(10, 0, 0, 0);
+        this.positionPidf = defaultPositionPidf();
+    }
+
+    /** The hub's RUN_TO_POSITION coefficients until robot code sets its own. */
+    public static PIDFCoefficients defaultPositionPidf() {
+        return new PIDFCoefficients(10, 0, 0, 0);
     }
 
     public static PIDFCoefficients defaultVelocityPidf(MotorConfigurationType type) {
@@ -83,7 +88,7 @@ public final class MotorPort {
         velocityCommand = false;
         enabled = true;
         velocityPidf = defaultVelocityPidf(physicalType);
-        positionPidf = new PIDFCoefficients(10, 0, 0, 0);
+        positionPidf = defaultPositionPidf();
         configuredType = physicalType.clone();
         encoderOffset = rawTicks;
         modeGeneration++;
