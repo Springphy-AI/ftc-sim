@@ -391,8 +391,12 @@ public final class SimRobot {
             context.webcams.clear();
             context.webcams.addAll(hw.getAll(WebcamName.class));
             telemetry = new SimTelemetry();
-            gamepad1.resetEdgeDetection();
-            gamepad2.resetEdgeDetection();
+            // As the SDK's OpModeInternal.internalInit: fresh edges, and the trigger threshold an
+            // earlier OpMode may have changed back to its default.
+            for (Gamepad gp : new Gamepad[]{gamepad1, gamepad2}) {
+                gp.resetEdgeDetection();
+                gp.setTriggerThreshold(Gamepad.DEFAULT_TRIGGER_THRESHOLD);
+            }
             active = info;
             selected = info.name();
             lastError = null;
@@ -415,6 +419,10 @@ public final class SimRobot {
             state = DsState.RUNNING;
             startNanos = System.nanoTime();
             log("START " + active.name());
+            // As the SDK's OpModeInternal.internalStart: a button pressed during INIT doesn't count as
+            // pressed in the first loop after START.
+            gamepad1.resetEdgeDetection();
+            gamepad2.resetEdgeDetection();
             session.start();
             broadcastDsLocked();
         }

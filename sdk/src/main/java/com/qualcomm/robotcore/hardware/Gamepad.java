@@ -47,7 +47,7 @@ public class Gamepad {
     public volatile float left_trigger = 0f;
     public volatile float right_trigger = 0f;
 
-    public static final float DEFAULT_TRIGGER_THRESHOLD = 0.2f;
+    public static final float DEFAULT_TRIGGER_THRESHOLD = 0.5f;
     public volatile boolean left_trigger_pressed = false;
     public volatile boolean right_trigger_pressed = false;
 
@@ -92,10 +92,8 @@ public class Gamepad {
     public Gamepad() {
     }
 
+    /** As FIRST's: any value is taken; the SDK sets it back to the default at every INIT. */
     public void setTriggerThreshold(float threshold) {
-        if (threshold < 0 || threshold > 1) {
-            throw new IllegalArgumentException("Trigger threshold must be between 0 and 1");
-        }
         triggerThreshold = threshold;
     }
 
@@ -215,8 +213,8 @@ public class Gamepad {
     }
 
     private void updateDerivedFields() {
-        left_trigger_pressed = left_trigger > triggerThreshold;
-        right_trigger_pressed = right_trigger > triggerThreshold;
+        left_trigger_pressed = left_trigger >= triggerThreshold;
+        right_trigger_pressed = right_trigger >= triggerThreshold;
         circle = b;
         cross = a;
         triangle = y;
