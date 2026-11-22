@@ -654,9 +654,8 @@ export class CodeEditor {
     }
   }
 
-  /** The OpMode the open file declares, if it declares one. */
-  opModeInFile(i) {
-    const b = this.buffer;
+  /** The OpMode the file of buffer b declares, if it declares one. */
+  opModeInFile(i, b) {
     if (!b) return null;
     const p = b.project;
     return (this.builds[i]?.opmodes || []).find((o) => {
@@ -696,7 +695,8 @@ export class CodeEditor {
         this.view.focus();
         return;
       }
-      const op = this.opModeInFile(i);
+      // The file Save & run was pressed in: another may be on screen after the build.
+      const op = this.opModeInFile(i, b);
       const name = op ? op.name : this.chosenOpMode(i);
       if (!name) {
         this.status('No OpMode to run: this file has none and the Driver Station lists none', 'err', true);
