@@ -17,7 +17,8 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
 1. Install a JDK 17 or newer (Android Studio's bundled JDK works, or [Temurin](https://adoptium.net)).
    `run-sim.bat` also finds a JDK unpacked in `%USERPROFILE%\.jdks`, and `run-sim.sh` one in
    `~/.jdks` (on macOS, including the `Contents/Home` layout, even when macOS's placeholder
-   `javac` says "Unable to locate a Java Runtime").
+   `javac` says "Unable to locate a Java Runtime"); `run-sim.sh` takes the newest that is 17 or
+   newer, and passes over an older `JAVA_HOME` or `javac`.
 2. Start the simulator with your robot project:
 
    ```bat
@@ -181,11 +182,14 @@ alliance partner. An alliance has at most two robots.
   every OpMode has stopped.
 - **Controllers.** With *Auto*, the first controller drives robot 1's gamepad 1, the second
   controller robot 2's gamepad 1, and so on. The keyboard drives the robot on screen if it has no
-  controller. Each robot's gamepad pickers can override this. Two drivers at one computer should
+  controller. Each robot's gamepad pickers can override this. *Auto* takes only controllers the
+  browser maps in the standard layout (the Xbox, PlayStation and Logitech pads FTC allows); others
+  are marked in the pickers and drive only when picked there. Two drivers at one computer should
   share one browser window: browsers may send controller input only to the window in focus.
 - **One window per driver.** `http://localhost:8080/?robot=2` opens a page that shows and drives
-  only robot 2, for example on a second screen. Give each robot its own `?robot=N` page; a page
-  without `?robot` sends input for every robot.
+  only robot 2, for example on a second screen. A page sends input only for the gamepads it has a
+  controller or the keyboard for, so other pages (an overview on a projector) don't get in the
+  way; when a page closes or crashes, the gamepads it drove are let go.
 - **Kept apart.** Robots running the same project still get separate copies of TeamCode, so static
   fields aren't shared. `OpMode.blackboard`, `RobotLog`'s global error, and the bus latency from
   the robot file are also per robot.
@@ -288,7 +292,8 @@ Click **</> Code** in the top bar to edit TeamCode beside the field, without ano
   Driver Station, the samples' files are listed too, read-only as on the robot.
 - **Compile errors where they are.** After a save, errors are underlined in the file and marked
   in the margin; point at one to read javac's message.
-- **▶ Save & run** (**Ctrl+Enter**) stops that robot's OpMode, saves, waits for the build, then INITs
+- **▶ Save & run** (**Ctrl+Enter**) stops that robot's OpMode, saves every changed file of the
+  project (as Android Studio's Run does), waits for the build, then INITs
   and STARTs the OpMode in the file (or, for a file without one, the OpMode in the Driver Station's
   menu). It runs nothing while the file has compile errors.
 - **+ New** adds a LinearOpMode (TeleOp or Autonomous) next to the open file.
@@ -302,8 +307,8 @@ Click **</> Code** in the top bar to edit TeamCode beside the field, without ano
 1. Connect the computer to the robot: a Control Hub by USB-C, or join the Control Hub's Wi-Fi and
    click *Control Hub Wi-Fi* (ADB at 192.168.43.1:5555); a Robot Controller phone by USB with USB
    debugging on.
-2. Pick the robot in the list (*↻* looks again) and click **⇪ Deploy**. The simulator saves the
-   open file, runs your project's own Gradle wrapper (`gradlew :TeamCode:installDebug`) to build
+2. Pick the robot in the list (*↻* looks again) and click **⇪ Deploy**. The simulator saves every
+   changed file, runs your project's own Gradle wrapper (`gradlew :TeamCode:installDebug`) to build
    the Robot Controller app with your TeamCode and install it on that robot, and starts the app
    again. Gradle's output appears below; *Cancel* stops the build.
 3. Without a robot, *No robot: only check that it builds* runs the real Android build
@@ -733,7 +738,10 @@ The suite includes:
 - `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
   contact, no drift at rest. A robot whose right motors are mirrored drives forward under code
   that reverses its right side; `mirrored_side` takes left, right or none, and older files'
-  `left_side_mirrored` still works.
+  `left_side_mirrored` still works. A 2-motor `tank4` drives each side's wheels with one motor and
+  one encoder, and wheels chained to a motor share its rotor; the battery sags when motors start
+  and not while they brake; Reset puts an arm back at its start; a robot file that can't be built
+  leaves nothing in the world, and a drive's type and motors are checked.
 - `CadImportTest`: robots from CAD. The STEP and URDF examples are read into their links, joints,
   wheels and masses. The STEP example with nothing but its file name comes out the same as with
   everything spelled out, also exported y-up or modeled facing backward; a link with only its
@@ -748,7 +756,8 @@ The suite includes:
   their names. The hood follows its servo, the CAD intake and flywheel take in and launch balls
   (from the front of the flywheel's rim, wherever it has turned to), and a cascade slide's second
   stage follows the first, held back by its motor's rotor. Two writes of one conversion don't
-  collide.
+  collide. Wheels listed in the robot file orient the robot as found ones do; an open part's mass
+  doesn't depend on where it is; a URDF wheel whose mesh is missing says so.
 - `SeasonsTest`: every season pack in `seasons/` loads and plays (its robot starts clear of the
   structures, its game pieces stay on the field). On DECODE: the ARTIFACTS are staged per section
   10.3.1, the GOAL AprilTags sit where FIRST's DECODE tag library puts them, ARTIFACTS dropped into
@@ -769,6 +778,31 @@ The suite includes:
   each error, and fails beyond 5 mm) and their orientations within 2 degrees (it fails beyond 3), and the
   `RED SCORING` cluster origin it reports sits at the CELL opening. `CameraStreamTest`: the live
   view reaches the Driver Station page.
+- `HubMotorControllerTest`, `ServoTest`, `SensorTest`, `GamepadTest`, `TelemetryTest`: the SDK
+  stand-ins behave as FIRST's SDK 12.0 does, checked against its code. `setVelocity` switches to
+  RUN_USING_ENCODER, setting the mode a motor has does nothing, a new power enables a disabled
+  motor, a NaN command is 0, and each OpMode finds the configured motor type and PIDF;
+  `getBulkData()` refreshes the bulk cache. A servo reads 0 before its first position and refuses
+  NaN. The OTOS reports in any unit, the IMU keeps its `resetYaw()` zero into the next OpMode, and
+  out of range the 2m distance sensor reads 8190 mm and the color sensor 6 in. A trigger counts as
+  pressed from 0.5, INIT resets the threshold and START forgets presses made during INIT.
+  Telemetry clears when data is added after `update()`, not at `update()`.
+- `OpModeLifecycleTest`, `PhysicsLoopTest`: a thread an earlier OpMode left can't stop the next
+  one; an OpMode that ignores STOP is ended at its next hardware call and lets go of the gamepads;
+  an iterative loop takes its own time plus a millisecond. A failure on the physics thread is
+  logged once and the field carries on; a slow OpMode constructor doesn't stop the field (STOP
+  cancels its INIT, and Reset is refused meanwhile); the device panel is told what has no value.
+- `WebServerTest`, `CodeEditorTest`, `DeployTest`, `LauncherTest`: the page's server answers only
+  requests addressed to this computer, and its WebSocket only the simulator's own page; OpModes
+  stop when the last page closes or crashes, and a page that leaves lets go of its gamepads. The
+  code editor saves keeping line endings, refuses stale writes, writes outside the project and
+  through links to nothing, won't open a file that isn't UTF-8, and shows compile errors where
+  they are; the sources are read while an editor writes temporary files; a team's copy of a
+  sample is the team's OpMode. Deploy finds the project and the robots, builds, installs and
+  restarts the Robot Controller app (with stand-ins for Gradle and adb), and says why a build
+  failed. `run-sim.sh` picks a JDK 17 or newer by its version, and a relative `--project` is where
+  it was typed. `VisionPortalBehaviorTest`: camera states, controls and live view follow FIRST's
+  portal, and the webcam sits and looks where its mount says.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
   end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
   Pinpoint auto to within 1.5 in (about 0.5 in in practice), BIOBUZZ Parking ends in the red
