@@ -429,8 +429,14 @@ public final class SimRobot {
     }
 
     void stopOpMode() {
+        stopOpMode(null);
+    }
+
+    /** STOP; with {@code only}, only while that is the OpMode running (else nothing). */
+    private void stopOpMode(OpModeSession only) {
         final OpModeSession s;
         synchronized (lock) {
+            if (only != null && session != only) return;
             if (constructing) {
                 constructionCancelled = true;   // initOpMode drops the OpMode when its constructor returns
                 return;
@@ -462,7 +468,9 @@ public final class SimRobot {
 
         @Override
         public void onStopRequestedByOpMode(OpModeSession s) {
-            Thread t = new Thread(SimRobot.this::stopOpMode, "opmode-stopper");
+            // Only the OpMode running now: a thread an earlier OpMode left behind (a timer that calls
+            // requestOpModeStop()) must not stop the next one; the SDK only stops the active OpMode.
+            Thread t = new Thread(() -> stopOpMode(s), "opmode-stopper");
             t.setDaemon(true);
             t.start();
         }

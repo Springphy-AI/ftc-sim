@@ -68,6 +68,7 @@ public final class OpModeSession {
         ACCESS.setStopListener(opMode, new OpModeAccess.StopListener() {
             @Override
             public void onRequestOpModeStop() {
+                if (state == State.STOPPED) return;   // from a thread this OpMode left behind: it is over
                 markStopRequested();
                 if (linear) Thread.currentThread().interrupt();
                 OpModeSession.this.listener.onStopRequestedByOpMode(OpModeSession.this);
