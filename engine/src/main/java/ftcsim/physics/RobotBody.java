@@ -41,6 +41,7 @@ public final class RobotBody {
         public DBody body;
         public DGeom geom;
         public DHingeJoint hinge;
+        double mass;
 
         Wheel(String key, double x, double y) {
             this.key = key;
@@ -253,6 +254,10 @@ public final class RobotBody {
                 drive(motorByName, config.driveMotorName("back_right"), spec, "right", gear, br);
             }
         }
+        // A motor that drives several wheels (a chain) has one rotor: its wheels share its inertia.
+        for (DriveMotor dm : driveMotors) {
+            for (Wheel w : dm.wheels) setWheelMass(w, spec.reflectedInertia() * gear * gear / dm.wheels.size());
+        }
 
         linkOfGroup = new LinkBody[model == null ? 0 : model.groups.size()];
         if (model != null) {
@@ -395,14 +400,10 @@ public final class RobotBody {
             if (cadWheel.mass > 0) mass = cadWheel.mass;
         }
         Wheel w = new Wheel(key, x, y);
+        w.mass = mass;
         w.body = OdeHelper.createBody(world.world);
-        // Axle inertia includes the motor rotor reflected through the gearbox, which dominates.
         double r = wheelRadius;
-        double axle = 0.5 * mass * r * r + spec.reflectedInertia() * gear * gear;
-        double other = 0.25 * mass * r * r + 0.5 * axle;
-        DMass m = OdeHelper.createMass();
-        m.setParameters(mass, 0, 0, 0, other, axle, other, 0, 0, 0);
-        w.body.setMass(m);
+        setWheelMass(w, spec.reflectedInertia() * gear * gear);   // a rotor of its own until drive() says otherwise
         w.body.setPosition(x, y, r);
         w.body.setAutoDisableFlag(false);
         w.geom = OdeHelper.createSphere(world.space, r);
@@ -421,6 +422,19 @@ public final class RobotBody {
         w.hinge.setAxis(0, 1, 0);
         wheels.add(w);
         return w;
+    }
+
+    /**
+     * A wheel's mass and inertia. Its axle inertia includes {@code rotorInertia}, its share of the
+     * driving motor's rotor reflected through the gearbox, which dominates.
+     */
+    private void setWheelMass(Wheel w, double rotorInertia) {
+        double r = wheelRadius;
+        double axle = 0.5 * w.mass * r * r + rotorInertia;
+        double other = 0.25 * w.mass * r * r + 0.5 * axle;
+        DMass m = OdeHelper.createMass();
+        m.setParameters(w.mass, 0, 0, 0, other, axle, other, 0, 0, 0);
+        w.body.setMass(m);
     }
 
     private void drive(java.util.function.Function<String, MotorUnit> motorByName, String name, MotorModels.Spec spec,

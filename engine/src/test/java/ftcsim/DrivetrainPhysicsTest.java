@@ -12,11 +12,14 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 
+import ftcsim.cad.ModelBuilder;
+import ftcsim.config.MotorModels;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.Latency;
 import ftcsim.hal.MotorPort;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.PhysicsWorld;
+import ftcsim.physics.RobotBody;
 import ftcsim.sim.RobotRig;
 
 /** Sanity checks of the drivetrain physics, driving the motor ports directly (no OpMode). */
@@ -192,6 +195,24 @@ class DrivetrainPhysicsTest {
         }
         // One port per motor: the intake moves up to the Control Hub's free ports.
         assertTrue(two.motors.get("intake").port.hub == port(two, "left_drive").hub, "intake on the Control Hub");
+    }
+
+    @Test
+    void wheelsChainedToOneMotorShareItsRotor() throws Exception {
+        RobotConfig cfg = RobotConfig.load(Path.of("robots/tank.json"));
+        RobotRig rig = rig(cfg);
+        double gear = cfg.drive.externalGearRatio <= 0 ? 1 : cfg.drive.externalGearRatio;
+        double rotor = MotorModels.get(cfg.drive.motor).reflectedInertia() * gear * gear;
+        double r = rig.body.wheelRadius;
+        for (RobotBody.DriveMotor dm : rig.body.driveMotors) {
+            assertEquals(3, dm.wheels.size(), "a tank drives three wheels a side with one motor");
+            // What the axles carry beyond the wheels themselves: one rotor, not one per wheel.
+            double rotors = 0;
+            for (RobotBody.Wheel w : dm.wheels) {
+                rotors += w.body.getMass().getI().get11() - 0.5 * ModelBuilder.DEFAULT_WHEEL_MASS_KG * r * r;
+            }
+            assertEquals(rotor, rotors, rotor * 1e-9);
+        }
     }
 
     @Test
