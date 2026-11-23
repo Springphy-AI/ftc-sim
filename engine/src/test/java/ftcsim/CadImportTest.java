@@ -170,6 +170,67 @@ class CadImportTest {
         }).collect(Collectors.toList());
     }
 
+    /** A round part of radius r and width w at c (meters, z up), its axle along y (across the robot) or x. */
+    private static MeshPart wheel(String path, double r, double w, double[] c, boolean acrossTheRobot) {
+        MeshFiles.Mesh m = MeshFiles.cylinder(r, w, 24);
+        double[] rot = acrossTheRobot ? new double[]{1, 0, 0, 0, 0, -1, 0, 1, 0} : new double[]{0, 0, 1, 0, 1, 0, -1, 0, 0};
+        return new MeshPart(path, 0x333333, Geom3.apply(Geom3.transform(rot, c), m.positions()), m.indices());
+    }
+
+    /**
+     * mecanum.json built from a CAD of a plate and four 104 mm mecanum wheels on a 0.336 x 0.350 m
+     * footprint (z up, +x forward), plus {@code more}: the robot file's numbers become the CAD's.
+     */
+    private static RobotModel mecanumWith(RobotConfig cfg, List<MeshPart> more) {
+        cfg.cad = new RobotConfig.Cad();
+        cfg.cad.file = "test.step";
+        cfg.cad.forward = "+x";
+        cfg.cad.up = "+z";
+        List<MeshPart> parts = new ArrayList<>();
+        parts.add(part("Robot/Drivetrain/Plate", 0, 0, 0.06, 0.40, 0.40, 0.01));
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                parts.add(wheel("Robot/Drivetrain/104mm Mecanum Wheel", 0.052, 0.038, new double[]{sx * 0.168, sy * 0.175, 0.052}, true));
+            }
+        }
+        parts.addAll(more);
+        RobotModel m = ModelBuilder.fromStep(cfg, parts, "test.step");
+        ModelBuilder.applyTo(cfg, m);
+        for (String n : m.notes) System.out.println("  note: " + n);
+        return m;
+    }
+
+    @Test
+    void odometryPodsAreNotTakenForDriveWheels() throws Exception {
+        // Two 35 mm pods, where mecanum.json's Pinpoint has them, touching the floor like the drive wheels.
+        for (String pod : new String[]{"Odometry Pod #/Omni Wheel", "Pod #/35mm Omni Wheel", "Tracking #/Wheel"}) {
+            RobotConfig cfg = RobotConfig.load(Path.of("robots/mecanum.json"), false);
+            mecanumWith(cfg, List.of(
+                    wheel("Robot/" + pod.replace("#", "X"), 0.0175, 0.012, new double[]{0.0, -0.084, 0.0175}, true),
+                    wheel("Robot/" + pod.replace("#", "Y"), 0.0175, 0.012, new double[]{-0.168, 0.0, 0.0175}, false)));
+            System.out.printf("%s: wheel %.1f mm, wheelbase %.3f m, track %.3f m%n", pod,
+                    cfg.drive.wheelDiameterMm, cfg.drive.wheelbaseM, cfg.drive.trackWidthM);
+            assertEquals(104, cfg.drive.wheelDiameterMm, 1, pod);
+            assertEquals(0.336, cfg.drive.wheelbaseM, 0.002, pod);
+            assertEquals(0.350, cfg.drive.trackWidthM, 0.002, pod);
+        }
+    }
+
+    @Test
+    void extraWheelsAreNeverMergedIntoACornerWheel() throws Exception {
+        // A full-size omni wheel in the middle of each side, as on a 6-wheel base: a mecanum
+        // drive has four wheels, so the corners' are used and the middle two left out.
+        RobotConfig cfg = RobotConfig.load(Path.of("robots/mecanum.json"), false);
+        RobotModel m = mecanumWith(cfg, List.of(
+                wheel("Robot/Drivetrain/Center Omni Wheel L", 0.052, 0.038, new double[]{0, 0.175, 0.052}, true),
+                wheel("Robot/Drivetrain/Center Omni Wheel R", 0.052, 0.038, new double[]{0, -0.175, 0.052}, true)));
+        assertEquals(104, cfg.drive.wheelDiameterMm, 1);
+        assertEquals(0.336, cfg.drive.wheelbaseM, 0.002);
+        assertEquals(0.350, cfg.drive.trackWidthM, 0.002);
+        assertTrue(m.notes.stream().anyMatch(n -> n.contains("found 6 drive wheels") && n.contains("the 4 nearest its corners")),
+                m.notes.toString());
+    }
+
     @Test
     void listedWheelsShowWhichWayTheRobotFacesToo(@TempDir Path dir) throws Exception {
         List<MeshPart> cad = namedWheels(exampleParts());

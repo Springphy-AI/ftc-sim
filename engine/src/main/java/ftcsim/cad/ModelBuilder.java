@@ -696,32 +696,46 @@ public final class ModelBuilder {
             notes.add("no wheel parts found (name them *wheel* or list them in cad.wheels); the CAD wheels won't turn");
             return out;
         }
-        double[] mid = new double[3];
-        for (T t : cands) mid = Geom3.add(mid, center.apply(t));
-        mid = Geom3.scale(mid, 1.0 / cands.size());
-        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
-        for (T t : cands) {
-            double x = center.apply(t)[0];
-            minX = Math.min(minX, x);
-            maxX = Math.max(maxX, x);
-        }
+        // Where each wheel of this drive is: a corner of the wheels' footprint (a 6-wheel tank's
+        // middle wheels: the middle of a side). Each spot takes the nearest wheel, the closest
+        // pairs first; a wheel is one wheel, never merged with another (whose bounds together
+        // would make one wheel the size of both), and wheels left over are left out.
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
         for (T t : cands) {
             double[] c = center.apply(t);
-            boolean left = c[1] > mid[1];
-            String key;
-            if ("tank".equals(cfg.drive.type)) {
-                double f = (c[0] - minX) / Math.max(1e-6, maxX - minX);
-                String pos = f > 2 / 3.0 ? "front" : (f < 1 / 3.0 ? "back" : "middle");
-                key = (left ? "left_" : "right_") + pos;
-            } else if ("tank4".equals(cfg.drive.type)) {
-                key = (left ? "left_" : "right_") + (c[0] > mid[0] ? "front" : "back");
-            } else {
-                key = (c[0] > mid[0] ? "front_" : "back_") + (left ? "left" : "right");
+            minX = Math.min(minX, c[0]);
+            maxX = Math.max(maxX, c[0]);
+            minY = Math.min(minY, c[1]);
+            maxY = Math.max(maxY, c[1]);
+        }
+        Map<String, double[]> spot = new LinkedHashMap<>();
+        for (String key : keys) {
+            double x = key.contains("front") ? maxX : key.contains("back") ? minX : (minX + maxX) / 2;
+            spot.put(key, new double[]{x, key.contains("left") ? maxY : minY});
+        }
+        List<T> unplaced = new ArrayList<>(cands);
+        while (!unplaced.isEmpty() && !spot.isEmpty()) {
+            String bestKey = null;
+            T best = null;
+            double bestD = Double.MAX_VALUE;
+            for (Map.Entry<String, double[]> e : spot.entrySet()) {
+                for (T t : unplaced) {
+                    double[] c = center.apply(t);
+                    double d = Math.hypot(c[0] - e.getValue()[0], c[1] - e.getValue()[1]);
+                    if (d < bestD) {
+                        bestD = d;
+                        bestKey = e.getKey();
+                        best = t;
+                    }
+                }
             }
-            out.computeIfAbsent(key, k -> new ArrayList<>()).add(t);
+            out.put(bestKey, new ArrayList<>(List.of(best)));
+            spot.remove(bestKey);
+            unplaced.remove(best);
         }
         if (cands.get(0) instanceof AutoDetect.Wheel && cands.size() != keys.size()) {
             notes.add("found " + cands.size() + " drive wheels, but a " + cfg.drive.type + " drive has " + keys.size()
+                    + (cands.size() > keys.size() ? " (the " + keys.size() + " nearest its corners are used)" : "")
                     + "; set drive.type (mecanum, tank or tank4) or list them in cad.wheels");
         } else if (out.size() < keys.size()) {
             notes.add("found wheel parts for only " + out.keySet() + "; list them in cad.wheels");

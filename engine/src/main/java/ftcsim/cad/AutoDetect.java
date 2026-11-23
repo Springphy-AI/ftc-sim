@@ -20,8 +20,15 @@ import ftcsim.config.RobotConfig;
  */
 final class AutoDetect {
     static final Pattern WHEEL_NAME = Pattern.compile("(?i).*(wheel|mecanum|omni).*");
-    /** Wheels that don't drive the robot: flywheels, compliant intake wheels, feeder wheels... */
-    private static final Pattern NOT_DRIVE = Pattern.compile("(?i).*(fly|compliant|intake|shoot|launch|feed|index|transfer|kick|turret|gecko|star).*");
+    /**
+     * Wheels that don't drive the robot: flywheels, compliant intake wheels, feeder wheels, and
+     * odometry (dead) wheels, which ride on the floor too. ("Pod" alone isn't one: teams call a
+     * drive wheel's module a pod as well. A small odometry wheel by any name is left out by its size.)
+     */
+    private static final Pattern NOT_DRIVE = Pattern.compile(
+            "(?i).*(fly|compliant|intake|shoot|launch|feed|index|transfer|kick|turret|gecko|star|odo|dead|tracking|encoder).*");
+    /** A wheel this much smaller than the others is an odometry wheel, not a drive wheel. */
+    private static final double SMALL_WHEEL = 0.6;
     private static final Pattern SHAFT = Pattern.compile("(?i).*(shaft|axle|pivot|hinge|spline|axis).*");
     /** Round parts that turn with the roller or flywheel they belong to. */
     private static final Pattern TURNS_WITH = Pattern.compile("(?i).*(shaft|axle|hub|spacer|collar|bushing|bearing|pulley|sprocket|gear).*");
@@ -75,6 +82,11 @@ final class AutoDetect {
             return bounds[3 + axis] - bounds[axis];
         }
 
+        /** Its largest side: a wheel's diameter, however it is turned. */
+        double diameter() {
+            return Math.max(size(0), Math.max(size(1), size(2)));
+        }
+
         /** Round: its two largest sides about equal. */
         boolean disk() {
             double[] s = {size(0), size(1), size(2)};
@@ -121,6 +133,23 @@ final class AutoDetect {
             for (int i : s) parts.get(i).addBounds(bb);
             out.add(new Wheel(s, bb));
         }
+        return withoutSmallWheels(out);
+    }
+
+    /**
+     * Leaves out wheels whose diameter is under {@link #SMALL_WHEEL} of the median: odometry pods
+     * (35 to 48 mm omni wheels) among drive wheels (75 mm and up).
+     */
+    static List<Wheel> withoutSmallWheels(List<Wheel> wheels) {
+        if (wheels.size() < 3) return wheels;
+        double[] d = new double[wheels.size()];
+        for (int i = 0; i < d.length; i++) d[i] = wheels.get(i).diameter();
+        double[] sorted = d.clone();
+        Arrays.sort(sorted);
+        int n = sorted.length;
+        double median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+        List<Wheel> out = new ArrayList<>();
+        for (int i = 0; i < d.length; i++) if (d[i] >= SMALL_WHEEL * median) out.add(wheels.get(i));
         return out;
     }
 
