@@ -36,6 +36,7 @@ import ftcsim.hal.CameraPreviews;
 import ftcsim.hal.GamepadAccess;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.MotorPort;
+import ftcsim.hal.OpModeAccess;
 import ftcsim.hal.OpModeSession;
 import ftcsim.hal.RobotContext;
 import ftcsim.hal.ServoPort;
@@ -390,7 +391,7 @@ public final class SimRobot {
             HardwareMap hw = r.createHardwareMap(hal);
             context.webcams.clear();
             context.webcams.addAll(hw.getAll(WebcamName.class));
-            telemetry = new SimTelemetry();
+            telemetry = OpModeAccess.get().telemetryOf(opMode);
             active = info;
             selected = info.name();
             lastError = null;
@@ -398,7 +399,7 @@ public final class SimRobot {
             context.run(RobotLog::clearGlobalErrorMsg);
             state = DsState.INIT;
             initNanos = System.nanoTime();
-            final OpModeSession s = new OpModeSession(context, info.name(), opMode, hw, gamepad1, gamepad2, telemetry, sessionListener);
+            final OpModeSession s = new OpModeSession(context, info.name(), opMode, hw, gamepad1, gamepad2, sessionListener);
             session = s;
             context.run(() -> RobotLog.i(RobotLog.OPMODE_START_TAG, s.getName()));
             log("INIT " + info.name() + " (" + info.className() + ")");

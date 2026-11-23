@@ -328,6 +328,41 @@ class OpModeLifecycleTest {
     }
 
     @Test
+    void telemetryCanBeUsedFromAFieldInitializer() throws Exception {
+        // FIRST's OpModeInternal creates the OpMode's TelemetryImpl in its constructor, so a field
+        // initializer can keep it (as new MultipleTelemetry(telemetry, ...) does). What is sent
+        // through it is shown even after the OpMode puts something else in its telemetry field.
+        write("KeepsTelemetry", """
+                import org.firstinspires.ftc.robotcore.external.Telemetry;
+
+                @TeleOp(name = "Keeps telemetry")
+                public class KeepsTelemetry extends LinearOpMode {
+                    private final Telemetry kept = telemetry;
+
+                    {
+                        telemetry = null;
+                    }
+
+                    @Override
+                    public void runOpMode() {
+                        while (opModeInInit()) {
+                            kept.addData("kept", "yes");
+                            kept.update();
+                            sleep(20);
+                        }
+                    }
+                }
+                """);
+        start();
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Keeps telemetry\"}");
+        waitFor(Simulator.DsState.INIT);
+        long deadline = System.currentTimeMillis() + 3000;
+        while (lastTelemetry("kept") == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        assertEquals("kept : yes", lastTelemetry("kept"), "error: " + sim.lastError());
+        sim.handle("{\"type\":\"stop\"}");
+    }
+
+    @Test
     void theRunningOpModeCanStillStopItself() throws Exception {
         write("StopsItself", """
                 @TeleOp(name = "Stops itself")

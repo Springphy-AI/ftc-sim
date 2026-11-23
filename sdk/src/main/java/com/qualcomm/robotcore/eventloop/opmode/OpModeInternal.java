@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import ftcsim.hal.OpModeAccess;
+import ftcsim.hal.SimTelemetry;
 
 /** Shared state of {@link OpMode} and {@link LinearOpMode}. */
 abstract class OpModeInternal {
@@ -19,8 +20,14 @@ abstract class OpModeInternal {
     public volatile Gamepad gamepad1 = null;
     /** Gamepad 2 */
     public volatile Gamepad gamepad2 = null;
+    /**
+     * The OpMode's own telemetry, created with it as FIRST's OpModeInternal creates its TelemetryImpl,
+     * so field initializers can use it. The engine shows what this one sends even if robot code puts
+     * another object (a wrapper of it) in {@link #telemetry}.
+     */
+    final SimTelemetry simTelemetry = new SimTelemetry();
     /** The {@link #telemetry} field contains an object in which a user may accumulate data to send to the driver station. */
-    public Telemetry telemetry = null;
+    public Telemetry telemetry = simTelemetry;
     /** Hardware Mappings */
     public volatile HardwareMap hardwareMap = null;
 

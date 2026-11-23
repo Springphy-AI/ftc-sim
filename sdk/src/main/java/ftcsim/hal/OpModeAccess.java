@@ -39,4 +39,7 @@ public abstract class OpModeAccess {
     public abstract Object runningNotifier(OpMode opMode);
 
     public abstract void setStopListener(OpMode opMode, StopListener listener);
+
+    /** The telemetry the OpMode was created with, whatever its telemetry field holds now. */
+    public abstract SimTelemetry telemetryOf(OpMode opMode);
 }

@@ -69,8 +69,8 @@ public final class OpModeSession {
     private List<Runnable> stopHooks;
 
     public OpModeSession(String name, OpMode opMode, HardwareMap hardwareMap, Gamepad gamepad1, Gamepad gamepad2,
-                         Telemetry telemetry, Listener listener) {
-        this(null, name, opMode, hardwareMap, gamepad1, gamepad2, telemetry, listener);
+                         Listener listener) {
+        this(null, name, opMode, hardwareMap, gamepad1, gamepad2, listener);
     }
 
     /**
@@ -78,7 +78,7 @@ public final class OpModeSession {
      *              starts, see that robot's blackboard, global messages and bus latency. May be null.
      */
     public OpModeSession(RobotContext robot, String name, OpMode opMode, HardwareMap hardwareMap, Gamepad gamepad1,
-                         Gamepad gamepad2, Telemetry telemetry, Listener listener) {
+                         Gamepad gamepad2, Listener listener) {
         this.robot = robot;
         this.name = name;
         this.opMode = opMode;
@@ -99,7 +99,6 @@ public final class OpModeSession {
             opMode.gamepad2 = own2;
         }
         opMode.hardwareMap = hardwareMap;
-        opMode.telemetry = telemetry;
         ACCESS.setStopListener(opMode, new OpModeAccess.StopListener() {
             @Override
             public void onRequestOpModeStop() {
