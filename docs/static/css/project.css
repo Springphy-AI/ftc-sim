@@ -14,7 +14,7 @@
 .fact { min-width: 150px; }
 .fact-num { font-size: 1.9rem; font-weight: 800; color: var(--text-primary); line-height: 1.1; margin-bottom: 0.35rem; }
 .fact-text { font-size: 0.92rem; color: var(--text-secondary); line-height: 1.45; }
-.fact-note { font-size: 0.9rem; color: var(--text-light); margin-top: 1rem; }
+.fact-note { font-size: 0.9rem; color: var(--text-secondary); margin-top: 1rem; }
 
 .results-carousel .item img { width: 100%; height: auto; display: block; border-radius: var(--border-radius) var(--border-radius) 0 0; }
 
@@ -67,3 +67,6 @@
   /* The figures' labels are too small to read at phone width; tapping one opens it full size. */
   .ftc-figure figcaption::after { content: " Tap the figure to open it full size."; }
 }
+
+/* Font Awesome icons inlined as SVG (sized as its script sized them) */
+.fa-icon { display: inline-block; height: 1em; width: auto; overflow: visible; vertical-align: -0.125em; }

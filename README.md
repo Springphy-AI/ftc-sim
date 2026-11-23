@@ -856,7 +856,7 @@ Third-party code in this repository keeps its own license:
 | `engine/src/main/resources/web/vendor/` | Three.js and OrbitControls, © three.js authors | MIT ([THREE-LICENSE](engine/src/main/resources/web/vendor/THREE-LICENSE)) |
 | `natives/apriltag/` | AprilTag detector, © The Regents of The University of Michigan, and its JNI glue, © OpenFTC Team (compiled) | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)), MIT ([LICENSE-eocv-apriltag-plugin](natives/apriltag/LICENSE-eocv-apriltag-plugin.txt)) |
 | `engine/src/main/java/ftcsim/vision/Tag36h11.java` | tag36h11 codes from AprilRobotics/apriltag | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)) |
-| `docs/` | The project page: the Academic Project Page Template; Bulma 0.9.1 and bulma-carousel; Font Awesome Free 5.15.1 | the page: CC BY-SA 4.0 (credited in its footer); Bulma, bulma-carousel: MIT; Font Awesome: icons CC BY 4.0, code MIT |
+| `docs/` | The project page: the Academic Project Page Template; Bulma 0.9.1 and bulma-carousel; five Font Awesome Free 5.15.1 icons, inlined as SVG | the page: CC BY-SA 4.0 (credited in its footer); Bulma, bulma-carousel: MIT; the icons: CC BY 4.0 |
 
 Libraries that Gradle downloads at build time: ODE4j (LGPL-2.1-or-later or BSD-style, at your
 choice), Javalin, Gson and Kotlin stdlib (Apache-2.0), Jetty (Apache-2.0 or EPL-2.0), SLF4J (MIT),

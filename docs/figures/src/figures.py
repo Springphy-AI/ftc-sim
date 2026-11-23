@@ -539,7 +539,7 @@ def vision():
     b("detector", xs[1], mid)
     f.text("detector-name", xs[1] + bw / 2, mid + 24, "AprilTag C detector", anchor="middle", weight=600)
     f.text("detector-1", xs[1] + bw / 2, mid + 40, "OpenFTC plugin 2.1.0, built", anchor="middle", size=11.5, fill="quiet", maxw=184)
-    f.text("detector-2", xs[1] + bw / 2, mid + 56, "for Windows and Linux x86-64", anchor="middle", size=11.5, fill="quiet", maxw=184)
+    f.text("detector-2", xs[1] + bw / 2, mid + 56, "for Windows, Linux and macOS", anchor="middle", size=11.5, fill="quiet", maxw=184)
     with f.group("processor"):
         f.box(xs[2], mid, bw, bh, main=True)
     f.text("processor-name", xs[2] + bw / 2, mid + 24, "AprilTagProcessor", anchor="middle", weight=600)

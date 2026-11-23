@@ -236,7 +236,11 @@ class Fig:
     def svg(self):
         light = ";".join(f"--f-{k}:{v[0]}" for k, v in STATIC.items())
         dark = ";".join(f"--f-{k}:{v[1]}" for k, v in STATIC.items())
-        style = (f".ftcfig{{{light}}}@media (prefers-color-scheme: dark){{.ftcfig{{{dark}}}}}")
+        # svg:root: a figure opened on its own (a phone zooming in) gets a background of the palette's own
+        # mode, else dark mode puts its light ink on the browser's white canvas. Inlined in a page, the
+        # svg isn't the root, so the page's background shows through.
+        style = (f".ftcfig{{{light}}}svg:root{{background:#ffffff}}"
+                 f"@media (prefers-color-scheme: dark){{.ftcfig{{{dark}}}svg:root{{background:#0d1117}}}}")
         body = "".join(self._node(n, False) for n in self.root)
         return (f'<svg xmlns="http://www.w3.org/2000/svg" class="ftcfig" viewBox="0 0 {self.w} {self.h}" role="img" '
                 f'aria-labelledby="{self.slug}-title" font-size="{fmt(self.size)}" '
