@@ -8,12 +8,14 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -163,6 +165,24 @@ public final class Main {
     }
 
     /**
+     * A robot file or season typed on the command line: where the user typed it if {@code found}
+     * there, else as typed, which the simulator's folder resolves (robots/tank.json, seasons/decode,
+     * or a season's name) wherever run-sim was started.
+     */
+    static String fromCallerIf(String path, String callerDir, Predicate<Path> found) {
+        try {
+            String there = fromCaller(path, callerDir);
+            return !there.equals(path) && found.test(Paths.get(there)) ? there : path;
+        } catch (InvalidPathException e) {
+            return path;   // not a path: the simulator's folder says what is wrong with it
+        }
+    }
+
+    private static boolean isSeason(Path p) {
+        return Files.isRegularFile(p) || Files.isRegularFile(p.resolve("season.json"));
+    }
+
+    /**
      * What to start: sim.properties' settings with the command line's over them. project, robot and
      * alliance are by robot number, from 1 (null where not given); count is how many robots;
      * warnings are for the user.
@@ -217,7 +237,7 @@ public final class Main {
                 String v = value(args, i++);
                 switch (m.group(1)) {
                     case "project" -> project[k] = fromCaller(v, callerDir);
-                    case "robot" -> robot[k] = v;
+                    case "robot" -> robot[k] = fromCallerIf(v, callerDir, Files::isRegularFile);
                     default -> alliance[k] = v;
                 }
                 if (k >= typedCount) {
@@ -227,9 +247,9 @@ public final class Main {
                 continue;
             }
             switch (a) {
-                case "--season", "-s" -> season = value(args, i++);
+                case "--season", "-s" -> season = fromCallerIf(value(args, i++), callerDir, Main::isSeason);
                 case "--project", "-p" -> project[1] = fromCaller(value(args, i++), callerDir);
-                case "--robot", "-r" -> robot[1] = value(args, i++);
+                case "--robot", "-r" -> robot[1] = fromCallerIf(value(args, i++), callerDir, Files::isRegularFile);
                 case "--alliance" -> alliance[1] = value(args, i++);
                 case "--robots" -> {
                     robots = number(value(args, i++), a);

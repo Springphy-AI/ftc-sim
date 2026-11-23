@@ -116,6 +116,27 @@ class OptionsTest {
     }
 
     @Test
+    void aRelativeRobotFileOrSeasonIsWhereTheUserTypedItIfItIsThere() throws Exception {
+        // run-sim starts the simulator in its own folder and passes the folder it was started in.
+        Path work = Files.createDirectories(tmp.resolve("work"));
+        Files.writeString(work.resolve("my-robot.json"), "{}");
+        Files.createDirectories(work.resolve("seasons/ours"));
+        Files.writeString(work.resolve("seasons/ours/season.json"), "{}");
+        String caller = work.toString();
+        Main.Options o = Main.parse(Map.of(), new String[]{"--robot", "my-robot.json", "--robot2", "../work/my-robot.json",
+                "--robot3", "robots/tank.json", "--season", "seasons/ours"}, caller);
+        assertEquals(work.resolve("my-robot.json").toString(), o.robot()[1], "in the folder it was typed in");
+        assertEquals(work.resolve("my-robot.json").toString(), o.robot()[2]);
+        assertEquals("robots/tank.json", o.robot()[3], "not there: the simulator's robots/, from anywhere");
+        assertEquals(work.resolve("seasons/ours").toString(), o.season());
+        assertEquals("decode", Main.parse(Map.of(), new String[]{"--season", "decode"}, caller).season(), "a season's name");
+        assertEquals("seasons/ours", Main.parse(Map.of("season", "seasons/ours"), new String[0], caller).season(),
+                "sim.properties paths stay the simulator folder's");
+        assertEquals("my-robot.json", Main.parse(Map.of(), new String[]{"--robot", "my-robot.json"}, null).robot()[1],
+                "started some other way: as before");
+    }
+
+    @Test
     void theSimulatorExplainsAMistakeInsteadOfCrashing() throws Exception {
         // The real program, as run-sim starts it: exit code 2 and a sentence, no stack trace.
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
