@@ -429,7 +429,8 @@ class GameElementsTest {
 
     /** robots/mecanum.json with {@code intake} (a device) for its intake motor. */
     private static Setup withIntake(Path dir, String intake) throws Exception {
-        String json = Files.readString(Path.of("robots/mecanum.json"));
+        // (as one line ending: a Windows checkout has the file's lines end in CRLF, the text blocks in LF)
+        String json = Files.readString(Path.of("robots/mecanum.json")).replace("\r\n", "\n");
         String motor = """
                 { "type": "motor", "name": "intake", "motor": "goBILDA 5203 1150rpm", "role": "intake",
                       "load": { "kind": "roller", "inertia": 0.0002 } },""";
