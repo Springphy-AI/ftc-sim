@@ -159,8 +159,9 @@
               DECODE, is included as a second pack. Matches are run from a browser version of the Driver Station.
             </p>
             <p>
-              Rigid-body physics runs in ODE4j with a 1 ms step, paced to the wall clock; on a desktop computer, four robots
-              and all the game pieces run at 1.7 to 2.0 times real time. We model mecanum wheels with
+              Rigid-body physics runs in ODE4j with a 1 ms step, paced to the wall clock; on a desktop computer, the physics
+              of four robots and all the game pieces ran at 1.7 to 2.0 times real time, measured before the latest changes to
+              the battery and loop-timing models. We model mecanum wheels with
               anisotropic contact friction, motors with their datasheet torque–speed curves, and the REV hub's firmware
               control loops, battery sag and hardware-call timing. The HIVE model is calibrated against the
               tipping table in FIRST's Event Field Setup Guide and against balls launched by a simulated robot. Webcam
@@ -170,9 +171,10 @@
             <p>
               Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads.
               They can edit that code in the same page, beside the field, and deploy it from there to the physical robot
-              through their project's own Android build. We describe the models, a test suite that runs on Windows, Linux
-              and macOS and checks the SDK's stand-ins against FIRST's code, and a planned comparison with a physical robot and field. The code is open source under the MIT
-              license.
+              through their project's own Android build, a path so far tested only against stand-ins for Gradle and the
+              Android Debug Bridge (ADB). We describe the models, a test suite that runs on Windows, Linux and macOS and
+              checks the SDK's stand-ins against FIRST's code, and a planned comparison with a physical robot and field. Our
+              code is open source under the MIT license; the third-party files bundled with it keep their own licenses.
             </p>
           </div>
         </div>
@@ -185,10 +187,10 @@
     <div class="container is-max-desktop">
       <div class="columns is-multiline is-centered has-text-centered">
         <div class="column fact"><p class="fact-num">1&nbsp;ms</p><p class="fact-text">physics step in ODE4j, paced to the wall clock</p></div>
-        <div class="column fact"><p class="fact-num">1,118</p><p class="fact-text">public and protected members of 115 SDK 12.0 classes, all found in FIRST's jars</p></div>
+        <div class="column fact"><p class="fact-num">1,130</p><p class="fact-text">public and protected members of 111 SDK 12.0 classes checked against FIRST's jars: none that team code can use is missing there</p></div>
         <div class="column fact"><p class="fact-num">41</p><p class="fact-text">of FIRST's sample files, bundled with the simulator, compile unmodified</p></div>
         <div class="column fact"><p class="fact-num">≤&nbsp;2&nbsp;mm</p><p class="fact-text">AprilTag position error on rendered, noise-free frames</p></div>
-        <div class="column fact"><p class="fact-num">162</p><p class="fact-text">tests, run on Windows, Linux and macOS</p></div>
+        <div class="column fact"><p class="fact-num">232</p><p class="fact-text">tests, run on Windows, Linux and macOS</p></div>
       </div>
       <p class="has-text-centered fact-note">The SDK, sample and AprilTag numbers come from the simulator's own tests; the 1&nbsp;ms step is a setting. None has been compared with a physical robot yet; Section 10 of the report plans that comparison.</p>
     </div>
