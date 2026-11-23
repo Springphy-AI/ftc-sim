@@ -2,15 +2,18 @@ package ftcsim;
 
 import java.awt.Desktop;
 import java.io.IOException;
-import java.io.Reader;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Properties;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,73 +43,25 @@ public final class Main {
 
     public static void main(String[] args) throws Exception {
         Path home = Paths.get("").toAbsolutePath();
-        Properties props = new Properties();
-        Path propsFile = home.resolve("sim.properties");
-        if (Files.isRegularFile(propsFile)) {
-            try (Reader r = Files.newBufferedReader(propsFile, StandardCharsets.UTF_8)) {
-                props.load(r);
-            }
-        }
-        int max = Simulator.MAX_ROBOTS;
-        String[] project = new String[max + 1], robot = new String[max + 1], alliance = new String[max + 1];
-        project[1] = props.getProperty("project", props.getProperty("project1"));
-        robot[1] = props.getProperty("robot", props.getProperty("robot1", "robots/mecanum.json"));
-        alliance[1] = props.getProperty("alliance", props.getProperty("alliance1"));
-        int count = 1;
-        for (int k = 2; k <= max; k++) {
-            project[k] = props.getProperty("project" + k);
-            robot[k] = props.getProperty("robot" + k);
-            alliance[k] = props.getProperty("alliance" + k);
-            if (project[k] != null || robot[k] != null || alliance[k] != null) count = k;
-        }
-        String season = props.getProperty("season", Season.DEFAULT);
-        int robots = Integer.parseInt(props.getProperty("robots", "1"));
-        int port = Integer.parseInt(props.getProperty("port", "8080"));
-        boolean openBrowser = Boolean.parseBoolean(props.getProperty("open_browser", "true"));
-
-        Pattern numbered = Pattern.compile("--(project|robot|alliance)([1-9])");
-        for (int i = 0; i < args.length; i++) {
-            Matcher m = numbered.matcher(args[i]);
-            if (m.matches()) {
-                int k = Integer.parseInt(m.group(2));
-                if (k > max || i + 1 >= args.length) {
-                    System.err.println(k > max ? "At most " + max + " robots (" + args[i] + ")" : "Missing value for " + args[i]);
-                    System.exit(2);
-                }
-                String v = args[++i];
-                switch (m.group(1)) {
-                    case "project" -> project[k] = fromCaller(v, System.getenv("FTCSIM_CALLER_DIR"));
-                    case "robot" -> robot[k] = v;
-                    default -> alliance[k] = v;
-                }
-                count = Math.max(count, k);
-                continue;
-            }
-            switch (args[i]) {
-                case "--season", "-s" -> season = args[++i];
-                case "--project", "-p" -> project[1] = fromCaller(args[++i], System.getenv("FTCSIM_CALLER_DIR"));
-                case "--robot", "-r" -> robot[1] = args[++i];
-                case "--alliance" -> alliance[1] = args[++i];
-                case "--robots" -> robots = Integer.parseInt(args[++i]);
-                case "--port" -> port = Integer.parseInt(args[++i]);
-                case "--no-browser" -> openBrowser = false;
-                case "--help", "-h" -> {
-                    usage();
-                    return;
-                }
-                default -> {
-                    System.err.println("Unknown option " + args[i]);
-                    usage();
-                    System.exit(2);
-                }
-            }
-        }
-
-        if (robots < 1 || robots > max) {
-            System.err.println("--robots must be between 1 and " + max);
+        Options options;
+        try {
+            options = parse(readProperties(home.resolve("sim.properties")), args, System.getenv("FTCSIM_CALLER_DIR"));
+        } catch (UsageError e) {
+            System.err.println(e.getMessage());
+            if (e.showUsage) usage();
+            else System.err.println("Run with --help to see the options.");
             System.exit(2);
+            return;
         }
-        count = Math.max(count, robots);
+        if (options.help()) {
+            usage();
+            return;
+        }
+        String[] project = options.project(), robot = options.robot(), alliance = options.alliance();
+        String season = options.season();
+        int count = options.count();
+        int port = options.port();
+        boolean openBrowser = options.openBrowser();
 
         // Each running simulator compiles into its own folder; remove folders of simulators that have exited.
         Path workRoot = home.resolve("build/teamcode-classes");
@@ -204,6 +159,139 @@ public final class Main {
     static String fromCaller(String path, String callerDir) {
         if (callerDir == null || callerDir.isBlank() || Paths.get(path).isAbsolute()) return path;
         return Paths.get(callerDir).resolve(path).normalize().toString();
+    }
+
+    /**
+     * What to start: sim.properties' settings with the command line's over them. project, robot and
+     * alliance are by robot number, from 1 (null where not given); count is how many robots.
+     */
+    record Options(String season, String[] project, String[] robot, String[] alliance, int count, int port,
+                   boolean openBrowser, boolean help) {
+    }
+
+    /** A mistake in the options or in sim.properties, said in a sentence: exit code 2, no stack trace. */
+    static final class UsageError extends Exception {
+        final boolean showUsage;
+
+        UsageError(String message, boolean showUsage) {
+            super(message);
+            this.showUsage = showUsage;
+        }
+    }
+
+    /**
+     * The options from sim.properties' settings ({@code props}) and the command line ({@code args});
+     * {@code callerDir} is the folder run-sim was started in (null when started some other way).
+     */
+    static Options parse(Map<String, String> props, String[] args, String callerDir) throws UsageError {
+        int max = Simulator.MAX_ROBOTS;
+        String[] project = new String[max + 1], robot = new String[max + 1], alliance = new String[max + 1];
+        project[1] = props.getOrDefault("project", props.get("project1"));
+        robot[1] = props.getOrDefault("robot", props.getOrDefault("robot1", "robots/mecanum.json"));
+        alliance[1] = props.getOrDefault("alliance", props.get("alliance1"));
+        int count = 1;
+        for (int k = 2; k <= max; k++) {
+            project[k] = props.get("project" + k);
+            robot[k] = props.get("robot" + k);
+            alliance[k] = props.get("alliance" + k);
+            if (project[k] != null || robot[k] != null || alliance[k] != null) count = k;
+        }
+        String season = props.getOrDefault("season", Season.DEFAULT);
+        int robots = number(props.getOrDefault("robots", "1"), "robots= in sim.properties");
+        int port = number(props.getOrDefault("port", "8080"), "port= in sim.properties");
+        boolean openBrowser = Boolean.parseBoolean(props.getOrDefault("open_browser", "true"));
+
+        Pattern numbered = Pattern.compile("--(project|robot|alliance)([1-9])");
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
+            Matcher m = numbered.matcher(a);
+            if (m.matches()) {
+                int k = Integer.parseInt(m.group(2));
+                if (k > max) throw new UsageError("At most " + max + " robots (" + a + ")", false);
+                String v = value(args, i++);
+                switch (m.group(1)) {
+                    case "project" -> project[k] = fromCaller(v, callerDir);
+                    case "robot" -> robot[k] = v;
+                    default -> alliance[k] = v;
+                }
+                count = Math.max(count, k);
+                continue;
+            }
+            switch (a) {
+                case "--season", "-s" -> season = value(args, i++);
+                case "--project", "-p" -> project[1] = fromCaller(value(args, i++), callerDir);
+                case "--robot", "-r" -> robot[1] = value(args, i++);
+                case "--alliance" -> alliance[1] = value(args, i++);
+                case "--robots" -> robots = number(value(args, i++), a);
+                case "--port" -> port = number(value(args, i++), a);
+                case "--no-browser" -> openBrowser = false;
+                case "--help", "-h" -> {
+                    return new Options(season, project, robot, alliance, count, port, openBrowser, true);
+                }
+                default -> throw new UsageError("Unknown option " + a, true);
+            }
+        }
+        if (robots < 1 || robots > max) throw new UsageError("The number of robots must be between 1 and " + max + ", not " + robots, false);
+        if (port < 1 || port > 65535) throw new UsageError("The port must be between 1 and 65535, not " + port, false);
+        count = Math.max(count, robots);
+        return new Options(season, project, robot, alliance, count, port, openBrowser, false);
+    }
+
+    /** The value after option {@code args[i]}: missing when it is the last argument or another option. */
+    private static String value(String[] args, int i) throws UsageError {
+        if (i + 1 >= args.length || args[i + 1].startsWith("--")) throw new UsageError(args[i] + " needs a value", false);
+        return args[i + 1];
+    }
+
+    private static int number(String value, String what) throws UsageError {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw new UsageError(what + " must be a whole number, not \"" + value + "\"", false);
+        }
+    }
+
+    /**
+     * sim.properties as written: "key=value" lines ("key: value" and "key value" too), # and ! start
+     * comments, and spaces around keys and values don't count. Backslashes are kept as they are:
+     * java.util.Properties reads them as escapes, so a Windows path lost them (C:\Users\me became
+     * C:Usersme, \t a tab) or failed to load (D:\ftc\ users, without the space, is a bad unicode
+     * escape). Empty if there is no file.
+     */
+    static Map<String, String> readProperties(Path file) throws IOException {
+        return readProperties(file, nativeCharset());
+    }
+
+    /** @param notUtf8 the encoding of a file that isn't UTF-8: an older Notepad saved in Windows' own */
+    static Map<String, String> readProperties(Path file, Charset notUtf8) throws IOException {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (!Files.isRegularFile(file)) return out;
+        byte[] bytes = Files.readAllBytes(file);
+        String text;
+        try {
+            text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException e) {
+            text = new String(bytes, notUtf8);
+        }
+        if (text.startsWith("\uFEFF")) text = text.substring(1);   // Notepad's byte order mark
+        for (String line : text.split("\\R")) {
+            String t = line.strip();
+            if (t.isEmpty() || t.charAt(0) == '#' || t.charAt(0) == '!') continue;
+            int end = 0;
+            while (end < t.length() && "=: \t\f".indexOf(t.charAt(end)) < 0) end++;
+            String value = t.substring(end).stripLeading();
+            if (!value.isEmpty() && (value.charAt(0) == '=' || value.charAt(0) == ':')) value = value.substring(1).stripLeading();
+            out.put(t.substring(0, end), value);
+        }
+        return out;
+    }
+
+    private static Charset nativeCharset() {
+        try {
+            return Charset.forName(System.getProperty("native.encoding", "UTF-8"));
+        } catch (RuntimeException e) {
+            return StandardCharsets.ISO_8859_1;
+        }
     }
 
     /** @param who "" with one robot, else "Robot K: ", to say whose folder is wrong */

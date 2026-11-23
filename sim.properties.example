@@ -4,8 +4,8 @@
 # The game: a season pack in seasons/ (biobuzz, decode, ...). Default biobuzz.
 #season=decode
 
-# Your FtcRobotController project (the folder that contains TeamCode/).
-# Use forward slashes or doubled backslashes on Windows.
+# Your FtcRobotController project (the folder that contains TeamCode/). A path is read as
+# written: on Windows, C:\Users\you\... and C:/Users/you/... both work.
 #project=C:/Users/you/Documents/GitHub/FtcRobotController
 
 # Robot description to simulate (see robots/).
