@@ -1,6 +1,7 @@
 package ftcsim.sim;
 
 import java.io.IOException;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -444,11 +445,39 @@ public final class SimRobot {
                 setError("The OpMode \"" + s.getName() + "\" did not stop within a second (stuck in a loop that ignores "
                         + "isStopRequested()/opModeIsActive()?). On a robot the app would restart; here its thread "
                         + "is abandoned and disconnected from the hardware.");
+                reloadTeamCode();
             }
             finishSession(s);
         }, "opmode-stopper");
         t.setDaemon(true);
         t.start();
+    }
+
+    /**
+     * After an OpMode was abandoned: on a robot the app would restart, and TeamCode's static fields
+     * with it. Here the robot's TeamCode is loaded again from the same build, with a new class
+     * loader, so the next OpMode doesn't get what the abandoned one left in static fields (a static
+     * executor whose threads belong to the abandoned OpMode, whose hardware calls all throw).
+     */
+    private void reloadTeamCode() {
+        TeamCodeCompiler.Result b = build;
+        if (b == null || !(b.loader() instanceof URLClassLoader old)) return;
+        URLClassLoader fresh = new URLClassLoader(old.getURLs(), old.getParent());
+        List<OpModeInfo> opModes = new ArrayList<>();
+        for (OpModeInfo o : b.opModes()) {
+            Class<?> type;
+            try {
+                type = Class.forName(o.className(), false, fresh);
+            } catch (ClassNotFoundException | LinkageError e) {
+                type = o.type();
+            }
+            opModes.add(new OpModeInfo(o.name(), o.group(), o.kind(), o.className(), o.disabled(), o.sample(),
+                    o.preselectTeleOp(), type));
+        }
+        if (build == b) {   // (a build that finished meanwhile has fresh classes already)
+            build = new TeamCodeCompiler.Result(b.ok(), b.message(), fresh, opModes, b.skipped(), b.problems(),
+                    b.compiledFiles(), b.millis());
+        }
     }
 
     private final OpModeSession.Listener sessionListener = new OpModeSession.Listener() {

@@ -157,6 +157,94 @@ class OpModeLifecycleTest {
     }
 
     @Test
+    void afterAnOpModeIsAbandonedTheNextOneGetsFreshStaticFields() throws Exception {
+        // On a robot a stuck OpMode restarts the app, and TeamCode's statics start afresh. Here a
+        // static executor whose thread the abandoned OpMode started would carry that OpMode on, and
+        // every hardware call through it would throw.
+        write("Shared", """
+                import java.util.concurrent.ExecutorService;
+                import java.util.concurrent.Executors;
+
+                class Shared {
+                    private static ExecutorService pool;
+
+                    static synchronized ExecutorService pool() {
+                        if (pool == null) {
+                            pool = Executors.newSingleThreadExecutor(r -> {
+                                Thread t = new Thread(r, "shared pool");
+                                t.setDaemon(true);
+                                return t;
+                            });
+                        }
+                        return pool;
+                    }
+                }
+                """);
+        write("StuckWithPool", """
+                import com.qualcomm.robotcore.hardware.DcMotor;
+
+                @TeleOp(name = "Stuck with pool")
+                public class StuckWithPool extends LinearOpMode {
+                    @Override
+                    public void runOpMode() throws InterruptedException {
+                        DcMotor motor = hardwareMap.get(DcMotor.class, "launcher");
+                        waitForStart();
+                        try {
+                            Shared.pool().submit(() -> motor.getCurrentPosition()).get();
+                        } catch (java.util.concurrent.ExecutionException e) {
+                            throw new RuntimeException(e);
+                        }
+                        telemetry.addData("used the pool", "yes");
+                        telemetry.update();
+                        long end = System.nanoTime() + 6_000_000_000L;
+                        while (System.nanoTime() < end) Thread.yield();   // ignores STOP, touches no hardware
+                    }
+                }
+                """);
+        write("UsesPool", """
+                import com.qualcomm.robotcore.hardware.DcMotor;
+
+                @TeleOp(name = "Uses pool")
+                public class UsesPool extends LinearOpMode {
+                    @Override
+                    public void runOpMode() {
+                        DcMotor motor = hardwareMap.get(DcMotor.class, "launcher");
+                        waitForStart();
+                        String result;
+                        try {
+                            result = "ok " + Shared.pool().submit(() -> motor.getCurrentPosition()).get();
+                        } catch (Exception e) {
+                            result = String.valueOf(e.getCause());
+                        }
+                        telemetry.addData("pool", result);
+                        telemetry.update();
+                        while (opModeIsActive()) idle();
+                    }
+                }
+                """);
+        start();
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Stuck with pool\"}");
+        waitFor(Simulator.DsState.INIT);
+        sim.handle("{\"type\":\"start\"}");
+        waitFor(Simulator.DsState.RUNNING);
+        long used = System.currentTimeMillis() + 3000;
+        while (lastTelemetry("used the pool") == null && System.currentTimeMillis() < used) Thread.sleep(20);
+        assertEquals("used the pool : yes", lastTelemetry("used the pool"), "error: " + sim.lastError());
+        sim.handle("{\"type\":\"stop\"}");
+        long stopped = System.currentTimeMillis() + 4000;
+        while (sim.dsState() != Simulator.DsState.IDLE && System.currentTimeMillis() < stopped) Thread.sleep(20);
+        assertTrue(String.valueOf(sim.lastError()).contains("did not stop"), String.valueOf(sim.lastError()));
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Uses pool\"}");
+        waitFor(Simulator.DsState.INIT);
+        sim.handle("{\"type\":\"start\"}");
+        waitFor(Simulator.DsState.RUNNING);
+        long deadline = System.currentTimeMillis() + 3000;
+        while (lastTelemetry("pool") == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        assertEquals("pool : ok 0", lastTelemetry("pool"), "error: " + sim.lastError());
+        sim.handle("{\"type\":\"stop\"}");
+    }
+
+    @Test
     void anAbandonedOpModeNoLongerTakesTheNextOnesButtonPresses() throws Exception {
         write("PollsA", """
                 @TeleOp(name = "Polls A")
