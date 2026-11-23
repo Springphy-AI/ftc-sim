@@ -103,7 +103,9 @@ class DrivetrainPhysicsTest {
         run(rig, 0.4);
         double[] v = rig.body.bodyVelocity();
         System.out.printf("strafe: v=(%.3f, %.3f) m/s%n", v[0], v[1]);
-        assertTrue(v[1] < -0.8, "should move right (negative y), got " + v[1]);
+        // As fast as forward, less what the rollers slip (1.5 m/s here): a wrong roller direction or
+        // friction would halve it, or turn it into a spin.
+        assertTrue(v[1] < -1.2 && v[1] > -1.95, "should move right (negative y) at about forward speed, got " + v[1]);
         assertEquals(0, v[0], 0.1, "no forward drift while strafing");
     }
 
@@ -115,7 +117,9 @@ class DrivetrainPhysicsTest {
         run(rig, 0.5);
         double[] w = rig.body.bodyAngularVelocity();
         System.out.printf("turn: omega=%.3f rad/s%n", w[2]);
-        assertTrue(w[2] > 2.0, "should spin CCW quickly, got " + w[2]);
+        // The wheels' free speed (about 1.8 m/s) over half the wheelbase plus half the track
+        // (0.34 m) is about 5.3 rad/s.
+        assertTrue(w[2] > 4.0 && w[2] < 6.0, "should spin CCW at about 5 rad/s, got " + w[2]);
     }
 
     @Test
