@@ -80,14 +80,17 @@ public class Gamepad {
     volatile int simUser = 0;
 
     // ---- edge detection --------------------------------------------------------------------
-    private static final int B_DPAD_UP = 0, B_DPAD_DOWN = 1, B_DPAD_LEFT = 2, B_DPAD_RIGHT = 3,
-            B_A = 4, B_B = 5, B_X = 6, B_Y = 7, B_GUIDE = 8, B_START = 9, B_BACK = 10,
-            B_LEFT_BUMPER = 11, B_RIGHT_BUMPER = 12, B_LEFT_STICK = 13, B_RIGHT_STICK = 14,
-            B_TOUCHPAD = 15, B_LEFT_TRIGGER = 16, B_RIGHT_TRIGGER = 17, NUM_EDGES = 18;
+    // As FIRST's GamepadStateChanges: one monitor per button, the PlayStation names included (cross
+    // and a are separate monitors of the same button, so aWasPressed() doesn't use up crossWasPressed()).
+    private static final int E_DPAD_UP = 0, E_DPAD_DOWN = 1, E_DPAD_LEFT = 2, E_DPAD_RIGHT = 3,
+            E_A = 4, E_B = 5, E_X = 6, E_Y = 7, E_GUIDE = 8, E_START = 9, E_BACK = 10,
+            E_LEFT_BUMPER = 11, E_RIGHT_BUMPER = 12, E_LEFT_STICK = 13, E_RIGHT_STICK = 14,
+            E_CIRCLE = 15, E_CROSS = 16, E_TRIANGLE = 17, E_SQUARE = 18, E_SHARE = 19, E_OPTIONS = 20,
+            E_TOUCHPAD = 21, E_PS = 22, E_LEFT_TRIGGER = 23, E_RIGHT_TRIGGER = 24, NUM_EDGES = 25;
 
-    private final boolean[] edgePrev = new boolean[NUM_EDGES];
-    private final boolean[] wasPressed = new boolean[NUM_EDGES];
-    private final boolean[] wasReleased = new boolean[NUM_EDGES];
+    private final boolean[] lastPressed = new boolean[NUM_EDGES];
+    private final boolean[] pressNotify = new boolean[NUM_EDGES];
+    private final boolean[] releaseNotify = new boolean[NUM_EDGES];
 
     public Gamepad() {
     }
@@ -226,107 +229,119 @@ public class Gamepad {
 
     private void updateEdgeDetection() {
         boolean[] now = new boolean[NUM_EDGES];
-        now[B_DPAD_UP] = dpad_up;
-        now[B_DPAD_DOWN] = dpad_down;
-        now[B_DPAD_LEFT] = dpad_left;
-        now[B_DPAD_RIGHT] = dpad_right;
-        now[B_A] = a;
-        now[B_B] = b;
-        now[B_X] = x;
-        now[B_Y] = y;
-        now[B_GUIDE] = guide;
-        now[B_START] = start;
-        now[B_BACK] = back;
-        now[B_LEFT_BUMPER] = left_bumper;
-        now[B_RIGHT_BUMPER] = right_bumper;
-        now[B_LEFT_STICK] = left_stick_button;
-        now[B_RIGHT_STICK] = right_stick_button;
-        now[B_TOUCHPAD] = touchpad;
-        now[B_LEFT_TRIGGER] = left_trigger_pressed;
-        now[B_RIGHT_TRIGGER] = right_trigger_pressed;
+        now[E_DPAD_UP] = dpad_up;
+        now[E_DPAD_DOWN] = dpad_down;
+        now[E_DPAD_LEFT] = dpad_left;
+        now[E_DPAD_RIGHT] = dpad_right;
+        now[E_A] = a;
+        now[E_B] = b;
+        now[E_X] = x;
+        now[E_Y] = y;
+        now[E_GUIDE] = guide;
+        now[E_START] = start;
+        now[E_BACK] = back;
+        now[E_LEFT_BUMPER] = left_bumper;
+        now[E_RIGHT_BUMPER] = right_bumper;
+        now[E_LEFT_STICK] = left_stick_button;
+        now[E_RIGHT_STICK] = right_stick_button;
+        now[E_CIRCLE] = circle;
+        now[E_CROSS] = cross;
+        now[E_TRIANGLE] = triangle;
+        now[E_SQUARE] = square;
+        now[E_SHARE] = share;
+        now[E_OPTIONS] = options;
+        now[E_TOUCHPAD] = touchpad;
+        now[E_PS] = ps;
+        now[E_LEFT_TRIGGER] = left_trigger_pressed;
+        now[E_RIGHT_TRIGGER] = right_trigger_pressed;
         for (int i = 0; i < NUM_EDGES; i++) {
-            if (now[i] && !edgePrev[i]) wasPressed[i] = true;
-            if (!now[i] && edgePrev[i]) wasReleased[i] = true;
-            edgePrev[i] = now[i];
+            if (!lastPressed[i] && now[i]) pressNotify[i] = true;
+            if (lastPressed[i] && !now[i]) releaseNotify[i] = true;
+            lastPressed[i] = now[i];
         }
     }
 
     private boolean takePressed(int i) {
         synchronized (this) {
-            boolean v = wasPressed[i];
-            wasPressed[i] = false;
+            boolean v = pressNotify[i];
+            pressNotify[i] = false;
             return v;
         }
     }
 
     private boolean takeReleased(int i) {
         synchronized (this) {
-            boolean v = wasReleased[i];
-            wasReleased[i] = false;
+            boolean v = releaseNotify[i];
+            releaseNotify[i] = false;
             return v;
         }
     }
 
-    /** Clears all edge-detection state, so that every *WasPressed()/*WasReleased() returns false. */
+    /**
+     * Starts edge detection afresh, as FIRST's (a new GamepadStateChanges): nothing pressed or
+     * released is pending, and every button counts as up, so one still held reports
+     * *WasPressed() again at the next update.
+     */
     public void resetEdgeDetection() {
         synchronized (this) {
             for (int i = 0; i < NUM_EDGES; i++) {
-                wasPressed[i] = false;
-                wasReleased[i] = false;
+                lastPressed[i] = false;
+                pressNotify[i] = false;
+                releaseNotify[i] = false;
             }
         }
     }
 
-    public boolean dpadUpWasPressed() { return takePressed(B_DPAD_UP); }
-    public boolean dpadUpWasReleased() { return takeReleased(B_DPAD_UP); }
-    public boolean dpadDownWasPressed() { return takePressed(B_DPAD_DOWN); }
-    public boolean dpadDownWasReleased() { return takeReleased(B_DPAD_DOWN); }
-    public boolean dpadLeftWasPressed() { return takePressed(B_DPAD_LEFT); }
-    public boolean dpadLeftWasReleased() { return takeReleased(B_DPAD_LEFT); }
-    public boolean dpadRightWasPressed() { return takePressed(B_DPAD_RIGHT); }
-    public boolean dpadRightWasReleased() { return takeReleased(B_DPAD_RIGHT); }
-    public boolean aWasPressed() { return takePressed(B_A); }
-    public boolean aWasReleased() { return takeReleased(B_A); }
-    public boolean bWasPressed() { return takePressed(B_B); }
-    public boolean bWasReleased() { return takeReleased(B_B); }
-    public boolean xWasPressed() { return takePressed(B_X); }
-    public boolean xWasReleased() { return takeReleased(B_X); }
-    public boolean yWasPressed() { return takePressed(B_Y); }
-    public boolean yWasReleased() { return takeReleased(B_Y); }
-    public boolean guideWasPressed() { return takePressed(B_GUIDE); }
-    public boolean guideWasReleased() { return takeReleased(B_GUIDE); }
-    public boolean startWasPressed() { return takePressed(B_START); }
-    public boolean startWasReleased() { return takeReleased(B_START); }
-    public boolean backWasPressed() { return takePressed(B_BACK); }
-    public boolean backWasReleased() { return takeReleased(B_BACK); }
-    public boolean leftBumperWasPressed() { return takePressed(B_LEFT_BUMPER); }
-    public boolean leftBumperWasReleased() { return takeReleased(B_LEFT_BUMPER); }
-    public boolean rightBumperWasPressed() { return takePressed(B_RIGHT_BUMPER); }
-    public boolean rightBumperWasReleased() { return takeReleased(B_RIGHT_BUMPER); }
-    public boolean leftStickButtonWasPressed() { return takePressed(B_LEFT_STICK); }
-    public boolean leftStickButtonWasReleased() { return takeReleased(B_LEFT_STICK); }
-    public boolean rightStickButtonWasPressed() { return takePressed(B_RIGHT_STICK); }
-    public boolean rightStickButtonWasReleased() { return takeReleased(B_RIGHT_STICK); }
-    public boolean circleWasPressed() { return takePressed(B_B); }
-    public boolean circleWasReleased() { return takeReleased(B_B); }
-    public boolean crossWasPressed() { return takePressed(B_A); }
-    public boolean crossWasReleased() { return takeReleased(B_A); }
-    public boolean triangleWasPressed() { return takePressed(B_Y); }
-    public boolean triangleWasReleased() { return takeReleased(B_Y); }
-    public boolean squareWasPressed() { return takePressed(B_X); }
-    public boolean squareWasReleased() { return takeReleased(B_X); }
-    public boolean shareWasPressed() { return takePressed(B_BACK); }
-    public boolean shareWasReleased() { return takeReleased(B_BACK); }
-    public boolean optionsWasPressed() { return takePressed(B_START); }
-    public boolean optionsWasReleased() { return takeReleased(B_START); }
-    public boolean touchpadWasPressed() { return takePressed(B_TOUCHPAD); }
-    public boolean touchpadWasReleased() { return takeReleased(B_TOUCHPAD); }
-    public boolean psWasPressed() { return takePressed(B_GUIDE); }
-    public boolean psWasReleased() { return takeReleased(B_GUIDE); }
-    public boolean leftTriggerWasPressed() { return takePressed(B_LEFT_TRIGGER); }
-    public boolean leftTriggerWasReleased() { return takeReleased(B_LEFT_TRIGGER); }
-    public boolean rightTriggerWasPressed() { return takePressed(B_RIGHT_TRIGGER); }
-    public boolean rightTriggerWasReleased() { return takeReleased(B_RIGHT_TRIGGER); }
+    public boolean dpadUpWasPressed() { return takePressed(E_DPAD_UP); }
+    public boolean dpadUpWasReleased() { return takeReleased(E_DPAD_UP); }
+    public boolean dpadDownWasPressed() { return takePressed(E_DPAD_DOWN); }
+    public boolean dpadDownWasReleased() { return takeReleased(E_DPAD_DOWN); }
+    public boolean dpadLeftWasPressed() { return takePressed(E_DPAD_LEFT); }
+    public boolean dpadLeftWasReleased() { return takeReleased(E_DPAD_LEFT); }
+    public boolean dpadRightWasPressed() { return takePressed(E_DPAD_RIGHT); }
+    public boolean dpadRightWasReleased() { return takeReleased(E_DPAD_RIGHT); }
+    public boolean aWasPressed() { return takePressed(E_A); }
+    public boolean aWasReleased() { return takeReleased(E_A); }
+    public boolean bWasPressed() { return takePressed(E_B); }
+    public boolean bWasReleased() { return takeReleased(E_B); }
+    public boolean xWasPressed() { return takePressed(E_X); }
+    public boolean xWasReleased() { return takeReleased(E_X); }
+    public boolean yWasPressed() { return takePressed(E_Y); }
+    public boolean yWasReleased() { return takeReleased(E_Y); }
+    public boolean guideWasPressed() { return takePressed(E_GUIDE); }
+    public boolean guideWasReleased() { return takeReleased(E_GUIDE); }
+    public boolean startWasPressed() { return takePressed(E_START); }
+    public boolean startWasReleased() { return takeReleased(E_START); }
+    public boolean backWasPressed() { return takePressed(E_BACK); }
+    public boolean backWasReleased() { return takeReleased(E_BACK); }
+    public boolean leftBumperWasPressed() { return takePressed(E_LEFT_BUMPER); }
+    public boolean leftBumperWasReleased() { return takeReleased(E_LEFT_BUMPER); }
+    public boolean rightBumperWasPressed() { return takePressed(E_RIGHT_BUMPER); }
+    public boolean rightBumperWasReleased() { return takeReleased(E_RIGHT_BUMPER); }
+    public boolean leftStickButtonWasPressed() { return takePressed(E_LEFT_STICK); }
+    public boolean leftStickButtonWasReleased() { return takeReleased(E_LEFT_STICK); }
+    public boolean rightStickButtonWasPressed() { return takePressed(E_RIGHT_STICK); }
+    public boolean rightStickButtonWasReleased() { return takeReleased(E_RIGHT_STICK); }
+    public boolean circleWasPressed() { return takePressed(E_CIRCLE); }
+    public boolean circleWasReleased() { return takeReleased(E_CIRCLE); }
+    public boolean crossWasPressed() { return takePressed(E_CROSS); }
+    public boolean crossWasReleased() { return takeReleased(E_CROSS); }
+    public boolean triangleWasPressed() { return takePressed(E_TRIANGLE); }
+    public boolean triangleWasReleased() { return takeReleased(E_TRIANGLE); }
+    public boolean squareWasPressed() { return takePressed(E_SQUARE); }
+    public boolean squareWasReleased() { return takeReleased(E_SQUARE); }
+    public boolean shareWasPressed() { return takePressed(E_SHARE); }
+    public boolean shareWasReleased() { return takeReleased(E_SHARE); }
+    public boolean optionsWasPressed() { return takePressed(E_OPTIONS); }
+    public boolean optionsWasReleased() { return takeReleased(E_OPTIONS); }
+    public boolean touchpadWasPressed() { return takePressed(E_TOUCHPAD); }
+    public boolean touchpadWasReleased() { return takeReleased(E_TOUCHPAD); }
+    public boolean psWasPressed() { return takePressed(E_PS); }
+    public boolean psWasReleased() { return takeReleased(E_PS); }
+    public boolean leftTriggerWasPressed() { return takePressed(E_LEFT_TRIGGER); }
+    public boolean leftTriggerWasReleased() { return takeReleased(E_LEFT_TRIGGER); }
+    public boolean rightTriggerWasPressed() { return takePressed(E_RIGHT_TRIGGER); }
+    public boolean rightTriggerWasReleased() { return takeReleased(E_RIGHT_TRIGGER); }
 
     // ---- LED & rumble ----------------------------------------------------------------------
 

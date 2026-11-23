@@ -42,6 +42,40 @@ class GamepadTest {
         assertEquals(1.5f, gp.getTriggerThreshold());
     }
 
+    private static void buttonA(Gamepad gp, boolean a) {
+        boolean[] b = new boolean[18];
+        b[0] = a;
+        GamepadAccess.get().update(gp, Gamepad.Type.SONY_PS4, 0, 0, 0, 0, 0, 0, b);
+    }
+
+    @Test
+    void thePlayStationNameOfAButtonHasEdgesOfItsOwn() {
+        // FIRST's GamepadStateChanges has a monitor for cross and another for a: code that asks
+        // aWasPressed() doesn't use up the press for code that asks crossWasPressed().
+        Gamepad gp = new Gamepad();
+        buttonA(gp, true);
+        assertTrue(gp.aWasPressed());
+        assertTrue(gp.crossWasPressed(), "the same press, seen through its PlayStation name");
+        assertFalse(gp.aWasPressed());
+        assertFalse(gp.crossWasPressed());
+        buttonA(gp, false);
+        assertTrue(gp.crossWasReleased());
+        assertTrue(gp.aWasReleased());
+    }
+
+    @Test
+    void aButtonHeldThroughResetEdgeDetectionIsPressedAgainAtTheNextUpdate() {
+        // FIRST's resetEdgeDetection() starts a new GamepadStateChanges, in which every button was up.
+        Gamepad gp = new Gamepad();
+        buttonA(gp, true);
+        assertTrue(gp.aWasPressed());
+        gp.resetEdgeDetection();
+        assertFalse(gp.aWasPressed(), "nothing is pending right after the reset");
+        buttonA(gp, true);   // still held
+        assertTrue(gp.aWasPressed(), "a button held through the reset counts as pressed at the next update");
+        assertTrue(gp.crossWasPressed());
+    }
+
     private final List<String> messages = new CopyOnWriteArrayList<>();
 
     private static final String HEADER = """
