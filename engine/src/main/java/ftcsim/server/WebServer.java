@@ -112,10 +112,19 @@ public final class WebServer {
     private final Map<String, Holder> holders = new HashMap<>();
     private final RobotDeploy deployer = new RobotDeploy();
     private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
+    private final Map<String, String> env;
     private Javalin app;
+    /** The name a GitHub codespace gives the port this server listens on, or null outside one. */
+    private volatile String forwarded;
 
     public WebServer(Simulator sim) {
+        this(sim, System.getenv());
+    }
+
+    /** {@code env}: the environment, which says whether this runs in a GitHub codespace (tests pass their own). */
+    public WebServer(Simulator sim, Map<String, String> env) {
         this.sim = sim;
+        this.env = env;
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {
@@ -175,7 +184,7 @@ public final class WebServer {
             // then lets that page read what this server answers: robot files and their CAD, the
             // webcams' view, the page itself, and upload a robot. (The WebSocket checks when it connects.)
             config.routes.before(ctx -> {
-                if (!isLocalHost(hostOf(ctx.header("Host")))) {
+                if (!ownHost(ctx.header("Host"), forwarded)) {
                     ctx.status(403).result("Only pages of this computer may use the simulator");
                     ctx.skipRemainingHandlers();
                 }
@@ -196,7 +205,7 @@ public final class WebServer {
                 ws.onConnect(ctx -> {
                     // Browsers let any web site open a WebSocket to localhost: only the simulator's own
                     // page may watch the robots (and their builds, which quote TeamCode) or drive them.
-                    if (!localPage(ctx.header("Origin"), ctx.header("Host"))) {
+                    if (!localPage(ctx.header("Origin"), ctx.header("Host"), forwarded)) {
                         ctx.closeSession(1008, "Only the simulator's own page may connect");
                         return;
                     }
@@ -219,7 +228,27 @@ public final class WebServer {
             });
         });
         app.start();
+        forwarded = codespaceHost(env, app.port());
         return app.port();
+    }
+
+    /**
+     * The name a GitHub codespace forwards this server's port at (NAME-PORT.DOMAIN, served over
+     * https), or null outside a codespace. The page comes from there, and only its owner can open
+     * it while the port stays private (the default). The name holds the port, so another program's
+     * page in the same codespace, at another port, is another site.
+     */
+    public String codespaceHost() {
+        return forwarded;
+    }
+
+    /** NAME-PORT.DOMAIN from a codespace's environment, or null when {@code env} is not a codespace's. */
+    static String codespaceHost(Map<String, String> env, int port) {
+        String name = env.get("CODESPACE_NAME"), domain = env.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN");
+        if (!"true".equals(env.get("CODESPACES")) || name == null || name.isBlank() || domain == null || domain.isBlank()) {
+            return null;
+        }
+        return (name + "-" + port + "." + domain).toLowerCase(java.util.Locale.ROOT);
     }
 
     public void stop() {
@@ -410,18 +439,28 @@ public final class WebServer {
      * and must be addressed to this computer by name, which stops a site whose own name was
      * pointed at 127.0.0.1 from passing as the simulator's page.
      */
-    static boolean fromOwnPage(Context ctx) {
-        return ctx.header("X-Ftcsim-Code") != null && localPage(ctx.header("Origin"), ctx.header("Host"));
+    boolean fromOwnPage(Context ctx) {
+        return ctx.header("X-Ftcsim-Code") != null && localPage(ctx.header("Origin"), ctx.header("Host"), forwarded);
+    }
+
+    /** Whether a Host header names this computer, or the name its codespace forwards this server at. */
+    static boolean ownHost(String host, String forwarded) {
+        String name = hostOf(host);
+        return isLocalHost(name) || forwarded != null && forwarded.equalsIgnoreCase(name);
     }
 
     /**
      * A request addressed to this computer by name, from the simulator's own page (or from no page:
      * a program, which a web site can't make send it). Its page is of this computer and of the port
      * the request came to: a page another local server serves, on another port, is another site.
+     * In a codespace ({@code forwarded} not null) the page is at https://{@code forwarded}, and the
+     * request may name that or this computer: what the codespace's proxy passes on.
      */
-    static boolean localPage(String origin, String host) {
-        if (!isLocalHost(hostOf(host))) return false;
+    static boolean localPage(String origin, String host, String forwarded) {
+        if (!ownHost(host, forwarded)) return false;
         if (origin == null) return true;
+        if (forwarded != null && origin.equalsIgnoreCase("https://" + forwarded)) return true;
+        if (!isLocalHost(hostOf(host))) return false;
         try {
             java.net.URI o = java.net.URI.create(origin);
             int originPort = o.getPort() >= 0 ? o.getPort() : "https".equals(o.getScheme()) ? 443 : 80;

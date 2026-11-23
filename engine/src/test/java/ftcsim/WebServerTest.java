@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
@@ -157,6 +158,39 @@ class WebServerTest {
         // another site: it may not watch or drive the robots.
         assertEquals(0, messagesTo("http://localhost:" + (port == 3000 ? 3001 : 3000)));
         assertEquals(0, messagesTo("http://localhost"));
+    }
+
+    @Test
+    void inAGitHubCodespaceThePageAtItsForwardedPortMayUseTheSimulator() throws Exception {
+        // Outside a codespace, a codespace's name is another site's.
+        assertEquals(403, rawStatus("GET / HTTP/1.1\r\nHost: test-space-" + port + ".app.github.dev\r\n"));
+
+        server.stop();
+        server = new WebServer(sim, Map.of("CODESPACES", "true", "CODESPACE_NAME", "Test-Space",
+                "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev"));
+        port = server.start(0);
+        String own = "test-space-" + port + ".app.github.dev";
+        assertEquals(own, server.codespaceHost());
+
+        // The page, addressed by the forwarded name or, as the codespace's proxy may pass it on, by
+        // this computer's; not another codespace's, nor this one's other ports.
+        assertEquals(200, rawStatus("GET / HTTP/1.1\r\nHost: " + own + "\r\n"));
+        assertEquals(200, rawStatus("GET / HTTP/1.1\r\nHost: localhost:" + port + "\r\n"));
+        assertEquals(403, rawStatus("GET / HTTP/1.1\r\nHost: other-space-" + port + ".app.github.dev\r\n"));
+        assertEquals(403, rawStatus("GET / HTTP/1.1\r\nHost: test-space-" + (port + 1) + ".app.github.dev\r\n"));
+
+        // The code editor's requests come from the forwarded page, however they are addressed.
+        String code = "GET /code/0/files HTTP/1.1\r\nX-Ftcsim-Code: 1\r\n";
+        assertEquals(200, rawStatus(code + "Host: " + own + "\r\nOrigin: https://" + own + "\r\n"));
+        assertEquals(200, rawStatus(code + "Host: localhost:" + port + "\r\nOrigin: https://" + own + "\r\n"));
+        // Another program's page in the codespace, or a page on the viewer's own computer, may not.
+        String other = "https://test-space-" + (port == 3000 ? 3001 : 3000) + ".app.github.dev";
+        assertEquals(403, rawStatus(code + "Host: " + own + "\r\nOrigin: " + other + "\r\n"));
+        assertEquals(403, rawStatus(code + "Host: " + own + "\r\nOrigin: http://localhost\r\n"));
+        assertEquals(403, rawStatus(code + "Host: " + own + "\r\nOrigin: http://" + own + "\r\n"));
+
+        assertTrue(messagesTo("https://" + own) > 0, "the forwarded page");
+        assertEquals(0, messagesTo(other));
     }
 
     @Test

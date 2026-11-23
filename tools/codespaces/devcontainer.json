@@ -1,0 +1,22 @@
+// For your team's FtcRobotController repository: copy this file to .devcontainer/devcontainer.json
+// there, and open that repository in a GitHub codespace. The codespace downloads the simulator
+// next to your project (/workspaces/ftc-sim) and runs your TeamCode on it (README: "Run it in
+// GitHub Codespaces"). It changes nothing in your Android Studio build.
+{
+  "name": "FTC Simulator",
+  // Ubuntu 24.04: the simulator's AprilTag detector needs glibc 2.38 or newer.
+  "image": "mcr.microsoft.com/devcontainers/base:1-ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": { "version": "21", "jdkDistro": "tem" }
+  },
+  // Downloads and builds the simulator when the codespace is made. To update it later, run
+  // git -C /workspaces/ftc-sim pull; the next start rebuilds it.
+  "updateContentCommand": "if [ -d /workspaces/ftc-sim/.git ]; then git -C /workspaces/ftc-sim pull --ff-only; else git clone --depth 1 https://github.com/Springphy-AI/ftc-sim.git /workspaces/ftc-sim; fi && cd /workspaces/ftc-sim && sh ./gradlew -q :engine:prepareRun",
+  // Starts it with this project's TeamCode whenever VS Code connects, unless it is already running.
+  "postAttachCommand": "sh /workspaces/ftc-sim/.devcontainer/start.sh --project .",
+  // The Driver Station page opens in a browser tab. The port stays private: only you can open it.
+  "portsAttributes": {
+    "8080-8089": { "label": "FTC simulator", "onAutoForward": "openBrowser" }
+  },
+  "otherPortsAttributes": { "onAutoForward": "ignore" }
+}

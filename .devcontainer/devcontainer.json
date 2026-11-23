@@ -1,0 +1,21 @@
+// The simulator in a GitHub codespace, with nothing to install (README: "Run it in GitHub Codespaces").
+// It starts with the bundled examples; tools/codespaces/devcontainer.json is the one for a team's
+// FtcRobotController repository.
+{
+  "name": "FTC Simulator",
+  // Ubuntu 24.04: the AprilTag detector in natives/ needs glibc 2.38 or newer (Debian 12 has 2.36).
+  "image": "mcr.microsoft.com/devcontainers/base:1-ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": { "version": "21", "jdkDistro": "tem" }
+  },
+  // Builds the simulator when the codespace is made, so it starts in seconds.
+  "updateContentCommand": "sh ./gradlew -q :engine:prepareRun",
+  // Starts it whenever VS Code connects, unless it is already running.
+  "postAttachCommand": "sh .devcontainer/start.sh",
+  // The Driver Station page opens in a browser tab. The port stays private: only you can open it.
+  "portsAttributes": {
+    "8080-8089": { "label": "FTC simulator", "onAutoForward": "openBrowser" }
+  },
+  // Gradle's own ports are no page.
+  "otherPortsAttributes": { "onAutoForward": "ignore" }
+}
