@@ -26,7 +26,9 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
    ```
 
    On macOS and Linux: `sh run-sim.sh --project ~/FtcRobotController`. Without `--project` it
-   runs the bundled examples and the official FTC samples.
+   runs the bundled examples and the official FTC samples. The first start downloads Gradle and
+   the libraries the simulator uses (a few hundred MB) and builds it, quietly, which takes a few
+   minutes; later starts take seconds.
 3. Your browser opens at <http://localhost:8080>. Pick an OpMode, press **INIT**, then **▶ START**.
 
 To avoid typing the path every time, copy `sim.properties.example` to `sim.properties` and set
@@ -40,14 +42,15 @@ Without options, the simulator runs its own example robots (`robots/`) and examp
 ```
 FTC/
   FtcRobotController/      your team's robot code
-  ftc-sim-springphy/       this simulator
+  ftc-sim/                 this simulator
   cad_robots/              your robots' CAD and robot profiles
     OurRobot.step
     sim-profiles/
       our-robot.json
 ```
 
-Then start the simulator from `ftc-sim-springphy/` with your project and your robot's profile:
+Then start the simulator from `ftc-sim/` (the folder `git clone` makes) with your project and
+your robot's profile:
 
 ```sh
 sh run-sim.sh --project ../FtcRobotController --robot ../cad_robots/sim-profiles/our-robot.json
@@ -60,7 +63,7 @@ sh run-sim.sh --project ../FtcRobotController --robot ../cad_robots/sim-profiles
 | Folder | What it is for | What it needs |
 |---|---|---|
 | `FtcRobotController/` | The code your team writes and deploys to the real robot. The simulator compiles its `TeamCode` as it is and never adds files to it. Push it to your team's repository as usual. | Your team's FtcRobotController project, with OpModes in `TeamCode/src/main/java`. |
-| `ftc-sim-springphy/` | The simulator: the engine, the seasons, the Driver Station page and the example robots. Your team's files don't go here, so you can update it with `git pull` at any time. | Nothing of yours. |
+| `ftc-sim/` | The simulator: the engine, the seasons, the Driver Station page and the example robots. Your team's files don't go here, so you can update it with `git pull` at any time. | Nothing of yours. |
 | `cad_robots/` | Your robots: their CAD and the robot profiles the simulator runs. It is outside both repositories, so your CAD and profiles stay private unless you choose to share them. | One STEP export per robot (see [Robots from CAD](#robots-from-cad)), and in `sim-profiles/` one robot profile per robot ([Describing your robot](#describing-your-robot)). |
 
 Each robot profile in `cad_robots/sim-profiles/` should have:
@@ -240,17 +243,23 @@ there were seasons have, is a BIOBUZZ spot; other seasons ignore it.
 ### Adding a season
 
 When FIRST reveals a new game, copy a pack folder, say `seasons/decode/` to `seasons/<game>/`,
-and describe the new field in its `season.json` (meters, in the season's field coordinates):
+and make the copy its own: every pack is compiled together with the simulator, so two packs can't
+both have the classes `decode.Decode`. In the copy, change the Java files' `package decode;` to
+`package <game>;` and rename the classes (`Decode` → `<Game>`, `DecodeGame` → `<Game>Game`), then
+set `"id"` to `<game>` and `"code"` to `<game>.<Game>` in its `season.json`. (Or delete the copy's
+`.java` files and its `"code"` line, and start from data alone.) Then describe the new field in
+`season.json` (meters, in the season's field coordinates):
 
 | Key | What |
 |---|---|
 | `id`, `title`, `years`, `frame` | the game's name and how its field coordinates are set |
 | `field_m`, `tile_m`, `wall_height_m` | the perimeter's inside size, tile pitch, wall height |
 | `view` | where the audience and each alliance's drivers are (`"+x"`, `"-y"`...), for the cameras |
-| `start`, `symmetry` | each alliance's start spots; how one alliance's side maps onto the other's |
+| `alliance` | the alliance a robot on its own plays on (default `"red"`), and the one a robot file's own `start` spot is for |
+| `start`, `symmetry`, `partner` | each alliance's start spots; how one alliance's side maps onto the other's; how a robot file's own start spot gives its alliance partner's (`"mirror_y"` or `"mirror_x"`: across that center line; none: the season's second spot) |
 | `structures` | boxes, bars and cylinders: `box_m` + `at_m` (+ `yaw_deg`, `pitch_deg`, `roll_deg`), `beam_m`, `cylinder_m`, each with `color`, `collide`, `visible`, `friction`; `prism_m` (a convex `outline` made `length` thick) is only drawn, for a shape a box can't show. `"mirror": "y"` (or `"x"`) adds the other alliance's copy, reflected across that line, red and blue swapped |
 | `tape` | `rect_m` (outline or `"fill": true`), `line_m` polylines, `polygon_m` |
-| `field_tags` | AprilTags: id, `center_m`, `normal` (out of the face), `up` |
+| `field_tags` | AprilTags: `size_m` (the black square's side) and `tags`, an object keyed by tag id, each with `center_m`, `normal` (out of the face), `up` and, for a tag of another size, its own `size_m` |
 | `movers` | parts that turn on a hinge: `name`, `pivot_m`, `axis`, `limits_rad`, `parts`, `tags`; with `mass_kg`, `com_m`, `inertia_kgm2` and `damping_nms` gravity, robots and game pieces move it (a GATE); without, only code does (the OBELISK). A mirrored mover has red or blue in its name, so its copy gets its own |
 | `game_pieces` | balls: `diameter_m`, `mass_kg`, `colors` with their counts, `bounce`, `friction` |
 | `robot`, `preload`, `staging` | how many pieces a robot may hold; its pre-load; where every piece starts (one at `at_m`, several evenly along `line_m`, or waiting in an `area`) |
@@ -366,10 +375,11 @@ doesn't change the OpMode or the robot file.
 
 To score, shoot into the open end of your HIVE's raised CELL, not at the side of the HIVE. Each
 CELL is a tube that is closed at the pivot end and open at the outer end. For red, line the robot
-up with the red HIVE (x = −0.32 m) on the audience side, facing the rear wall, with its center
-anywhere from y = −1.0 m (1.0 m from the field's center line) back to y = −1.6 m, where the
-robot's back touches the audience wall. Blue is the mirror image from the rear side. From
-anywhere in that range, the default hood and launcher speed drop the ball into the CELL. With
+up with the red HIVE (x = −0.32 m, −12.6 in in the Driver Station's readout) on the audience
+side, facing the rear wall, with its center anywhere from y = −1.0 m (−39 in, 1.0 m from the
+field's center line) back to y = −1.6 m (−63 in), where the robot's back touches the audience
+wall. Blue is the mirror image from the rear side. From anywhere in that range, the default
+hood and launcher speed drop the ball into the CELL. With
 the 3 starting NECTAR in it, the 3rd POLLEN that lands tips the HIVE, and then its other CELL is
 the raised one, open toward the rear wall.
 
@@ -438,8 +448,8 @@ move with the HIVE, so use them for aiming, not for locating the robot on the fi
 The official vision samples are in `examples/samples` (`ConceptAprilTag`, `ConceptAprilTagEasy`,
 `ConceptAprilTagLocalization`, `ConceptAprilTagOptimizeExposure`, `ConceptAprilTagMultiPortal`,
 `ConceptVisionColorLocator_*`, `ConceptVisionColorSensor`, `RobotAutoDriveToAprilTag*`). To see
-one work, place the default robot at x = −0.25 m, y = −1.15 m, heading 90° (facing the red HIVE),
-INIT *Concept: AprilTag* and press START.
+one work, place the default robot at x = −0.25 m, y = −1.15 m (−9.8 in, −45.3 in in the Driver
+Station's readout), heading 90° (facing the red HIVE), INIT *Concept: AprilTag* and press START.
 
 ## Describing your robot
 
@@ -722,6 +732,8 @@ OpModes that use them are skipped at build time with the reason.
 gradlew test
 ```
 
+On macOS and Linux: `sh gradlew test`.
+
 The suite includes:
 
 - `ApiConformanceTest`: the simulator's SDK must be a subset of the official FTC SDK 12.0. It
@@ -822,13 +834,15 @@ Station page loads.
 | Path | Contents |
 |---|---|
 | `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision, RobotCore math), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
-| `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64 and Linux x64 so far), with the script that builds it |
+| `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64, Linux x64 with glibc 2.38 or newer such as Ubuntu 24.04, and macOS on Apple silicon and Intel), with the script that builds it. Elsewhere (Linux on ARM, older Linux) the simulator runs without AprilTag detection |
 | `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files and deploy (`ftcsim.deploy`), web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
 | `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |
 | `seasons/` | One season pack per FTC game: its `season.json` and its Java ([Seasons](#seasons)) |
 | `tools/` | `step2cadmesh.py`, which converts a STEP file too big for the Driver Station page ([Big assemblies](#big-assemblies)) |
+| `paper/` | The technical report (LaTeX source, figures, bibliography) |
+| `docs/` | The project page, served by GitHub Pages; `docs/figures/src/` draws the report's figures |
 
 ## License
 
@@ -838,17 +852,20 @@ Third-party code in this repository keeps its own license:
 
 | Path | What | License |
 |---|---|---|
-| `examples/samples/` | FTC SDK sample OpModes, © FIRST | BSD-3-Clause-Clear ([LICENSE-FTC-SDK](examples/samples/LICENSE-FTC-SDK)) |
+| `examples/samples/` | FTC SDK sample OpModes from FtcRobotController v12.0, © FIRST, except `SensorSparkFunOTOS.java`, © SparkFun Electronics | BSD-3-Clause-Clear ([LICENSE-FTC-SDK](examples/samples/LICENSE-FTC-SDK)); `SensorSparkFunOTOS.java`: MIT (in its header) |
 | `engine/src/main/resources/web/vendor/` | Three.js and OrbitControls, © three.js authors | MIT ([THREE-LICENSE](engine/src/main/resources/web/vendor/THREE-LICENSE)) |
 | `natives/apriltag/` | AprilTag detector, © The Regents of The University of Michigan, and its JNI glue, © OpenFTC Team (compiled) | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)), MIT ([LICENSE-eocv-apriltag-plugin](natives/apriltag/LICENSE-eocv-apriltag-plugin.txt)) |
 | `engine/src/main/java/ftcsim/vision/Tag36h11.java` | tag36h11 codes from AprilRobotics/apriltag | BSD-2-Clause ([LICENSE-apriltag](natives/apriltag/LICENSE-apriltag.md)) |
+| `docs/` | The project page: the Academic Project Page Template; Bulma 0.9.1 and bulma-carousel; Font Awesome Free 5.15.1 | the page: CC BY-SA 4.0 (credited in its footer); Bulma, bulma-carousel: MIT; Font Awesome: icons CC BY 4.0, code MIT |
 
 Libraries that Gradle downloads at build time: ODE4j (LGPL-2.1-or-later or BSD-style, at your
 choice), Javalin, Gson and Kotlin stdlib (Apache-2.0), Jetty (Apache-2.0 or EPL-2.0), SLF4J (MIT),
 FIRST's FTC SDK packages RobotCore and Vision (BSD-3-Clause), OpenFTC's AprilTag plugin (MIT),
 and OpenCV with JavaCPP and OpenBLAS from Bytedeco (Apache-2.0, BSD-3-Clause). From npm:
 occt-import-js, Open CASCADE Technology compiled to WebAssembly, which the Driver Station page
-uses to read STEP files (both LGPL-2.1; their license texts are served with them).
+uses to read STEP files (both LGPL-2.1; their license texts are served with them), and
+CodeMirror 6 with the packages it uses (`@codemirror/*`, `@lezer/*`,
+`@marijn/find-cluster-break`, crelt, style-mod, w3c-keyname; MIT), the code editor.
 
 The field layouts follow the *BIOBUZZ presented by RTX* (FIRST Tech Challenge 2026–27) and
 *DECODE presented by RTX* (2025–26) Competition Manuals and FIRST's field drawings and CAD.
