@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -87,8 +89,16 @@ public final class WebServer {
         }
     }
 
+    /** The page whose gamepad state with something pressed a robot's gamepad shows, and when it sent it. */
+    private record Holder(Client client, long nanos) {}
+
+    /** How long a page's pressed gamepad keeps other pages' "nothing pressed" out; pages repeat it every 250 ms. */
+    private static final long HOLD_NANOS = 500_000_000L;
+
     private final Simulator sim;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    /** "robot:slot" -> who holds that gamepad. Guarded by itself, which also keeps gamepad states in order. */
+    private final Map<String, Holder> holders = new HashMap<>();
     private final RobotDeploy deployer = new RobotDeploy();
     private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
     private Javalin app;
@@ -151,8 +161,8 @@ public final class WebServer {
                     Client c = clients.stream().filter(x -> x.ctx.sessionId().equals(ctx.sessionId())).findFirst().orElse(null);
                     if (c == null) return;
                     String text = ctx.message();
-                    if (text.startsWith("{\"type\":\"gamepad\"")) noteGamepad(c, text);
-                    sim.handle(text);
+                    if (text.startsWith("{\"type\":\"gamepad\"")) gamepadFrom(c, text);
+                    else sim.handle(text);
                 });
                 // A page that loses its connection without closing it (a crashed tab, a laptop that
                 // went to sleep, a dropped network) shows up as an error, not a close.
@@ -173,6 +183,9 @@ public final class WebServer {
         Client gone = clients.stream().filter(c -> c.ctx.sessionId().equals(ctx.sessionId())).findFirst().orElse(null);
         if (gone == null || !clients.remove(gone)) return;
         if (clients.isEmpty()) {
+            synchronized (holders) {
+                holders.clear();
+            }
             sim.onAllClientsDisconnected();
             return;
         }
@@ -180,19 +193,44 @@ public final class WebServer {
         // Driver Station's controller is unplugged. A page still feeding one sends it again at once.
         for (String slot : gone.fed) {
             String[] rs = slot.split(":");
-            sim.handle("{\"type\":\"gamepad\",\"robot\":" + rs[0] + ",\"gamepad\":" + rs[1]
+            gamepadFrom(gone, "{\"type\":\"gamepad\",\"robot\":" + rs[0] + ",\"gamepad\":" + rs[1]
                     + ",\"axes\":[0,0,0,0,0,0],\"buttons\":[]}");
         }
     }
 
-    /** Remembers which gamepad a page sends input for, to let go of it when the page goes away. */
-    private static void noteGamepad(Client c, String text) {
+    /**
+     * A page's gamepad state. It remembers which gamepads the page feeds, to let go of them when the
+     * page goes away. "Nothing pressed" from one page doesn't reach a gamepad another page holds
+     * something on (and sent in the last half second): an idle page that keeps saying so (an old
+     * tab or an overview window still running an older page) would otherwise let go of the driver's
+     * stick between their page's updates, and a button held once would read as pressed again at
+     * each of them. The holder's own "nothing pressed" always lets go.
+     */
+    private void gamepadFrom(Client c, String text) {
+        String slot;
+        boolean pressed = false;
         try {
-            JsonObject m = com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+            JsonObject m = JsonParser.parseString(text).getAsJsonObject();
             int robot = m.has("robot") && !m.get("robot").isJsonNull() ? m.get("robot").getAsInt() : 0;
-            c.fed.add(robot + ":" + m.get("gamepad").getAsInt());
-        } catch (RuntimeException ignored) {
-            // not a gamepad message after all; Simulator.handle ignores it too
+            slot = robot + ":" + m.get("gamepad").getAsInt();
+            for (JsonElement a : m.getAsJsonArray("axes")) pressed |= a.getAsDouble() != 0;
+            for (JsonElement b : m.getAsJsonArray("buttons")) pressed |= b.getAsBoolean();
+        } catch (RuntimeException e) {
+            sim.handle(text);   // not a gamepad message after all; Simulator.handle ignores it too
+            return;
+        }
+        c.fed.add(slot);
+        synchronized (holders) {
+            long now = System.nanoTime();
+            Holder h = holders.get(slot);
+            if (pressed) {
+                holders.put(slot, new Holder(c, now));
+            } else if (h != null && h.client() != c && now - h.nanos() < HOLD_NANOS) {
+                return;
+            } else {
+                holders.remove(slot);
+            }
+            sim.handle(text);
         }
     }
 

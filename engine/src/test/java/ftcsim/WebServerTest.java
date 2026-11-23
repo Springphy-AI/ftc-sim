@@ -175,6 +175,48 @@ class WebServerTest {
         overview.abort();
     }
 
+    private static String gamepad1(boolean held) {
+        String buttons = "false,".repeat(17) + "false";
+        return "{\"type\":\"gamepad\",\"robot\":0,\"gamepad\":1,\"kind\":\"XBOX_360\",\"axes\":[0," + (held ? "-1" : "0")
+                + ",0,0,0,0],\"buttons\":[" + (held ? "true" + buttons.substring(5) : buttons) + "]}";
+    }
+
+    @Test
+    void anotherPagesNothingPressedDoesNotLetGoOfTheDriversGamepad() throws Exception {
+        // The driver holds the stick forward and A, and their page repeats that every 250 ms. Another
+        // page (an old tab, an overview window) keeps saying "nothing pressed", 125 ms after each.
+        WebSocket driver = openPage();
+        WebSocket other = openPage();
+        com.qualcomm.robotcore.hardware.Gamepad gp = sim.robot(0).gamepad1;
+        java.util.concurrent.ScheduledExecutorService pages = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        try {
+            pages.scheduleAtFixedRate(() -> driver.sendText(gamepad1(true), true).join(), 0, 250, TimeUnit.MILLISECONDS);
+            long deadline = System.currentTimeMillis() + 2000;
+            while (gp.left_stick_y != -1 && System.currentTimeMillis() < deadline) Thread.sleep(2);
+            assertEquals(-1, gp.left_stick_y, "the driver holds the stick forward");
+            pages.scheduleAtFixedRate(() -> other.sendText(gamepad1(false), true).join(), 125, 250, TimeUnit.MILLISECONDS);
+            int presses = 0, letGo = 0;
+            long end = System.currentTimeMillis() + 2000;
+            while (System.currentTimeMillis() < end) {
+                if (gp.aWasPressed()) presses++;
+                if (gp.left_stick_y != -1) letGo++;
+                Thread.sleep(2);
+            }
+            assertEquals(0, letGo, "readings of the stick let go while the driver held it");
+            assertEquals(1, presses, "aWasPressed for one press of A");
+        } finally {
+            pages.shutdownNow();
+            pages.awaitTermination(2, TimeUnit.SECONDS);
+        }
+        // The driver letting go lets go at once.
+        driver.sendText(gamepad1(false), true).get(5, TimeUnit.SECONDS);
+        long deadline = System.currentTimeMillis() + 2000;
+        while (gp.left_stick_y != 0 && System.currentTimeMillis() < deadline) Thread.sleep(2);
+        assertEquals(0, gp.left_stick_y, "the driver's own release");
+        driver.abort();
+        other.abort();
+    }
+
     @Test
     void theOpModeKeepsRunningWhileAnotherPageIsOpen() throws Exception {
         WebSocket other = openPage();
