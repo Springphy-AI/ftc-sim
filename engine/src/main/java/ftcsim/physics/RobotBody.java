@@ -347,15 +347,16 @@ public final class RobotBody {
         DJoint joint;
         // A stage that follows another (mimic) needs no stops of its own: its target is clamped
         // instead, since ODE pushes with a motor's full force when a powered joint sits on a stop.
-        boolean stops = !Double.isNaN(g.lower) && g.mimic < 0;
+        // (A stop that isn't a number is none: ODE would ignore it, or assert on every step.)
+        boolean stops = (!Double.isNaN(g.lower) || !Double.isNaN(g.upper)) && g.mimic < 0;
         if (g.revolute()) {
             DHingeJoint h = OdeHelper.createHingeJoint(world.world);
             h.attach(body, parent);
             h.setAnchor(g.anchor[0], g.anchor[1], g.anchor[2]);
             h.setAxis(g.axis[0], g.axis[1], g.axis[2]);
             if (stops) {
-                h.setParamLoStop(g.lower);
-                h.setParamHiStop(g.upper);
+                if (!Double.isNaN(g.lower)) h.setParamLoStop(g.lower);
+                if (!Double.isNaN(g.upper)) h.setParamHiStop(g.upper);
                 h.setParamBounce(0);
             }
             joint = h;
@@ -364,8 +365,8 @@ public final class RobotBody {
             sl.attach(body, parent);
             sl.setAxis(g.axis[0], g.axis[1], g.axis[2]);
             if (stops) {
-                sl.setParamLoStop(g.lower);
-                sl.setParamHiStop(g.upper);
+                if (!Double.isNaN(g.lower)) sl.setParamLoStop(g.lower);
+                if (!Double.isNaN(g.upper)) sl.setParamHiStop(g.upper);
                 sl.setParamBounce(0);
             }
             joint = sl;
@@ -477,7 +478,8 @@ public final class RobotBody {
             if (g.mimic < 0) continue;
             LinkBody master = linkOfGroup[g.mimic];
             double target = g.mimicRatio * master.position() + g.mimicOffset;
-            if (!Double.isNaN(g.lower)) target = Math.max(g.lower, Math.min(g.upper, target));
+            if (!Double.isNaN(g.lower)) target = Math.max(g.lower, target);
+            if (!Double.isNaN(g.upper)) target = Math.min(g.upper, target);
             double err = target - lb.position();
             double vel = g.mimicRatio * master.rate() + err / 0.01;
             lb.motor(vel, g.revolute() ? 200 : 2000);

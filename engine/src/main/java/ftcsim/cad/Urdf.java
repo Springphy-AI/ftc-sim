@@ -138,8 +138,21 @@ public final class Urdf {
             if (axis != null) j.axis = Geom3.normalize(vec(axis.getAttribute("xyz"), new double[]{1, 0, 0}));
             Element limit = child(je, "limit");
             if (limit != null) {
-                j.lower = num(limit, "lower", Double.NaN);
-                j.upper = num(limit, "upper", Double.NaN);
+                // The URDF spec: a lower or upper limit left out is 0. With neither, the joint stays
+                // free here: exporters (onshape-to-robot...) write <limit effort velocity/> for a
+                // joint that has no stops.
+                double lower = num(limit, "lower", Double.NaN), upper = num(limit, "upper", Double.NaN);
+                if (!Double.isNaN(lower) || !Double.isNaN(upper)) {
+                    if (Double.isNaN(lower)) lower = 0;
+                    if (Double.isNaN(upper)) upper = 0;
+                    if (lower > upper) {
+                        u.warnings.add("joint " + j.name + ": its lower limit (" + lower + ") is above its upper limit ("
+                                + upper + "; a limit left out is 0), so it has no stops");
+                        lower = upper = Double.NaN;
+                    }
+                }
+                j.lower = lower;
+                j.upper = upper;
             }
             Element mimic = child(je, "mimic");
             if (mimic != null) {

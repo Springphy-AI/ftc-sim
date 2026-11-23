@@ -586,6 +586,90 @@ class CadImportTest {
         assertEquals(0, Math.toDegrees(rig.body.heading()), 1.5, "no turning");
     }
 
+    /** tank-urdf.json with the arm's {@code <limit>} replaced, {@code more} added to the URDF, and the arm starting at {@code startDeg}. */
+    private static RobotRig armBotWith(Path dir, String limit, String more, int startDeg) throws Exception {
+        Path src = Path.of("robots/cad/arm-bot");
+        try (var files = Files.walk(src)) {
+            for (Path f : files.collect(Collectors.toList())) {
+                Path to = dir.resolve("arm-bot").resolve(src.relativize(f).toString());
+                if (Files.isDirectory(f)) Files.createDirectories(to);
+                else Files.copy(f, to);
+            }
+        }
+        Path urdf = dir.resolve("arm-bot/arm-bot.urdf");
+        String armLimit = "<limit lower=\"-0.62\" upper=\"2.1\" effort=\"7\" velocity=\"12\"/>";
+        String text = Files.readString(urdf);
+        assertTrue(text.contains(armLimit));
+        Files.writeString(urdf, text.replace(armLimit, limit).replace("</robot>", more + "\n</robot>"));
+        Files.writeString(dir.resolve("robot.json"), Files.readString(Path.of("robots/tank-urdf.json"))
+                .replace("cad/arm-bot/", "arm-bot/").replace("\"start\": -35", "\"start\": " + startDeg));
+        RobotConfig cfg = RobotConfig.load(dir.resolve("robot.json"));
+        assertEquals(CadState.Status.READY, cfg.cadState.status, cfg.cadState.message);
+        for (String n : cfg.model().notes) System.out.println("  note: " + n);
+        return rig(cfg);
+    }
+
+    private static RobotBody.LinkBody link(RobotRig rig, String name) {
+        return rig.body.links.stream().filter(l -> l.group.name.equals(name)).findFirst().orElseThrow();
+    }
+
+    /** Raises the arm at power 0.6 for {@code seconds}: where it ends up. */
+    private static double raiseArm(RobotRig rig, double seconds) {
+        rig.motors.get("left_arm").port.power = 0.6;
+        run(rig, seconds);
+        return link(rig, "left_arm").position();
+    }
+
+    @Test
+    void aUrdfLimitLeftOutIsZero(@TempDir Path dir) throws Exception {
+        // Only an upper limit: the lower one is 0 (horizontal), so the arm stops there going down.
+        RobotRig rig = armBotWith(dir.resolve("upper"), "<limit upper=\"2.1\" effort=\"7\" velocity=\"12\"/>", "", 0);
+        RobotModel.Group arm = link(rig, "left_arm").group;
+        assertEquals(0, arm.lower, 1e-9);
+        assertEquals(2.1, arm.upper, 1e-9);
+        rig.motors.get("left_arm").port.zeroPowerBehavior = com.qualcomm.robotcore.hardware.DcMotor.ZeroPowerBehavior.FLOAT;
+        run(rig, 1.0);
+        assertEquals(0, link(rig, "left_arm").position(), 0.03, "unpowered, it rests on its lower stop");
+        assertEquals(2.1, raiseArm(rig, 2.0), 0.03, "up against its top stop");
+
+        // Only a lower limit: the upper one is 0, where the raised arm stops.
+        rig = armBotWith(dir.resolve("lower"), "<limit lower=\"-0.62\" effort=\"7\" velocity=\"12\"/>", "", -35);
+        assertEquals(0, link(rig, "left_arm").group.upper, 1e-9);
+        assertEquals(0, raiseArm(rig, 1.0), 0.03, "stopped level");
+    }
+
+    @Test
+    void aUrdfFollowerWithOneLimitFollowsWithinIt(@TempDir Path dir) throws Exception {
+        // A second arm that mimics the first, with only a lower limit: it follows between -0.62 and 0.
+        String follower = """
+                <link name="arm2_link">
+                  <inertial><mass value="0.2"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial>
+                  <visual><origin xyz="0.1 0 0"/><geometry><box size="0.2 0.02 0.02"/></geometry></visual>
+                </link>
+                <joint name="follower" type="revolute">
+                  <parent link="base_link"/><child link="arm2_link"/>
+                  <origin xyz="0.11 0.12 0.21" rpy="0 0 0"/><axis xyz="0 -1 0"/>
+                  <limit lower="-0.62" effort="7" velocity="12"/><mimic joint="left_arm" multiplier="1"/>
+                </joint>""";
+        RobotRig rig = armBotWith(dir, "<limit lower=\"-0.62\" upper=\"2.1\" effort=\"7\" velocity=\"12\"/>", follower, -35);
+        run(rig, 0.3);
+        assertEquals(-0.62, link(rig, "follower").position(), 0.05, "down with the arm");
+        double armAt = raiseArm(rig, 1.0);
+        double at = link(rig, "follower").position();
+        System.out.printf("arm at %.2f rad, follower at %.2f rad%n", armAt, at);
+        assertTrue(armAt > 0.5, "the arm went up");
+        assertEquals(0, at, 0.03, "the follower stops at its upper limit, 0");
+    }
+
+    @Test
+    void aUrdfJointWhoseLimitsCrossHasNoStopsAndSaysSo(@TempDir Path dir) throws Exception {
+        RobotRig rig = armBotWith(dir, "<limit lower=\"0.5\" effort=\"7\" velocity=\"12\"/>", "", -35);
+        assertTrue(Double.isNaN(link(rig, "left_arm").group.lower), "no stops");
+        assertTrue(rig.config.model().notes.stream().anyMatch(n -> n.contains("joint left_arm: its lower limit (0.5) is above its upper limit")),
+                rig.config.model().notes.toString());
+        assertTrue(Double.isFinite(raiseArm(rig, 0.5)));
+    }
+
     @Test
     void armRisesOnItsMotorAndFallsBackOnItsStop() throws Exception {
         RobotRig rig = rig(load("tank-urdf.json"));
