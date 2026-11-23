@@ -19,6 +19,7 @@ const SLOTS = [1, 2];
 // those to it (see assignments()).
 const CLAIMS = 'ftcsim.gamepads';
 const CLAIM_MS = 1500;   // a claim not repeated for this long is from a page that went away
+const MAX_EFFECT_MS = 5000;   // Chrome plays one rumble effect for at most 5 s
 
 function kindOf(id) {
   if (/xbox|xinput|045e/i.test(id)) return 'XBOX_360';
@@ -55,6 +56,7 @@ export class InputManager {
     this.lastTime = {};
     this.fed = {};           // 'robot:slot' -> true while this page feeds it from a controller or the keyboard
     this.states = {};
+    this.rumbles = {};       // 'robot:slot' -> the timers of its rumble's steps still to come
     this.listeners = [];
     // The keyboard drives from this page once a driving key is pressed here, and until the page
     // loses the focus: a page in another window or tab, or one just opened, leaves the gamepad to
@@ -353,15 +355,33 @@ export class InputManager {
     return null;
   }
 
-  /** Plays a rumble effect sent by robot code (gamepad1.rumble(...)). */
+  /**
+   * Plays a rumble effect sent by robot code (gamepad1.rumble(...), rumbleBlips(...)) on the controller
+   * this page feeds that gamepad from, its steps one after another. A new effect, stopRumble()'s
+   * among them, replaces the one playing and the steps it had still to come.
+   */
   rumble(robot, slot, strong, weak, durations) {
+    const k = key(robot, slot);
+    for (const t of this.rumbles[k] ?? []) clearTimeout(t);
+    this.rumbles[k] = [];
     const pad = this.resolve(robot, slot);
-    if (!pad || pad === 'keyboard' || !pad.vibrationActuator) return;
-    let delay = 0;
+    const actuator = pad && pad !== 'keyboard' && this.feeds(pad) ? pad.vibrationActuator : null;
+    if (!actuator) return;
+    let at = 0;
     for (let i = 0; i < durations.length; i++) {
-      const effect = { duration: Math.max(0, durations[i]), strongMagnitude: strong[i] || 0, weakMagnitude: weak[i] || 0 };
-      setTimeout(() => { pad.vibrationActuator.playEffect('dual-rumble', effect).catch(() => {}); }, delay);
-      delay += durations[i];
+      const s = strong[i] || 0, w = weak[i] || 0;
+      // A step longer than the browser plays (RUMBLE_DURATION_CONTINUOUS is a minute) plays as several.
+      let left = Math.max(0, durations[i]);
+      do {
+        const d = Math.min(left, MAX_EFFECT_MS);
+        const play = s || w
+          ? () => actuator.playEffect('dual-rumble', { duration: d, strongMagnitude: s, weakMagnitude: w }).catch(() => {})
+          : () => actuator.reset?.().catch(() => {});   // a still step: stop what plays
+        if (at === 0) play();
+        else this.rumbles[k].push(setTimeout(play, at));
+        at += d;
+        left -= d;
+      } while (left > 0);
     }
   }
 }
