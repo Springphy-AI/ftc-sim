@@ -574,8 +574,11 @@ export class DriverStation {
       else if (typeof v === 'boolean') text = v ? 'pressed' : 'released';
       else if (typeof v === 'number') text = `${(v * 100).toFixed(1)} cm`;
       else if (Array.isArray(v) && v.length === 4) text = `r ${v[0].toFixed(3)} g ${v[1].toFixed(3)} b ${v[2].toFixed(3)} a ${v[3].toFixed(3)}`;
-      else if (Array.isArray(v) && v.length === 3 && Math.abs(v[0]) > 5) text = `x ${v[0].toFixed(0)} mm  y ${v[1].toFixed(0)} mm  h ${v[2].toFixed(1)}°`;
-      else if (Array.isArray(v)) text = `x ${(v[0] / 0.0254).toFixed(1)} in  y ${(v[1] / 0.0254).toFixed(1)} in  h ${(v[2] * 180 / Math.PI).toFixed(1)}°`;
+      else if (typeof v === 'object' && v.unit) {
+        // an odometry pose, in the units the simulator says (Pinpoint mm, OTOS inches)
+        const d = v.unit === 'mm' ? 0 : 1;
+        text = `x ${v.x.toFixed(d)} ${v.unit}  y ${v.y.toFixed(d)} ${v.unit}  h ${v.headingDeg.toFixed(1)}°`;
+      }
       else text = JSON.stringify(v);
       return `<tr><td>${esc(name)}</td><td>${esc(text)}</td></tr>`;
     }).join('');

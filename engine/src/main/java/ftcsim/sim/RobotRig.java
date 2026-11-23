@@ -564,10 +564,23 @@ public final class RobotRig {
         for (TouchMount tm : touches) out.put(tm.device.name, !tm.port.inputLevel);
         for (PinpointMount pm : pinpoints) {
             PinpointBackend.Snapshot s = pm.backend.read();
-            out.put(pm.device.name, new double[]{s.xMm, s.yMm, Math.toDegrees(s.headingRad)});
+            out.put(pm.device.name, pose(s.xMm, s.yMm, "mm", Math.toDegrees(s.headingRad)));
         }
-        for (OtosMount om : otoses) out.put(om.device.name, om.backend.robotPose());
+        for (OtosMount om : otoses) {
+            double[] p = om.backend.robotPose();   // meters and radians
+            out.put(om.device.name, pose(p[0] / 0.0254, p[1] / 0.0254, "in", Math.toDegrees(p[2])));
+        }
         return out;
+    }
+
+    /** An odometry sensor's pose for the device panel, in the units its driver reports by default (Pinpoint mm, OTOS inches). */
+    private static Map<String, Object> pose(double x, double y, String unit, double headingDeg) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("x", x);
+        m.put("y", y);
+        m.put("unit", unit);
+        m.put("headingDeg", headingDeg);
+        return m;
     }
 
     @SuppressWarnings("unused")

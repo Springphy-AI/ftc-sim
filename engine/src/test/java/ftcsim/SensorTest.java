@@ -1,13 +1,17 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.nio.file.Path;
+import java.util.Map;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.junit.jupiter.api.Test;
 
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.hardware.rev.Rev2mDistanceSensor;
 import com.qualcomm.hardware.rev.RevColorSensorV3;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
@@ -112,5 +116,26 @@ class SensorTest {
         assertEquals(30, mm.h, 1e-6);
         otos.setLinearUnit(DistanceUnit.CM);
         assertEquals(50, otos.getPosition().x, 1e-6);
+    }
+
+    @Test
+    void theDevicePanelIsToldWhichUnitsEachOdometryPoseIsIn() {
+        // Near x = 0 a Pinpoint's millimeters and an OTOS's meters look alike: the panel can't guess.
+        hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint").setPosition(new Pose2D(DistanceUnit.MM, 3, -2, AngleUnit.DEGREES, 10));
+        SparkFunOTOS otos = hardwareMap.get(SparkFunOTOS.class, "sensor_otos");
+        otos.setLinearUnit(DistanceUnit.INCH);
+        otos.setAngularUnit(AngleUnit.DEGREES);
+        otos.setPosition(new SparkFunOTOS.Pose2D(0.1, 12, -30));
+        Map<String, Object> readings = rig.sensorReadings();
+        Map<?, ?> pinpoint = assertInstanceOf(Map.class, readings.get("pinpoint"));
+        assertEquals("mm", pinpoint.get("unit"));
+        assertEquals(3, (double) pinpoint.get("x"), 1e-9);
+        assertEquals(-2, (double) pinpoint.get("y"), 1e-9);
+        assertEquals(10, (double) pinpoint.get("headingDeg"), 1e-9);
+        Map<?, ?> fromOtos = assertInstanceOf(Map.class, readings.get("sensor_otos"));
+        assertEquals("in", fromOtos.get("unit"));
+        assertEquals(0.1, (double) fromOtos.get("x"), 1e-9);
+        assertEquals(12, (double) fromOtos.get("y"), 1e-9);
+        assertEquals(-30, (double) fromOtos.get("headingDeg"), 1e-9);
     }
 }
