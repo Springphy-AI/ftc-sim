@@ -190,6 +190,18 @@ public final class RobotConfig {
         public double latencyMs = 50;
         // visual role in the browser view (intake, launcher, hood, feeder, arm, claw, lift...)
         public String role;
+        /**
+         * An intake (a motor or CR servo with role "intake"): which way its port turns to take a
+         * game piece in. "forward" (the default): positive power takes pieces in, negative spits
+         * them out. "reverse": the other way round, for an intake whose code sets the motor or
+         * servo to REVERSE and takes pieces in with positive power.
+         */
+        public String intakeDirection;
+
+        /** Whether this intake takes pieces in when its port turns backward. */
+        public boolean intakeReversed() {
+            return "reverse".equalsIgnoreCase(intakeDirection == null ? "" : intakeDirection.trim());
+        }
     }
 
     public static final class Load {
@@ -314,6 +326,15 @@ public final class RobotConfig {
             }
             if (d.aliases == null) throw new IllegalArgumentException("device " + d.name + ": aliases must be a list of names, not null");
             if ("motor".equals(d.type) && d.load == null) throw new IllegalArgumentException("device " + d.name + ": load must be an object");
+            if (d.intakeDirection != null) {
+                if (!"forward".equalsIgnoreCase(d.intakeDirection.trim()) && !d.intakeReversed()) {
+                    throw new IllegalArgumentException("device " + d.name + ": intake_direction must be \"forward\" or \"reverse\", not \""
+                            + d.intakeDirection + "\"");
+                }
+                if (!"intake".equals(d.role) || !("motor".equals(d.type) || "crservo".equals(d.type))) {
+                    throw new IllegalArgumentException("device " + d.name + ": intake_direction is for an intake, a motor or crservo with \"role\": \"intake\"");
+                }
+            }
         }
         if (!java.util.Set.of("left", "right", "none").contains(drive.mirroredSide())) {
             throw new IllegalArgumentException("drive.mirrored_side must be \"left\", \"right\" or \"none\", not \""

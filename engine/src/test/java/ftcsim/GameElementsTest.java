@@ -3,12 +3,14 @@ package ftcsim;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.ode4j.math.DVector3C;
 
 import biobuzz.BiobuzzGame;
@@ -39,7 +41,11 @@ class GameElementsTest {
     }
 
     private static Setup setup(String robot) throws Exception {
-        RobotConfig cfg = RobotConfig.load(Path.of("robots/" + robot));
+        return setup(Path.of("robots/" + robot));
+    }
+
+    private static Setup setup(Path robot) throws Exception {
+        RobotConfig cfg = RobotConfig.load(robot);
         FieldModel field = FieldModel.loadBiobuzz();
         RobotRig rig = new RobotRig(cfg, new PhysicsWorld(field));
         Latency.commandNanos = 0;
@@ -419,6 +425,79 @@ class GameElementsTest {
     private static void lob(Setup s, Ball b, double[] target, double dx, double dy, double dz, double t) {
         double x = target[0] + dx, y = target[1] + dy, z = target[2] + dz;
         s.elements.throwBall(b, x, y, z, -dx / t, -dy / t, -dz / t + 9.81 * t / 2);
+    }
+
+    /** robots/mecanum.json with {@code intake} (a device) for its intake motor. */
+    private static Setup withIntake(Path dir, String intake) throws Exception {
+        String json = Files.readString(Path.of("robots/mecanum.json"));
+        String motor = """
+                { "type": "motor", "name": "intake", "motor": "goBILDA 5203 1150rpm", "role": "intake",
+                      "load": { "kind": "roller", "inertia": 0.0002 } },""";
+        assertTrue(json.contains(motor), "robots/mecanum.json has its intake motor");
+        Path file = dir.resolve("robot.json");
+        Files.writeString(file, json.replace(motor, intake));
+        return setup(file);
+    }
+
+    /**
+     * Empties the robot, puts a ball against its roller, and runs {@code intake} for a second:
+     * whether the robot took the ball in.
+     */
+    private static boolean takesABall(Setup s, Runnable intake) {
+        s.rig.place(0, -0.3, 0);
+        for (Ball b : s.elements.balls()) if (b.state() == State.HELD) s.elements.stage(b, 3, 3, 0.1);
+        s.run(0.3);
+        Ball ball = s.elements.balls().stream().filter(b -> b.state() == State.FREE).findFirst().orElseThrow();
+        ballAt(s, ball, 0.27, -0.3);
+        intake.run();
+        s.run(1.0);
+        return ball.state() == State.HELD;
+    }
+
+    private static void power(Setup s, String motor, double power) {
+        s.rig.motors.get(motor).port.power = power;
+    }
+
+    @Test
+    void aSlowCoreHexIntakeTakesBallsIn(@TempDir Path dir) throws Exception {
+        // 125 rpm at its output (13 rad/s): a Core Hex turns a roller directly, or through gears.
+        Setup s = withIntake(dir, """
+                { "type": "motor", "name": "intake", "motor": "REV Core Hex", "role": "intake", "load": { "kind": "roller" } },""");
+        assertTrue(takesABall(s, () -> power(s, "intake", 1)), "the Core Hex intake took the ball");
+        power(s, "intake", -1);
+        s.run(0.5);
+        assertEquals(0, s.elements.heldCount(), "and spits it out reversed");
+
+        Setup geared = withIntake(dir, """
+                { "type": "motor", "name": "intake", "motor": "goBILDA 5203 117rpm", "external_gear_ratio": 2,
+                  "role": "intake", "load": { "kind": "roller" } },""");
+        assertTrue(takesABall(geared, () -> power(geared, "intake", 1)), "a 117 rpm motor geared down 2:1 too");
+    }
+
+    @Test
+    void aCrServoIntakeTakesBallsIn(@TempDir Path dir) throws Exception {
+        Setup s = withIntake(dir, """
+                { "type": "crservo", "name": "intake", "rpm": 50, "role": "intake" },""");
+        ServoPort intake = s.rig.servoPorts().stream().filter(p -> p.name.equals("intake")).findFirst().orElseThrow();
+        assertTrue(takesABall(s, () -> {
+            intake.position = 1.0;   // full speed forward
+            intake.pwmEnabled = true;
+        }), "the CR servo intake took the ball");
+        intake.position = 0.0;
+        s.run(0.5);
+        assertEquals(0, s.elements.heldCount(), "and spits it out reversed");
+    }
+
+    @Test
+    void anIntakeThatTurnsBackwardToTakeBallsIn(@TempDir Path dir) throws Exception {
+        // Its code sets the motor to REVERSE and runs it at +1: the port sees -1.
+        Setup s = withIntake(dir, """
+                { "type": "motor", "name": "intake", "motor": "goBILDA 5203 1150rpm", "role": "intake",
+                  "intake_direction": "reverse", "load": { "kind": "roller", "inertia": 0.0002 } },""");
+        assertTrue(takesABall(s, () -> power(s, "intake", -1)), "negative power takes the ball in");
+        power(s, "intake", 1);
+        s.run(0.5);
+        assertEquals(0, s.elements.heldCount(), "positive power spits it out");
     }
 
     private static void ballAt(Setup s, Ball b, double x, double y) {

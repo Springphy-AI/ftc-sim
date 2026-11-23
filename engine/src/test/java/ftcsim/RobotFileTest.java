@@ -110,6 +110,18 @@ class RobotFileTest {
     }
 
     @Test
+    void anIntakeDirectionIsForwardOrReverseOnAnIntake(@TempDir Path dir) throws Exception {
+        assertTrue(RobotConfig.load(mecanumWith(dir, INTAKE_MOTOR, INTAKE_MOTOR + ", \"intake_direction\": \"Reverse\""))
+                .devices.get(0).intakeReversed());
+        assertTrue(!RobotConfig.load(mecanumWith(dir, INTAKE_MOTOR, INTAKE_MOTOR + ", \"intake_direction\": \"forward\""))
+                .devices.get(0).intakeReversed());
+        String m = refused(mecanumWith(dir, INTAKE_MOTOR, INTAKE_MOTOR + ", \"intake_direction\": \"backward\""));
+        assertTrue(m.contains("device intake: intake_direction must be \"forward\" or \"reverse\", not \"backward\""), m);
+        m = refused(mecanumWith(dir, HOOD, HOOD + " \"intake_direction\": \"reverse\","));
+        assertTrue(m.contains("device hood: intake_direction is for an intake"), m);
+    }
+
+    @Test
     void wheelsChainedToOneMotorMayShareItsName(@TempDir Path dir) throws Exception {
         Path file = mecanumWith(dir, "\"type\": \"mecanum\"", "\"type\": \"tank4\"");
         String json = Files.readString(file)

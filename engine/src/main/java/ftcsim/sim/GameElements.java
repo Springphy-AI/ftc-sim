@@ -121,7 +121,14 @@ public final class GameElements {
     // of it get pushed until they touch; through a FLOWER's Retrieval Opening it reaches the bottom
     // POLLEN, and each one above as it drops, but not balls higher up the tube.
     private static final double ROLLER_REACH_M = 0.05;
-    private static final double INTAKE_MIN_OMEGA = 20;          // rad/s at the intake motor
+    // An intake takes a piece in (or spits one out) while it turns at this share of its free speed
+    // or more, whatever drives it. The robot file doesn't describe what pulls a piece in (roller
+    // size, compression, the path into the robot), only the motor or CR servo and its gearing, and
+    // a team builds its intake to work at the speed its motor gives: a 125 rpm Core Hex or a 50 rpm
+    // CR servo intake works as well as a 1150 rpm goBILDA. Turning slowly, it doesn't (a stalled
+    // or barely powered roller). 15% is where the shipped robots' 1150 rpm intake picked up before
+    // (20 rad/s at the motor).
+    private static final double INTAKE_MIN_SPEED = 0.15;
     private static final double INTAKE_INTERVAL_S = 0.12;
     // Feeder: one ball per interval while the feeder turns forward.
     private static final double FEED_INTERVAL_S = 0.25;
@@ -141,6 +148,8 @@ public final class GameElements {
         /** Balls inside the robot, in the order they will leave it (first = next to the launcher). */
         final List<Ball> held = new ArrayList<>();
         Mechanism intake, launcher;
+        /** A CR servo intake, when the intake isn't a motor. */
+        ServoUnit intakeServo;
         ServoUnit feeder, hood;
         /** The CAD roller and flywheel, or null. */
         CadPart intakePart, launcherPart;
@@ -157,17 +166,19 @@ public final class GameElements {
         void bind(RobotRig r) {
             rig = r;
             intake = launcher = null;
-            feeder = hood = null;
+            intakeServo = feeder = hood = null;
             for (Mechanism m : r.mechanisms) {
                 if ("intake".equals(m.device.role)) intake = m;
                 if ("launcher".equals(m.device.role)) launcher = m;
             }
             for (ServoUnit s : r.servos) {
+                if ("intake".equals(s.device.role) && s.port.continuous && intake == null) intakeServo = s;
                 if ("feeder".equals(s.device.role)) feeder = s;
                 if ("hood".equals(s.device.role)) hood = s;
             }
             launcherWheelRadius = launcher == null ? 0 : launcher.device.load.wheelDiameterM / 2;
-            intakePart = intake == null ? null : cadPart(r, intake.device.name);
+            RobotConfig.Device intakeDevice = intake != null ? intake.device : intakeServo != null ? intakeServo.device : null;
+            intakePart = intakeDevice == null ? null : cadPart(r, intakeDevice.name);
             launcherPart = launcher == null ? null : cadPart(r, launcher.device.name);
             CadPart fly = launcherPart;
             if (fly != null) {
@@ -177,6 +188,29 @@ public final class GameElements {
                 for (int k = 0; k < 3; k++) if (Math.abs(a[k]) < 0.7) rad = Math.max(rad, (fb[k + 3] - fb[k]) / 2);
                 if (rad > 0.01) launcherWheelRadius = rad;
             }
+        }
+
+        boolean hasIntake() {
+            return intake != null || intakeServo != null;
+        }
+
+        /**
+         * How fast the intake turns, as a share of its free speed: positive while it takes pieces
+         * in (its intake_direction), negative while it spits them out.
+         */
+        double intakeSpeed() {
+            double share;
+            RobotConfig.Device d;
+            if (intake != null) {
+                share = intake.motorOmega() / intake.motor.spec.freeSpeedRadPerSec();
+                d = intake.device;
+            } else if (intakeServo != null && intakeServo.device.rpm > 0) {
+                share = intakeServo.port.speedDegPerSec / (intakeServo.device.rpm * 6.0);
+                d = intakeServo.device;
+            } else {
+                return 0;
+            }
+            return d.intakeReversed() ? -share : share;
         }
     }
 
@@ -399,7 +433,7 @@ public final class GameElements {
         for (Holder r : robots) {
             r.sinceIntake += dt;
             r.sinceFeed += dt;
-            if (r.intake != null) runIntake(r);
+            if (r.hasIntake()) runIntake(r);
             if (r.feeder != null && r.launcher != null) runFeeder(r);
         }
         game.beforeStep(dt);
@@ -431,14 +465,14 @@ public final class GameElements {
     }
 
     private void runIntake(Holder r) {
-        double omega = r.intake.motorOmega();
-        if (r.sinceIntake < INTAKE_INTERVAL_S || Math.abs(omega) < INTAKE_MIN_OMEGA) return;
+        double speed = r.intakeSpeed();
+        if (r.sinceIntake < INTAKE_INTERVAL_S || Math.abs(speed) < INTAKE_MIN_SPEED) return;
         RobotRig rig = r.rig;
         List<Ball> held = r.held;
         RobotConfig.Chassis c = rig.config.chassis;
         double front = c.lengthM / 2 + RobotBody.ROLLER_AHEAD_M;   // the roller's axis
         CadPart roller = r.intakePart;
-        if (omega > 0) {
+        if (speed > 0) {
             if (held.size() >= capacity) return;
             double[] toRoller = roller == null ? null : Geom3.inverse(roller.transform());   // once per step
             for (Ball b : balls) {
