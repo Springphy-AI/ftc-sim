@@ -140,12 +140,20 @@ class ExampleOpModesTest {
         Thread.sleep(400);   // Pinpoint IMU calibration after resetPosAndIMU()
         sim.handle("{\"type\":\"start\"}");
         long deadline = System.currentTimeMillis() + 25000;
-        while (messages.stream().noneMatch(m -> m.contains("ended at")) && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        // How far from its start the robot got: a robot that never moved would also "return" to it,
+        // each waypoint timing out (4 s) and the auto ending all the same.
+        double farthest = 0;
+        while (messages.stream().noneMatch(m -> m.contains("ended at")) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+            farthest = Math.max(farthest, Math.hypot(sim.rig().body.position().get0() - x0, sim.rig().body.position().get1() - y0));
+        }
         double x = sim.rig().body.position().get0(), y = sim.rig().body.position().get1();
         double err = Math.hypot(x - x0, y - y0) / 0.0254;
         double heading = Math.toDegrees(sim.rig().body.heading());
-        System.out.printf("Pinpoint Square: true end %.2f in from start, heading %.2f deg%n", err, heading);
+        System.out.printf("Pinpoint Square: true end %.2f in from start, heading %.2f deg, farthest %.2f m%n", err, heading, farthest);
         assertTrue(messages.stream().anyMatch(m -> m.contains("ended at")), "autonomous finished");
+        // The square's far corner, (20, 20) in, is 0.72 m from the start.
+        assertTrue(farthest > 0.65, "drove the 20 in square, farthest from the start " + farthest + " m");
         assertTrue(err < 1.5, "returned to start, off by " + err + " in");
         assertEquals(0, heading, 3.0);
         sim.handle("{\"type\":\"stop\"}");
