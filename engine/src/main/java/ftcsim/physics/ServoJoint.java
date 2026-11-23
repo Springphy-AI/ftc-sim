@@ -45,6 +45,15 @@ public final class ServoJoint {
         link.motor(Math.max(-maxSpeed, Math.min(maxSpeed, vel)), fmax);
     }
 
+    /**
+     * The link is back at its start (a Reset): the horn goes there too, as it would turning with
+     * the link while the servo is off. Otherwise the next command would pull the link from the
+     * horn's old angle instead of from where the link is.
+     */
+    public void hornAtLinkStart() {
+        if (!servo.port.continuous) servo.setAngleDeg((group.start - group.servoCenter) / perDegree());
+    }
+
     /** The joint position the servo is commanding, from the CAD pose. */
     public double target() {
         return group.servoCenter + servo.angleDeg() * perDegree();

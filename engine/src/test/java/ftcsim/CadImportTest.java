@@ -574,6 +574,28 @@ class CadImportTest {
     }
 
     @Test
+    void afterAResetTheHoodMovesFromItsStart() throws Exception {
+        RobotRig rig = rig(load("mecanum-cad.json"));
+        ServoPort hood = rig.servoPorts().stream().filter(p -> p.name.equals("hood")).findFirst().orElseThrow();
+        RobotBody.LinkBody link = rig.servoJoints.get(0).link;
+        double start = link.position();
+        hood.pwmEnabled = true;
+        hood.position = 0.9;   // raised 24 degrees
+        run(rig, 1.0);
+        rig.place(0, -1.0, 0);   // what Reset does: the robot and its links back at the start...
+        rig.powerCycle();        // ...and the power cycled, which leaves the servo limp
+        hood.pwmEnabled = true;
+        hood.position = 0.5;     // the next OpMode centers it: where it starts
+        double max = -1e9;
+        for (int i = 0; i < 400; i++) {
+            rig.step(DT);
+            max = Math.max(max, link.position());
+        }
+        System.out.printf("hood after a reset: start %.1f deg, highest %.1f deg%n", Math.toDegrees(start), Math.toDegrees(max));
+        assertEquals(start, max, Math.toRadians(1), "the hood stays at its start, not swinging up toward where it was");
+    }
+
+    @Test
     void cadIntakeAndLauncherWork() throws Exception {
         RobotConfig cfg = load("mecanum-cad.json");
         FieldModel field = FieldModel.loadBiobuzz();

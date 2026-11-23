@@ -46,4 +46,10 @@ public final class ServoUnit {
     public double angleDeg() {
         return angleDeg;
     }
+
+    /** Where the horn is (degrees from center) when something other than the servo moved it. */
+    public void setAngleDeg(double deg) {
+        angleDeg = deg;
+        port.angleDeg = deg;
+    }
 }

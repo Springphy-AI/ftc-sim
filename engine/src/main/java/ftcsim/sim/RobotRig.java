@@ -520,6 +520,7 @@ public final class RobotRig {
         for (OtosMount om : otoses) om.backend.powerCycle();
         for (MotorUnit u : motors.values()) u.resetState();
         for (Mechanism m : mechanisms) m.reset();   // with its encoder back at 0, the arm must be back at its start too
+        for (ServoJoint j : servoJoints) j.hornAtLinkStart();   // (Reset put the CAD links back at their start)
         imu.yawOffsetRad = 0;
         captureImuReference();
     }
