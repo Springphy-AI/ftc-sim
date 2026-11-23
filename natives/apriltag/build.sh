@@ -14,7 +14,8 @@
 #   sh natives/apriltag/build.sh           all five platforms. Downloads Zig (a self-contained
 #                                          C/C++ cross compiler) into build/; nothing is installed.
 #   sh natives/apriltag/build.sh --local   only this machine's platform, with gcc/g++ (or $CC/$CXX)
-#                                          from PATH, e.g. MinGW-w64 on Windows, gcc on Linux.
+#                                          from PATH, e.g. MinGW-w64 on Windows, gcc on Linux, the
+#                                          Xcode command line tools' clang on macOS.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -147,9 +148,9 @@ build() { # platform zig-target library-file
             done
             cxx="$cxx -D__CPTHREAD_H__ -include pthread.h"
             libs="-static"                                 # no MinGW runtime DLLs to ship
-        else
+        elif [ "${platform%%-*}" = linux ]; then
             libs="$libs -static-libstdc++ -static-libgcc"  # no libstdc++ version dependency
-        fi
+        fi                                                 # (macOS: Apple clang and its libc++, part of the OS)
     fi
     objs=""
     for s in $sources $extra; do
