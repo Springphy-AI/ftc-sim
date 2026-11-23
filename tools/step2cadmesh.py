@@ -50,7 +50,7 @@ from OCP.TopExp import TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS  # module of casts in OCP 8 (TopoDS.Face)
 from OCP.XCAFApp import XCAFApp_Application
-from OCP.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorTool, XCAFDoc_DocumentTool
+from OCP.XCAFDoc import XCAFDoc_ColorCurv, XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorTool, XCAFDoc_DocumentTool
 
 CONVERTER = "step2cadmesh (native OpenCascade)"
 # The same detail as the simulator's browser converter (cadconvert.js TESSELLATION).
@@ -85,12 +85,42 @@ def label_name(label):
     return ""
 
 
-def label_color(colors, label):
+# The kinds of color a STEP label or shape can have, in the order the page's converter
+# (occt-import-js) looks for them.
+COLOR_KINDS = (XCAFDoc_ColorSurf, XCAFDoc_ColorCurv, XCAFDoc_ColorGen)
+
+
+def label_color(label):
+    """The color set on a label (a part, an assembly, or one placement of either), or None."""
     c = Quantity_Color()
-    for kind in (XCAFDoc_ColorSurf, XCAFDoc_ColorGen):
+    for kind in COLOR_KINDS:
         if XCAFDoc_ColorTool.GetColor_s(label, kind, c):
             return srgb_hex(c)
     return None
+
+
+def shape_color(colors, shape):
+    """The color set on a face (or other sub-shape) of a part, or None."""
+    c = Quantity_Color()
+    for kind in COLOR_KINDS:
+        if colors.GetColor(shape, kind, c):
+            return srgb_hex(c)
+    return None
+
+
+def part_color(own, face_triangles):
+    """
+    A part's color as the page's converter picks it (cadconvert.js meshColor): its own color (the
+    placement's, else the part's), else the color most of its triangles' faces have, else gray.
+    face_triangles: face color -> how many triangles have it.
+    """
+    if own:
+        return own
+    best = None
+    for color, n in face_triangles.items():
+        if best is None or n > face_triangles[best]:
+            best = color
+    return best or DEFAULT_COLOR
 
 
 def main():
@@ -131,6 +161,7 @@ def main():
 
     def add_part(path, color, shape, loc):
         pos, idx = array("f"), array("I")
+        face_triangles = {}   # face color -> triangles, for a part without a color of its own
         exp = TopExp_Explorer(shape, TopAbs_FACE)
         while exp.More():
             face = TopoDS.Face(exp.Current())
@@ -142,6 +173,9 @@ def main():
                 for n in range(1, tri.NbNodes() + 1):
                     p = tri.Node(n).Transformed(trsf)
                     pos.extend((p.X() * MM, p.Y() * MM, p.Z() * MM))
+                fc = shape_color(colors, face)
+                if fc:
+                    face_triangles[fc] = face_triangles.get(fc, 0) + tri.NbTriangles()
                 flip = face.Orientation() == TopAbs_REVERSED
                 for t in range(1, tri.NbTriangles() + 1):
                     a, b, c = tri.Triangle(t).Get()
@@ -149,13 +183,17 @@ def main():
                         b, c = c, b
                     idx.extend((base + a - 1, base + b - 1, base + c - 1))
             exp.Next()
-        parts.append(("/".join(path) or "part", color or DEFAULT_COLOR, pos, idx))
+        parts.append(("/".join(path) or "part", part_color(color, face_triangles), pos, idx))
 
-    def walk(label, loc, path, color):
-        """label: a shape (assembly or part) placed at loc; path: the names down to it."""
+    def walk(label, loc, path, placed):
+        """
+        label: a shape (assembly or part) placed at loc; path: the names down to it; placed: the
+        color of this placement (its component label's), which wins over the shape's own, as in
+        the page's converter. An assembly's color isn't handed down to its parts: the page's isn't.
+        """
         name = label_name(label)
         here = path + [name] if name and (not path or path[-1] != name) else path
-        color = label_color(colors, label) or color
+        color = placed or label_color(label)
         if shapes.IsAssembly_s(label):
             comps = TDF_LabelSequence()
             shapes.GetComponents_s(label, comps, False)
@@ -166,8 +204,7 @@ def main():
                     continue
                 cname = label_name(comp)
                 cpath = here + [cname] if cname else here
-                walk(ref, loc.Multiplied(shapes.GetLocation_s(comp)),
-                     cpath, label_color(colors, comp) or color)
+                walk(ref, loc.Multiplied(shapes.GetLocation_s(comp)), cpath, label_color(comp))
             return
         shape = shapes.GetShape_s(label)
         # Instances of one part share its faces; OpenCascade meshes them once and skips them after.
