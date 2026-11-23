@@ -157,6 +157,84 @@ class LauncherTest {
         assertEquals(jdk17.toString(), chosenJdk(env));
     }
 
+    /** The path after {@code prefix} on a line of {@code out}, as the file system has it. */
+    private static Path pathAfter(String out, String prefix) throws Exception {
+        for (String line : out.split("\\R")) {
+            if (line.startsWith(prefix)) return Path.of(line.substring(prefix.length()).trim()).toRealPath();
+        }
+        throw new AssertionError("no \"" + prefix + "\" in:\n" + out);
+    }
+
+    @Test
+    void runSimStartsTheSimulatorFromACopyNoBuildRewrites() throws Exception {
+        // The simulator's folder, with a stand-in for Gradle that says what it was asked to do and
+        // names the copy it made; the copy's start script says where it runs.
+        Path sim = Files.createDirectories(tmp.resolve("ftc sim"));
+        String launcher = WINDOWS ? "run-sim.bat" : "run-sim.sh";
+        Files.copy(Path.of(launcher), sim.resolve(launcher));
+        Path copyBin = Files.createDirectories(sim.resolve("build/run/0123abcd/bin"));
+        if (WINDOWS) {
+            Files.writeString(sim.resolve("gradlew.bat"), String.join("\r\n", "@echo off",
+                    ">>\"%~dp0gradle.log\" echo %*", ">\"%~dp0build\\run\\current\" echo 0123abcd", "exit /b 0", ""));
+            Files.writeString(copyBin.resolve("ftc-sim.bat"), String.join("\r\n", "@echo off",
+                    "echo started %~dp0", "echo in %CD%", "echo args %*", ""));
+        } else {
+            Files.writeString(sim.resolve("gradlew"), "#!/bin/sh\necho \"$*\" >> gradle.log\nprintf 0123abcd > build/run/current\n");
+            Files.writeString(copyBin.resolve("ftc-sim"), "#!/bin/sh\necho \"started $(cd \"$(dirname \"$0\")\" && pwd -P)\"\n"
+                    + "echo \"in $(pwd -P)\"\necho \"args $*\"\n");
+        }
+        ProcessBuilder pb = WINDOWS ? new ProcessBuilder("cmd.exe", "/c", sim.resolve(launcher).toString(), "--no-browser", "--port", "8123")
+                : new ProcessBuilder("sh", sim.resolve(launcher).toString(), "--no-browser", "--port", "8123");
+        pb.environment().put("JAVA_HOME", System.getProperty("java.home"));
+        pb.directory(Files.createDirectories(tmp.resolve("work")).toFile()).redirectErrorStream(true);
+        Process p = pb.start();
+        String out = new String(p.getInputStream().readAllBytes()).trim();
+        assertEquals(0, p.waitFor(), out);
+        assertTrue(Files.readString(sim.resolve("gradle.log")).contains(":engine:prepareRun"), "builds and copies the simulator");
+        assertEquals(copyBin.toRealPath(), pathAfter(out, "started "), "runs from the copy, not engine/build/install: " + out);
+        assertEquals(sim.toRealPath(), pathAfter(out, "in "), "in the simulator's folder, where robots/ and sim.properties are");
+        assertTrue(out.contains("args --no-browser --port 8123"), out);
+    }
+
+    /** A copy in {@code root} that run-sim last prepared {@code age} ago. */
+    private static Path runCopy(Path root, String name, java.time.Duration age) throws Exception {
+        Path copy = Files.createDirectories(root.resolve(name).resolve("lib"));
+        Path launched = Files.writeString(copy.getParent().resolve("launched"), "");
+        Files.setLastModifiedTime(launched, java.nio.file.attribute.FileTime.from(java.time.Instant.now().minus(age)));
+        return copy.getParent();
+    }
+
+    @Test
+    void theCopiesNoSimulatorRunsFromAreDeleted() throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("build/run"));
+        java.time.Duration old = java.time.Duration.ofHours(2), justNow = java.time.Duration.ofSeconds(5);
+        Path own = runCopy(root, "own", old);
+        RunCopies.claim(root, own, ProcessHandle.current().pid());
+        assertTrue(Files.exists(own.resolve("running/" + ProcessHandle.current().pid())), "this simulator marks its copy");
+        Path elsewhere = runCopy(tmp, "elsewhere", old);
+        RunCopies.claim(root, elsewhere, ProcessHandle.current().pid());
+        assertTrue(Files.notExists(elsewhere.resolve("running")), "an install that isn't a copy is left alone");
+
+        Path other = runCopy(root, "other", old);   // another simulator runs from it
+        long parent = ProcessHandle.current().parent().orElseThrow().pid();
+        RunCopies.claim(root, other, parent);
+        Path exited = runCopy(root, "exited", old);
+        Process gone = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-version").start();
+        gone.waitFor();
+        RunCopies.claim(root, exited, gone.pid());
+        Path unused = runCopy(root, "unused", old);
+        Path starting = runCopy(root, "starting", justNow);   // run-sim is about to start it
+        Path newest = runCopy(root, "newest", old);
+        Files.writeString(root.resolve("current"), "newest");
+        Path partialOld = Files.createDirectories(root.resolve("abc.partial-1-2"));
+        Files.setLastModifiedTime(partialOld, java.nio.file.attribute.FileTime.from(java.time.Instant.now().minus(old)));
+        Path partialNew = Files.createDirectories(root.resolve("abc.partial-1-3"));
+
+        RunCopies.clean(root, own, java.time.Instant.now());
+        for (Path kept : new Path[]{own, other, starting, newest, partialNew}) assertTrue(Files.isDirectory(kept), kept + " is kept");
+        for (Path deleted : new Path[]{exited, unused, partialOld}) assertTrue(Files.notExists(deleted), deleted + " is deleted");
+    }
+
     @Test
     void aRelativeProjectIsWhereTheUserTypedIt() {
         // run-sim starts the simulator in its own folder and passes the folder it was started in.

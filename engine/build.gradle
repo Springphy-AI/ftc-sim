@@ -200,6 +200,72 @@ tasks.named('startScripts') {
     }
 }
 
+// run-sim starts the simulator from a copy of the install that no build changes: installDist rewrites
+// the jars in engine/build/install in place, and a simulator still running from them could no longer
+// load its classes (a second run-sim after the code changed, or after a git pull). The copy is
+// build/run/<id>, named after what is in it, so launches of the same build share one; build/run/current
+// names the newest. The simulator deletes the copies none runs from (ftcsim.RunCopies).
+def runCopies = rootProject.layout.buildDirectory.dir('run')
+tasks.register('prepareRun') {
+    description = 'Copies the install to build/run/<id>, which no build changes, for run-sim to start the simulator from.'
+    def install = tasks.named('installDist', Sync).map { it.destinationDir }
+    dependsOn 'installDist'
+    outputs.upToDateWhen { false }
+    doLast {
+        def from = install.get().toPath()
+        def root = java.nio.file.Files.createDirectories(runCopies.get().asFile.toPath())
+        def files = java.nio.file.Files.walk(from).withCloseable { s ->
+            s.filter { java.nio.file.Files.isRegularFile(it) }.sorted().collect(java.util.stream.Collectors.toList())
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        def buffer = new byte[1 << 16]
+        files.each { f ->
+            digest.update(from.relativize(f).toString().replace('\\', '/').getBytes('UTF-8'))
+            digest.update((byte) 0)
+            f.withInputStream { is ->
+                int n
+                while ((n = is.read(buffer)) > 0) digest.update(buffer, 0, n)
+            }
+        }
+        def id = digest.digest().encodeHex().toString().substring(0, 16)
+        def copy = root.resolve(id)
+        if (!java.nio.file.Files.isDirectory(copy)) {
+            // Copied beside it and renamed: a copy is whole or not there (another run-sim may be copying too).
+            def partial = root.resolve("${id}.partial-${ProcessHandle.current().pid()}-${System.nanoTime()}")
+            files.each { f ->
+                def to = partial.resolve(from.relativize(f).toString())
+                java.nio.file.Files.createDirectories(to.parent)
+                java.nio.file.Files.copy(f, to, java.nio.file.StandardCopyOption.COPY_ATTRIBUTES)
+            }
+            java.nio.file.Files.writeString(partial.resolve('launched'), '')
+            for (int attempt = 1; !java.nio.file.Files.isDirectory(copy); attempt++) {
+                try {
+                    java.nio.file.Files.move(partial, copy, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                } catch (IOException e) {
+                    // Windows: a virus scanner may hold a new file for a moment. Else run this one as it is.
+                    if (attempt == 20) {
+                        copy = partial
+                        break
+                    }
+                    Thread.sleep(100)
+                }
+            }
+            if (copy != partial && java.nio.file.Files.isDirectory(partial)) partial.toFile().deleteDir()   // another run-sim's won
+        }
+        // When run-sim last started this copy: the simulator doesn't delete it for a while after.
+        java.nio.file.Files.writeString(copy.resolve('launched'), '')
+        def current = root.resolve("current.${ProcessHandle.current().pid()}")
+        java.nio.file.Files.writeString(current, copy.fileName.toString())
+        try {
+            java.nio.file.Files.move(current, root.resolve('current'), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        } catch (IOException ignored) {
+            java.nio.file.Files.writeString(root.resolve('current'), copy.fileName.toString())   // being read just then (Windows)
+            java.nio.file.Files.deleteIfExists(current)
+        }
+    }
+}
+
 tasks.named('run') {
     // Not the start scripts' placeholder (applicationDefaultJvmArgs): this machine's natives folder.
     jvmArguments.set(["-Djava.library.path=${aprilTagNatives.absolutePath}".toString()])

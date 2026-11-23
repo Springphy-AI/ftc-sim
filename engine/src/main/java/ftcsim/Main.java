@@ -54,6 +54,13 @@ public final class Main {
         int port = options.port();
         boolean openBrowser = options.openBrowser();
 
+        // run-sim starts the simulator from a copy of its build in build/run: this one is in use, and
+        // copies no simulator runs from any more are deleted.
+        Path runCopies = home.resolve("build/run");
+        Path install = RunCopies.ownInstall();
+        RunCopies.claim(runCopies, install, ProcessHandle.current().pid());
+        RunCopies.clean(runCopies, install, java.time.Instant.now());
+
         // Each running simulator compiles into its own folder; remove folders of simulators that have exited.
         Path workRoot = home.resolve("build/teamcode-classes");
         Files.createDirectories(workRoot);

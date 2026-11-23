@@ -3,7 +3,8 @@
 #
 # Builds the simulator and runs its tests, then starts it with the same launcher a team would use
 # (run-sim.bat / run-sim.sh) against a small robot project whose path contains spaces, and checks
-# that TeamCode compiles and the Driver Station page loads.
+# that TeamCode compiles, the Driver Station page loads and the simulator runs from its copy of the
+# build in build/run.
 name: Test
 
 on:
@@ -84,7 +85,10 @@ jobs:
             if ($text -match 'skipped') { throw 'TeamCode files were skipped.' }
             $page = Invoke-WebRequest "http://127.0.0.1:$env:SIM_PORT/" -UseBasicParsing
             if ($page.Content -notmatch 'FTC Simulator') { throw 'The Driver Station page did not load.' }
-            Write-Host 'Simulator started, built TeamCode and served the Driver Station page.'
+            # It runs from its copy of the build, which it marks (build\run\<id>\running\<pid>).
+            $copy = 'build\run\' + (Get-Content build\run\current -Raw).Trim()
+            if (-not (Get-ChildItem "$copy\running" -ErrorAction SilentlyContinue)) { throw 'The simulator does not run from its copy in build\run.' }
+            Write-Host 'Simulator started from its copy, built TeamCode and served the Driver Station page.'
           } finally {
             taskkill /PID $p.Id /T /F | Out-Null
           }
@@ -106,4 +110,7 @@ jobs:
           if grep -q 'skipped' "$log"; then echo "::error::TeamCode files were skipped."; exit 1; fi
           curl -fsS "http://127.0.0.1:$SIM_PORT/" | grep -q 'FTC Simulator' \
             || { echo "::error::The Driver Station page did not load."; exit 1; }
-          echo "Simulator started, built TeamCode and served the Driver Station page."
+          # It runs from its copy of the build, which it marks (build/run/<id>/running/<pid>).
+          ls "build/run/$(cat build/run/current)/running" | grep -q . \
+            || { echo "::error::The simulator does not run from its copy in build/run."; exit 1; }
+          echo "Simulator started from its copy, built TeamCode and served the Driver Station page."

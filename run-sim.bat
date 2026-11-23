@@ -58,9 +58,17 @@ echo %JAVA_HOME%
 exit /b 0
 
 :run
-call "%~dp0gradlew.bat" -q :engine:installDist || exit /b 1
-call "%~dp0engine\build\install\ftc-sim\bin\ftc-sim.bat" %*
+rem Builds the simulator and copies it to build\run\ID, a folder no later build rewrites under it.
+call "%~dp0gradlew.bat" -q :engine:prepareRun || exit /b 1
+set "FTCSIM_RUN="
+if exist "%~dp0build\run\current" set /p FTCSIM_RUN=<"%~dp0build\run\current"
+if not defined FTCSIM_RUN goto norun
+if not exist "%~dp0build\run\%FTCSIM_RUN%\bin\ftc-sim.bat" goto norun
+call "%~dp0build\run\%FTCSIM_RUN%\bin\ftc-sim.bat" %*
 exit /b %ERRORLEVEL%
+:norun
+echo The simulator's build is not in build\run; run .\run-sim.bat again. 1>&2
+exit /b 1
 
 rem Sets JDK_MAJOR to the major Java version (8 for 1.8) of the JDK in the folder given, from its
 rem release file: 0 when it isn't a JDK (a JRE has no bin\javac.exe) or the file doesn't say.

@@ -78,5 +78,11 @@ export JAVA_HOME
 # (for the tests: the JDK chosen, without building or starting anything)
 if [ -n "$FTCSIM_PRINT_JAVA_HOME" ]; then echo "$JAVA_HOME"; exit 0; fi
 
-sh ./gradlew -q :engine:installDist || exit 1
-exec sh engine/build/install/ftc-sim/bin/ftc-sim "$@"
+# Builds the simulator and copies it to build/run/<id>, a folder no later build rewrites under it.
+sh ./gradlew -q :engine:prepareRun || exit 1
+run=$(cat build/run/current 2>/dev/null)
+if [ -z "$run" ] || [ ! -f "build/run/$run/bin/ftc-sim" ]; then
+    echo "The simulator's build is not in build/run; run sh run-sim.sh again." >&2
+    exit 1
+fi
+exec sh "build/run/$run/bin/ftc-sim" "$@"
