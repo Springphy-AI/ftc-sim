@@ -102,14 +102,16 @@ export class CodeEditor {
    * @param send   sends a Driver Station message over the WebSocket
    * @param layout the element whose class "coding" shows the editor beside the field
    * @param ds     what the Driver Station shows for a robot: samplesShown(i), whether it lists the
-   *               FTC samples (the editor lists their files only then), and chosenOpMode(i), the
-   *               OpMode in its menu (the editor opens its file)
+   *               FTC samples (the editor lists their files only then), chosenOpMode(i), the
+   *               OpMode in its menu (the editor opens its file), and keysDrive(i), whether the
+   *               keyboard drives one of its gamepads
    */
   constructor(send, layout, ds = {}) {
     this.send = send;
     this.layout = layout;
     this.samplesShown = ds.samplesShown ?? (() => true);
     this.chosenOpMode = ds.chosenOpMode ?? ((i) => this.dsStates[i]?.selected ?? null);
+    this.keysDrive = ds.keysDrive ?? (() => false);
     this.robot = 0;
     this.robotCount = 1;
     this.builds = [];          // each robot's latest build message
@@ -152,9 +154,12 @@ export class CodeEditor {
         basicSetup,
         Prec.highest(keymap.of([
           { key: 'Mod-s', run: () => { this.save(); return true; } },
-          { key: 'Mod-Enter', run: () => { this.run(); return true; } },
+          { key: 'Mod-Enter', run: () => { this.run({ fromKeys: true }); return true; } },
         ])),
         keymap.of([indentWithTab]),
+        // Esc leaves the file (once nothing in it takes Esc: a completion list, the search panel,
+        // several cursors), so the keys drive the robot again.
+        keymap.of([{ key: 'Escape', run: (view) => { view.contentDOM.blur(); return true; } }]),
         // A file dropped on the editor is a robot's CAD for the page to import (main.js takes the
         // drop on the window), not text for this Java file: CodeMirror's own drop handler would
         // read even a large STEP file into it. Handled here, that one doesn't run; the drop still
@@ -168,6 +173,7 @@ export class CodeEditor {
         syntaxHighlighting(highlight),
         this.readOnly.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         EditorView.updateListener.of((u) => {
+          if (u.focusChanged && u.view === this.view) this.renderStatus();   // what the keys do now
           if (!u.docChanged || !this.buffer || u.state !== this.view.state) return;
           const b = this.buffer;
           // Changes since the file as saved, and (while a save is on its way) since the text it sends.
@@ -669,7 +675,8 @@ export class CodeEditor {
     }) || null;
   }
 
-  async run() {
+  /** @param fromKeys pressed with Ctrl/Cmd+Enter in the file: once the OpMode starts, the keys drive it, not type */
+  async run({ fromKeys = false } = {}) {
     if (this.running) return;
     const i = this.robot;
     const b = this.buffer;
@@ -738,6 +745,7 @@ export class CodeEditor {
         return;
       }
       this.send({ type: 'start', robot: i });
+      if (fromKeys && this.view.hasFocus) this.view.contentDOM.blur();
     } catch (e) {
       this.status(`Not run: ${e.message}`, 'err', true);
     } finally {
@@ -841,7 +849,11 @@ export class CodeEditor {
     if (b.pending) return this.status('Saved; the rebuild waits until the OpMode stops', 'warn');
     if (errors) return this.status(`${errors} compile error${errors === 1 ? '' : 's'} in this file (point at the red underline to read ${errors === 1 ? 'it' : 'them'})`, 'err');
     if (ds?.error) return this.status('The robot reported an error: see the Driver Station', 'err');
-    if (ds?.state === 'RUNNING') return this.status(`Running ${ds.active}`, 'ok');
+    if (ds?.state === 'RUNNING') {
+      const keys = !this.keysDrive(this.robot) ? '' : this.view.hasFocus
+        ? ' · the keys type into the file: Esc to drive with them' : ' · the keys drive the robot: click the file to type';
+      return this.status(`Running ${ds.active}${keys}`, 'ok');
+    }
     if (ds?.state === 'INIT') return this.status(`INIT ${ds.active}: press START in the Driver Station`);
     if ((b.problems || []).length) return this.status(`${b.message} · errors in other files: see the Build tab`, 'warn');
     this.status(b.message || '', b.ok === false ? 'err' : '');

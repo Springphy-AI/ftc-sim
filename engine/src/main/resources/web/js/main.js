@@ -29,11 +29,12 @@ try {
 const view = new FieldView($('scene'));
 const input = new InputManager(send);
 const ds = new DriverStation(send, input);
-// The code editor lists the FTC samples' files only when the Driver Station lists the samples, and
-// shows the file of an OpMode someone picks.
+// The code editor lists the FTC samples' files only when the Driver Station lists the samples,
+// shows the file of an OpMode someone picks, and says what the keys do while an OpMode runs.
 const code = new CodeEditor(send, document.querySelector('main.layout'), {
   samplesShown: (i) => ds.showsSamples(i),
   chosenOpMode: (i) => ds.chosenOpMode(i),
+  keysDrive: (i) => input.keyboardSlot()?.[0] === i,
 });
 ds.onSamplesChange(() => code.onSamplesChange());
 ds.onSelect((i, name) => code.showOpMode(i, name));
