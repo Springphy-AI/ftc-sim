@@ -38,6 +38,38 @@ public final class Geom3 {
         return new double[]{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
     }
 
+    /**
+     * The squared distance from point {@code p} to the triangle {@code a b c}: to its nearest
+     * point, inside the triangle or on an edge or corner (Ericson, Real-Time Collision Detection,
+     * 5.1.5). NaN for a triangle with no area whose nearest point is inside it.
+     */
+    public static double distanceSqToTriangle(double[] p, double[] a, double[] b, double[] c) {
+        double[] ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+        double d1 = dot(ab, ap), d2 = dot(ac, ap);
+        if (d1 <= 0 && d2 <= 0) return distanceSq(p, a);
+        double[] bp = sub(p, b);
+        double d3 = dot(ab, bp), d4 = dot(ac, bp);
+        if (d3 >= 0 && d4 <= d3) return distanceSq(p, b);
+        double vc = d1 * d4 - d3 * d2;
+        if (vc <= 0 && d1 >= 0 && d3 <= 0) return distanceSq(p, add(a, scale(ab, d1 / (d1 - d3))));
+        double[] cp = sub(p, c);
+        double d5 = dot(ab, cp), d6 = dot(ac, cp);
+        if (d6 >= 0 && d5 <= d6) return distanceSq(p, c);
+        double vb = d5 * d2 - d1 * d6;
+        if (vb <= 0 && d2 >= 0 && d6 <= 0) return distanceSq(p, add(a, scale(ac, d2 / (d2 - d6))));
+        double va = d3 * d6 - d5 * d4;
+        if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+            return distanceSq(p, add(b, scale(sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)))));
+        }
+        double denom = 1 / (va + vb + vc);
+        return distanceSq(p, add(a, add(scale(ab, vb * denom), scale(ac, vc * denom))));
+    }
+
+    public static double distanceSq(double[] a, double[] b) {
+        double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return dx * dx + dy * dy + dz * dz;
+    }
+
     public static double norm(double[] a) {
         return Math.sqrt(dot(a, a));
     }

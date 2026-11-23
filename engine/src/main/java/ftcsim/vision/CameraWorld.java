@@ -8,6 +8,7 @@ import java.util.Map;
 import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3C;
 
+import ftcsim.cad.Geom3;
 import ftcsim.cad.MeshPart;
 import ftcsim.cad.RobotModel;
 import ftcsim.config.RobotConfig;
@@ -275,8 +276,13 @@ public final class CameraWorld {
         return out;
     }
 
-    /** Robot geometry in the robot frame (origin on the floor under its center): 9 coordinates + color per triangle. */
-    private static List<double[]> buildRobotMesh(RobotConfig cfg) {
+    /**
+     * Robot geometry in the robot frame (origin on the floor under its center): 9 coordinates +
+     * color per triangle. As for a CAD robot, the triangles within {@link RobotModel#CAMERA_CLEARANCE_M}
+     * of the robot's own webcams are left out: a webcam mounted low in front, in or against the
+     * frame's front rail, sees past it instead of at the inside of the rail.
+     */
+    static List<double[]> buildRobotMesh(RobotConfig cfg) {
         Scene s = new Scene();
         RobotConfig.Chassis c = cfg.chassis;
         double L = c.lengthM, W = c.widthM, H = c.frameHeightM, z0 = c.groundClearanceM;
@@ -297,8 +303,14 @@ public final class CameraWorld {
                 s.cylinder(new double[]{x, y - yo, wr}, new double[]{x, y + yo, wr}, wr, 14, Material.flat(0x26282c));
             }
         }
+        List<double[]> lenses = new ArrayList<>();
+        for (RobotConfig.Device d : cfg.devices) if ("webcam".equals(d.type)) lenses.add(new double[]{d.xM, d.yM, d.zM});
+        double r2 = RobotModel.CAMERA_CLEARANCE_M * RobotModel.CAMERA_CLEARANCE_M;
         List<double[]> out = new ArrayList<>();
+        triangles:
         for (Scene.Tri t : s.tris) {
+            double[] p0 = {t.v[0], t.v[1], t.v[2]}, p1 = {t.v[3], t.v[4], t.v[5]}, p2 = {t.v[6], t.v[7], t.v[8]};
+            for (double[] lens : lenses) if (Geom3.distanceSqToTriangle(lens, p0, p1, p2) < r2) continue triangles;
             double[] e = java.util.Arrays.copyOf(t.v, 10);
             e[9] = t.material.rgb;
             out.add(e);

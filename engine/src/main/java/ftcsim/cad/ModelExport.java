@@ -113,28 +113,30 @@ final class ModelExport {
         } while (cell < 0.2);
         if (!cameras.isEmpty() && !out.isEmpty()) {
             List<MeshPart> base = new ArrayList<>();
-            for (MeshPart m : out.get(0)) base.add(clearAround(m, cameras, 0.05));
+            for (MeshPart m : out.get(0)) base.add(clearAround(m, cameras, RobotModel.CAMERA_CLEARANCE_M));
             out.set(0, base);
         }
         return out;
     }
 
-    private static MeshPart clearAround(MeshPart m, List<double[]> points, double radius) {
+    /**
+     * {@code m} without the triangles that come within {@code radius} of any of {@code points}
+     * (anywhere on the triangle: a big panel's center can be far from a lens its edge touches).
+     */
+    static MeshPart clearAround(MeshPart m, List<double[]> points, double radius) {
         float[] p = m.positions();
         int[] ix = m.indices();
         int[] keep = new int[ix.length];
         int n = 0;
         for (int t = 0; t < ix.length; t += 3) {
-            double cx = 0, cy = 0, cz = 0;
+            double[][] v = new double[3][];
             for (int c = 0; c < 3; c++) {
-                cx += p[ix[t + c] * 3] / 3.0;
-                cy += p[ix[t + c] * 3 + 1] / 3.0;
-                cz += p[ix[t + c] * 3 + 2] / 3.0;
+                int i = ix[t + c] * 3;
+                v[c] = new double[]{p[i], p[i + 1], p[i + 2]};
             }
             boolean near = false;
             for (double[] q : points) {
-                double dx = cx - q[0], dy = cy - q[1], dz = cz - q[2];
-                if (dx * dx + dy * dy + dz * dz < radius * radius) {
+                if (Geom3.distanceSqToTriangle(q, v[0], v[1], v[2]) < radius * radius) {
                     near = true;
                     break;
                 }

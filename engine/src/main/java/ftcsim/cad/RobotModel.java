@@ -126,6 +126,12 @@ public final class RobotModel {
     private volatile byte[] browserModel;
     private volatile List<List<MeshPart>> visionMesh;
 
+    /**
+     * How far around a robot's own webcam the webcam renderer leaves its triangles out, so the
+     * camera doesn't look at the inside of its housing or of the frame it sits in.
+     */
+    public static final double CAMERA_CLEARANCE_M = 0.05;
+
     /** The model as the browser's 3D view loads it (see {@link ModelExport#browserModel}). */
     public byte[] browserModel() {
         byte[] b = browserModel;
@@ -135,8 +141,9 @@ public final class RobotModel {
 
     /**
      * Simplified triangles per group, merged by color, for the webcam renderer (robot frame at
-     * rest). Triangles within 5 cm of {@code cameras} (robot-frame points) are left out, so a
-     * webcam modeled in the CAD doesn't look at the inside of its own housing.
+     * rest). Triangles that come within {@link #CAMERA_CLEARANCE_M} of {@code cameras} (robot-frame
+     * points) are left out, so a webcam modeled in the CAD doesn't look at the inside of its own
+     * housing.
      */
     public List<List<MeshPart>> visionMesh(List<double[]> cameras) {
         List<List<MeshPart>> v = visionMesh;
