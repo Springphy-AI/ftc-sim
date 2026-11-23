@@ -63,30 +63,6 @@ looked for there first, then in the simulator's folder (so `--robot robots/tank.
 anywhere). Paths in `sim.properties` are relative to the simulator's folder. A wrong option or
 value is explained in a sentence.
 
-## Run it in GitHub Codespaces
-
-The simulator also runs in a [GitHub codespace](https://docs.github.com/en/codespaces): a
-computer in the cloud that you use from the browser, with nothing to install. A personal GitHub
-account may use 120 core hours a month for free, which is 60 hours on the standard 2-core machine.
-
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Springphy-AI/ftc-sim)
-
-- **To try it**, open this repository in a codespace (the button above). The first start builds
-  the simulator, which takes a few minutes. Then it runs the bundled examples, and the Driver
-  Station page opens in a new browser tab. Later starts take seconds.
-- **With your team's code**, copy [`tools/codespaces/devcontainer.json`](tools/codespaces/devcontainer.json)
-  to `.devcontainer/devcontainer.json` in your FtcRobotController repository, and open that
-  repository in a codespace. The codespace downloads the simulator next to your project and runs
-  your TeamCode on it. You edit, commit and push as in any codespace, whether the repository is
-  private or not. The file changes nothing in the Android Studio build.
-- The page is at `https://<codespace name>-8080.app.github.dev`, and in VS Code's **Ports** tab.
-  Keep the port private, as it starts: whoever can open the page can change your TeamCode and run
-  it.
-- **Deploy** can't reach a robot from the cloud: deploy from Android Studio, or from a simulator
-  on the computer next to the robot.
-- A codespace stops after 30 minutes without use, and its core hours stop counting then. Your
-  files stay.
-
 ## Folder layout
 
 Without options, the simulator runs its own example robots (`robots/`) and example TeamCode

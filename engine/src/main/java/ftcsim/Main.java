@@ -122,10 +122,7 @@ public final class Main {
             return;
         }
         sim.start();
-        // In a GitHub codespace the page is at the name the codespace forwards the port at, and the
-        // codespace opens it in the browser by itself (.devcontainer/devcontainer.json).
-        String forwarded = server.codespaceHost();
-        String url = forwarded != null ? "https://" + forwarded + "/" : "http://localhost:" + bound + "/";
+        String url = "http://localhost:" + bound + "/";
         System.out.println();
         System.out.println("FTC simulator running at " + url);
         if (sim.robots().size() == 1) {
@@ -139,7 +136,7 @@ public final class Main {
             }
         }
         System.out.println("Press Ctrl+C to quit.");
-        if (openBrowser && forwarded == null) open(url);
+        if (openBrowser) open(url);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             sim.shutdown();
