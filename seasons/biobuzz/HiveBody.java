@@ -20,10 +20,12 @@ import ftcsim.physics.HingeBody;
  * does. It is set a little stiffer than the guide's "Preferred" rows (a gently placed 3rd POLLEN
  * with 3 NECTAR, or 8th POLLEN, does not tip it), because at 0.0323 m, where those rows pass, 3
  * NECTAR + 2 POLLEN launched by a robot tipped the HIVE from most shooting positions, unlike on
- * the field. At 0.0345 m, across 16 launcher speed / hood / distance combinations, 3 NECTAR + 2
- * launched POLLEN never tipped it and a 3rd launched POLLEN always did. Near the threshold the
- * damper makes a tip slow: the HIVE can creep off its stop for several seconds before it swings
- * over. HiveTipTest checks all of this. Every method must be called on the physics thread.
+ * the field. At 0.0345 m, HiveLaunchSweep (144 launcher power / hood / distance settings, run
+ * before the battery and loop-timing changes) found both of 2 launched POLLEN in the CELL at 46
+ * settings: the HIVE held at 41 of them and tipped one ball early at 5, and where a 3rd POLLEN
+ * also landed it tipped the HIVE at 30 of 31. Near the threshold the damper makes a tip slow: the
+ * HIVE can creep off its stop for several seconds before it swings over. HiveTipTest checks the
+ * table's rows and two launch settings. Every method must be called on the physics thread.
  */
 public final class HiveBody {
 
