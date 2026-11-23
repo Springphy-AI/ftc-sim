@@ -255,6 +255,10 @@ public final class MeshMath {
      * drops triangles that collapse. Good enough for the webcam renderer, which only needs the
      * silhouette and colors of other robots.
      */
+    /** A triangle's corners, smallest first: equal for the same triangle whatever its winding. */
+    private record Corners(int lo, int mid, int hi) {
+    }
+
     public static MeshPart simplify(MeshPart part, double cell) {
         float[] p = part.positions();
         int[] ix = part.indices();
@@ -288,14 +292,13 @@ public final class MeshMath {
         }
         int[] out = new int[ix.length];
         int n = 0;
-        java.util.Set<Long> seen = new java.util.HashSet<>();
+        java.util.Set<Corners> seen = new java.util.HashSet<>();
         for (int t = 0; t < ix.length; t += 3) {
             int a = remap[ix[t]], b = remap[ix[t + 1]], c = remap[ix[t + 2]];
             if (a == b || b == c || a == c) continue;
-            // drop exact duplicates (same three corners in any rotation)
+            // drop exact duplicates (same three corners in any order)
             int lo = Math.min(a, Math.min(b, c)), hi = Math.max(a, Math.max(b, c)), mid = a + b + c - lo - hi;
-            long key = ((long) lo * 31 + mid) * 1_000_003L + hi;
-            if (!seen.add(key)) continue;
+            if (!seen.add(new Corners(lo, mid, hi))) continue;
             out[n++] = a;
             out[n++] = b;
             out[n++] = c;
