@@ -72,6 +72,7 @@ class ApiConformanceTest {
                     .map(p -> simClasses.relativize(p).toString().replace('\\', '/'))
                     .filter(n -> !n.startsWith("ftcsim/") && !n.startsWith("android/"))
                     .filter(n -> !n.matches(".*\\$\\d+\\.class")) // anonymous classes are not API
+                    .filter(n -> !n.endsWith("package-info.class") && !n.endsWith("module-info.class"))
                     .map(n -> n.substring(0, n.length() - 6).replace('/', '.'))
                     .sorted()
                     .collect(Collectors.toList());
@@ -79,9 +80,17 @@ class ApiConformanceTest {
 
         TreeMap<String, List<String>> problems = new TreeMap<>();
         int checkedClasses = 0, checkedMembers = 0;
+        // What the checked members are: declared in FIRST's jars (public, or protected here and
+        // public there), equals/hashCode/toString overrides, members only reachable with the
+        // simulator's internal types, and the documented exceptions.
+        int inFirsts = 0, objectMethods = 0, internal = 0, allowed = 0;
         for (String cls : simClassNames) {
             List<String> simLines = javap(simClasses.toString(), cls);
-            if (simLines.isEmpty()) continue;
+            if (simLines.isEmpty()) {
+                // (not skipped: a class javap can't read would otherwise pass unchecked)
+                problems.computeIfAbsent(cls, k -> new ArrayList<>()).add("javap could not read the simulator's class");
+                continue;
+            }
             String header = simLines.get(0);
             boolean visible = header.startsWith("public ") || header.startsWith("protected ");
             if (!realClassNames.contains(cls)) {
@@ -104,16 +113,33 @@ class ApiConformanceTest {
                 checkedMembers++;
                 // A protected member may be public in the FTC SDK (what compiles here still compiles
                 // there), but a public one must be public there too.
-                if (realMembers.contains(member) || OBJECT_METHODS.contains(member)) continue;
-                if (member.startsWith("protected ") && realMembers.contains("public " + member.substring("protected ".length()))) continue;
-                if (member.contains("ftcsim.")) continue; // only reachable with ftcsim types, which TeamCode can't import
-                if (ALLOWED.contains(cls + "#" + member)) continue;
+                if (realMembers.contains(member)
+                        || (member.startsWith("protected ") && realMembers.contains("public " + member.substring("protected ".length())))) {
+                    inFirsts++;
+                    continue;
+                }
+                if (OBJECT_METHODS.contains(member)) {
+                    objectMethods++;
+                    continue;
+                }
+                if (member.contains("ftcsim.")) { // only reachable with ftcsim types, which TeamCode can't import
+                    internal++;
+                    continue;
+                }
+                if (ALLOWED.contains(cls + "#" + member)) {
+                    allowed++;
+                    continue;
+                }
                 problems.computeIfAbsent(cls, k -> new ArrayList<>()).add(member);
             }
         }
 
         System.out.printf("API conformance: %d classes, %d members checked against FTC SDK %s%n",
                 checkedClasses, checkedMembers, realJars.stream().map(p -> p.getFileName().toString()).collect(Collectors.joining(", ")));
+        System.out.printf("API conformance: %d members declared in FIRST's jars, %d equals/hashCode/toString overrides,"
+                + " %d only reachable with the simulator's internal types, %d documented exceptions%n", inFirsts, objectMethods, internal, allowed);
+        // (a sanity check that the stand-ins were found at all: fewer would mean the scan missed them)
+        assertTrue(checkedClasses >= 100, "only " + checkedClasses + " classes checked");
         if (!problems.isEmpty()) {
             StringBuilder sb = new StringBuilder("The simulator's SDK exposes API the real FTC SDK does not have:\n");
             problems.forEach((cls, list) -> {
