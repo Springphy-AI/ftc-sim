@@ -59,6 +59,38 @@ class WebcamSceneTest {
         assertTrue(share < 0.05, "it sees the field, not the inside of the rail: " + share);
     }
 
+    /** A field with one tag, its normal and up as season.json gives them. */
+    private static FieldTag tagOnAField(String normal, String up) {
+        com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString("""
+                {"field_m": [3.6576, 3.6576],
+                 "field_tags": {"size_m": 0.1, "tags": {"7": {"center_m": [0, 1.8, 0.3], "normal": %s, "up": %s}}}}
+                """.formatted(normal, up)).getAsJsonObject();
+        return new CameraWorld(new FieldModel(null, json)).tags().get(0);
+    }
+
+    private static double length(double[] v) {
+        return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    }
+
+    @Test
+    void aTagIsItsSizeWhateverLengthItsDirectionsAreGiven() {
+        FieldTag unit = tagOnAField("[0, -1, 0]", "[0, 0, 1]");
+        // Twice as long a normal, an up three times as long and leaning toward the normal.
+        FieldTag given = tagOnAField("[0, -2, 0]", "[0, -0.5, 3]");
+        for (FieldTag t : new FieldTag[]{unit, given}) {
+            assertEquals(1, length(t.right()), 1e-12, "right: the tag's width");
+            assertEquals(1, length(t.up()), 1e-12, "up: its height");
+            assertEquals(1, length(t.normal()), 1e-12);
+        }
+        org.junit.jupiter.api.Assertions.assertArrayEquals(unit.right(), given.right(), 1e-12);
+        org.junit.jupiter.api.Assertions.assertArrayEquals(unit.up(), given.up(), 1e-12, "up, square to the normal");
+        IllegalArgumentException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> tagOnAField("[0, -1, 0]", "[0, 2, 0]"));
+        assertTrue(e.getMessage().contains("AprilTag 7: its up (or it lies along the normal) has no direction"), e.getMessage());
+        e = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> tagOnAField("[0, 0, 0]", "[0, 0, 1]"));
+        assertTrue(e.getMessage().contains("AprilTag 7: its normal has no direction"), e.getMessage());
+    }
+
     @Test
     void theShippedWebcamMountSeesTheRobotAsBefore() throws Exception {
         RobotConfig shipped = RobotConfig.load(Path.of("robots/mecanum.json"), false);

@@ -86,6 +86,30 @@ public final class FieldModel {
 
     /** An AprilTag: center, the tag's right and up directions and the normal out of its face, black-square size. */
     public record Tag(int id, double[] center, double[] right, double[] up, double[] normal, double size) {
+        /**
+         * The directions as given (in season.json, by a season's code) need be neither unit length
+         * nor exactly square to each other: the normal is made unit, up square to it, and right
+         * square to both, the way it was given (or up x normal). Otherwise a tag drawn from them is
+         * the wrong size, and a camera locating itself from it is off.
+         */
+        public Tag {
+            normal = unitOrFail(normal, id, "normal");
+            double along = up[0] * normal[0] + up[1] * normal[1] + up[2] * normal[2];
+            up = unitOrFail(new double[]{up[0] - along * normal[0], up[1] - along * normal[1], up[2] - along * normal[2]},
+                    id, "up (or it lies along the normal)");
+            double[] r = cross(up, normal);
+            if (right != null && right[0] * r[0] + right[1] * r[1] + right[2] * r[2] < 0) r = new double[]{-r[0], -r[1], -r[2]};
+            right = r;
+        }
+
+        private static double[] unitOrFail(double[] v, int id, String what) {
+            double l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            if (!(l > 1e-9)) {
+                throw new IllegalArgumentException("AprilTag " + id + ": its " + what + " has no direction: " + java.util.Arrays.toString(v));
+            }
+            return new double[]{v[0] / l, v[1] / l, v[2] / l};
+        }
+
         public Tag transformed(double[] r, double[] t) {
             return new Tag(id, add(mul(r, center), t), mul(r, right), mul(r, up), mul(r, normal), size);
         }
