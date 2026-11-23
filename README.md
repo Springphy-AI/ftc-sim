@@ -31,6 +31,56 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
 To avoid typing the path every time, copy `sim.properties.example` to `sim.properties` and set
 `project=`.
 
+## Folder layout
+
+Without options, the simulator runs its own example robots (`robots/`) and example TeamCode
+(`examples/teamcode`). To run your team's code on your own robot, keep three folders side by side:
+
+```
+FTC/
+  FtcRobotController/      your team's robot code
+  ftc-sim-springphy/       this simulator
+  cad_robots/              your robots' CAD and robot profiles
+    OurRobot.step
+    sim-profiles/
+      our-robot.json
+```
+
+Then start the simulator from `ftc-sim-springphy/` with your project and your robot's profile:
+
+```sh
+sh run-sim.sh --project ../FtcRobotController --robot ../cad_robots/sim-profiles/our-robot.json
+```
+
+```bat
+.\run-sim.bat --project ..\FtcRobotController --robot ..\cad_robots\sim-profiles\our-robot.json
+```
+
+| Folder | What it is for | What it needs |
+|---|---|---|
+| `FtcRobotController/` | The code your team writes and deploys to the real robot. The simulator compiles its `TeamCode` as it is and never adds files to it. Push it to your team's repository as usual. | Your team's FtcRobotController project, with OpModes in `TeamCode/src/main/java`. |
+| `ftc-sim-springphy/` | The simulator: the engine, the seasons, the Driver Station page and the example robots. Your team's files don't go here, so you can update it with `git pull` at any time. | Nothing of yours. |
+| `cad_robots/` | Your robots: their CAD and the robot profiles the simulator runs. It is outside both repositories, so your CAD and profiles stay private unless you choose to share them. | One STEP export per robot (see [Robots from CAD](#robots-from-cad)), and in `sim-profiles/` one robot profile per robot ([Describing your robot](#describing-your-robot)). |
+
+Each robot profile in `cad_robots/sim-profiles/` should have:
+
+- **The devices**, named exactly as in your Driver Station configuration, because your TeamCode looks
+  them up by those names. Start from `robots/mecanum.json` (or `tank.json`) and rename them.
+- **The CAD**: `"cad": {"file": "../OurRobot.step"}`, a path relative to the profile. The first run
+  converts it in the browser and saves `OurRobot.step.cadmesh` next to the STEP file. A whole
+  competition robot can be too big for the browser: convert it with `tools/step2cadmesh.py`
+  instead ([Big assemblies](#big-assemblies)).
+- **Where it starts autonomous**: `"start": {"biobuzz": [x, y, heading]}`, in meters and degrees in
+  field coordinates (the field's center is 0, 0). The robot is placed there at launch and on every
+  Reset. Give your autonomous the same pose at START, for example
+  `pinpoint.setPosition(new Pose2D(DistanceUnit.INCH, x / 0.0254, y / 0.0254, AngleUnit.DEGREES, heading))`,
+  so the code knows where the robot is. For several starting spots, make one profile per spot.
+- **The robot's real numbers**: `chassis.mass_kg`, the drive motor and gear ratio,
+  `mirrored_side`, the odometry pod offsets and the camera's position.
+
+The simulator lists the profiles in the robot file's folder in the Driver Station's robot menu,
+and *+ From CAD* saves new robots in that folder too, so with this layout they stay in `cad_robots/`.
+
 ## Several robots on one field
 
 Up to four robots can share the field, two per alliance, as in a match. Each one is a separate
@@ -463,6 +513,38 @@ To update the robot, export the STEP file again and drop it with the same name: 
 replaced and the robot file keeps what you added to it. Commit the STEP, `.cadmesh` and robot
 files so your teammates and CI don't convert the STEP file again.
 
+### Big assemblies
+
+The Driver Station page converts the STEP file with OpenCascade compiled to WebAssembly, which can
+use at most 2 GB of memory. A whole competition robot with every screw and mecanum roller can need
+more (a 150 MB STEP export does). Then no triangles come out, and the 3D view says so and names
+`tools/step2cadmesh.py`. That script converts the STEP file on your computer with the full
+OpenCascade library, using as much memory as the computer has, and writes the same
+`<name>.step.cadmesh` the page would have. Set it up once, from this folder (about 1 GB):
+
+```sh
+python3 -m venv tools/.venv
+tools/.venv/bin/pip install cadquery-ocp
+```
+
+```bat
+python -m venv tools\.venv
+tools\.venv\Scripts\pip install cadquery-ocp
+```
+
+Then convert each new export before starting the simulator:
+
+```sh
+tools/.venv/bin/python tools/step2cadmesh.py ../cad_robots/OurRobot.step
+```
+
+```bat
+tools\.venv\Scripts\python tools\step2cadmesh.py ..\cad_robots\OurRobot.step
+```
+
+A whole robot takes about a minute. A lighter export converts faster and draws faster: hide or
+suppress the screws, nuts and other small hardware before exporting, but keep the drive wheels.
+
 Arms, slides, hoods and claws need one line each in the robot file's `cad.links`, because how far
 they may move isn't in a STEP file:
 
@@ -652,7 +734,9 @@ The suite includes:
   name and device finds its pivot. A STEP file added from the page gets a robot file with the
   devices of the robot in use, and a newer export keeps that robot file. A STEP file is converted
   again only when it changes (line endings don't count), and when its saved conversion is damaged
-  or no longer fits the robot file. The CAD robot drives at the plain robot's speed, and its
+  or no longer fits the robot file. A conversion without triangles (a big assembly that filled the
+  page's memory) is an error that names `tools/step2cadmesh.py`, not a robot drawn silently from
+  the robot file's numbers. The CAD robot drives at the plain robot's speed, and its
   odometry sees no movement while it turns in place. The URDF arm swings up on its motor with its
   encoder following, and falls back unpowered; URDF drive wheels are found without "wheel" in
   their names. The hood follows its servo, the CAD intake and flywheel take in and launch balls
@@ -704,6 +788,7 @@ Station page loads.
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |
 | `robots/` | Robot descriptions; `robots/cad/` holds the CAD models of the CAD examples |
 | `seasons/` | One season pack per FTC game: its `season.json` and its Java ([Seasons](#seasons)) |
+| `tools/` | `step2cadmesh.py`, which converts a STEP file too big for the Driver Station page ([Big assemblies](#big-assemblies)) |
 
 ## License
 

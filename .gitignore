@@ -6,6 +6,10 @@ local.properties
 # Each person's simulator defaults (project path etc.); sim.properties.example is the template
 sim.properties
 
+# The Python setup of tools/step2cadmesh.py (README: Big assemblies)
+tools/.venv/
+__pycache__/
+
 # Java
 *.class
 *.hprof

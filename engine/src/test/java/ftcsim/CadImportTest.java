@@ -387,6 +387,27 @@ class CadImportTest {
     }
 
     @Test
+    void anEmptyConversionSaysHowToConvertInstead(@TempDir Path dir) throws Exception {
+        // A big assembly fills the page's 2 GB: OpenCascade names every part but makes no triangles.
+        Path step = dir.resolve("cad/robot.step");
+        Files.createDirectories(step.getParent());
+        Files.copy(Path.of("robots/cad/biobuzz-bot.step"), step);
+        Files.writeString(dir.resolve("robot.json"),
+                Files.readString(Path.of("robots/mecanum-cad.json")).replace("cad/biobuzz-bot.step", "cad/robot.step"));
+        byte[] empty = CadMeshFile.encode("robot.step", CadMeshFile.sha256(step), "occt-import-js 0.0.23",
+                List.of(new MeshPart("Robot/Side Rail", 0x9aa0a6, new float[0], new int[0])));
+        assertEquals(0, CadMeshFile.header(empty).triangles());
+
+        // Saved by a simulator that didn't refuse it yet: an error that says what to do, not a silent plain robot.
+        Files.write(CadMeshFile.cacheFor(step), empty);
+        RobotConfig cfg = RobotConfig.load(dir.resolve("robot.json"));
+        assertEquals(CadState.Status.ERROR, cfg.cadState.status, cfg.cadState.message);
+        assertTrue(cfg.cadState.message.contains("tools/step2cadmesh.py"), cfg.cadState.message);
+        assertNull(cfg.model());
+        assertNotNull(rig(cfg), "still a working robot, from the robot file's numbers");
+    }
+
+    @Test
     void badCadFallsBackToTheRobotFileNumbers(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("robot.json"), Files.readString(Path.of("robots/mecanum-cad.json"))
                 .replace("\"axis_part\": \"Hood Pivot\"", "\"axis_part\": \"No Such Part\""));

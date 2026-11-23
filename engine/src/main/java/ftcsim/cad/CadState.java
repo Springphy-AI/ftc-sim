@@ -92,6 +92,10 @@ public final class CadState {
                     }
                     return new CadState(Status.CONVERT, name + " changed; converting it again in the Driver Station page...", stale, file, cache, sha);
                 }
+                if (h.triangles() == 0) {
+                    // Saved before empty conversions were refused; converting it in the page again would fail the same way.
+                    return new CadState(Status.ERROR, "Can't use " + name + ": " + CadMeshFile.EMPTY, null, file, null, null);
+                }
                 RobotModel m = ModelBuilder.fromStep(cfg, parts, name);
                 ModelBuilder.applyTo(cfg, m);
                 return new CadState(Status.READY, m.summary, m, file, cache, sha);

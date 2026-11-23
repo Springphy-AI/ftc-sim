@@ -710,6 +710,7 @@ public final class SimRobot {
             if (!s.sha256.equals(h.sha256()) || !s.sha256.equals(CadMeshFile.sha256(s.file))) {
                 return "the STEP file changed while it was being converted";
             }
+            if (h.triangles() == 0) return CadMeshFile.EMPTY;
             CadMeshFile.read(data);   // every index and coordinate checks out
             CadMeshFile.writeAtomically(s.cache, data);
             log("CAD: saved " + h.parts() + " parts, " + h.triangles() + " triangles to " + s.cache.getFileName());

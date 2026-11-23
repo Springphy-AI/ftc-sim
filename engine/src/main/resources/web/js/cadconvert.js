@@ -135,6 +135,12 @@ export async function convertIfNeeded(index, cad, report, several = true) {
     const result = await readStep(bytes);
     if (!result || !result.success) throw new Error('OpenCascade could not read it as a STEP file');
     const mesh = encodeCadMesh(result, { source: cad.file, sha256: cad.sha256 });
+    // Out of memory, OpenCascade still reports success, with every part empty (see CadMeshFile.EMPTY).
+    if (mesh.triangles === 0) {
+      throw new Error('no triangles came out of the conversion. A big STEP assembly can need more memory than'
+        + " the Driver Station page's converter has (2 GB): convert it on this computer with tools/step2cadmesh.py"
+        + ' (README: Robots from CAD)');
+    }
     report(`${label}: ${mesh.parts} parts, ${mesh.triangles.toLocaleString()} triangles in ${((performance.now() - t0) / 1000).toFixed(1)} s; sending…`);
     const up = await fetch(cad.upload, {
       method: 'POST',

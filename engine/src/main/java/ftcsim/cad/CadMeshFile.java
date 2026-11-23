@@ -34,6 +34,13 @@ public final class CadMeshFile {
     public static final String SUFFIX = ".cadmesh";
     /** Largest file accepted from a browser. */
     public static final long MAX_BYTES = 400L << 20;
+    /**
+     * Why a conversion without triangles is refused. The page's OpenCascade (WebAssembly) can use
+     * at most 2 GB; a big assembly fills it and still reports success, with every part empty.
+     */
+    public static final String EMPTY = "no triangles came out of the conversion. A big STEP assembly can need more memory than"
+            + " the Driver Station page's converter has (2 GB): convert it on this computer with tools/step2cadmesh.py"
+            + " (README: Robots from CAD)";
 
     /** What the header says, without the triangles. */
     public record Header(String source, String sha256, String converter, int parts, long triangles) {
