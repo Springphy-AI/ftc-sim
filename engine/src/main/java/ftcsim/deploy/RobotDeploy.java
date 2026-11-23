@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Puts a robot project's code on the real robot, as Android Studio's Run button does: the project's
@@ -37,9 +39,17 @@ public final class RobotDeploy {
 
     /**
      * What deploying a project needs, found on this computer: problem says what is missing (null
-     * when nothing); jdk is the JDK Gradle runs on.
+     * when nothing); jdk is the JDK Gradle runs on and jdkReason why that one.
      */
-    public record Tools(Path project, Path gradlew, Path sdk, Path adb, Path jdk, String problem) {
+    public record Tools(Path project, Path gradlew, Path sdk, Path adb, Path jdk, String jdkReason, String problem) {
+    }
+
+    /** A JDK to run a project's Gradle on, and why it is that one (for the deploy's log). */
+    public record GradleJdk(Path home, String reason) {
+    }
+
+    /** A JDK that may run the project's Gradle, and where it was found ("Android Studio's JDK"). */
+    public record JdkCandidate(Path home, String source) {
     }
 
     /** How programs here (adb, Gradle) write their output when it doesn't go to a console. */
@@ -63,7 +73,7 @@ public final class RobotDeploy {
     public static Tools tools(Path teamCodeSources) {
         Path project = projectOf(teamCodeSources);
         if (project == null) {
-            return new Tools(null, null, null, findAdb(findSdk(null)), null,
+            return new Tools(null, null, null, findAdb(findSdk(null)), null, null,
                     "Deploying needs an FtcRobotController project: start the simulator with --project and the folder"
                             + " of your robot's FtcRobotController (the bundled examples aren't one).");
         }
@@ -75,42 +85,154 @@ public final class RobotDeploy {
         else if (sdk == null) {
             problem = "No Android SDK found. Install Android Studio (it installs the SDK), or set ANDROID_HOME to the SDK's folder.";
         } else if (adb == null) problem = "The Android SDK at " + sdk + " has no platform-tools (adb). Install them with Android Studio's SDK Manager.";
-        return new Tools(project, gradlew, sdk, adb, gradleJdk(), problem);
+        GradleJdk jdk = chooseJdk(jdkCandidates(project, System.getenv(), System.getProperty("user.home"), System.getProperty("os.name", "")),
+                Paths.get(System.getProperty("java.home")), gradleVersion(project));
+        return new Tools(project, gradlew, sdk, adb, jdk.home(), jdk.reason(), problem);
     }
 
     /**
-     * The JDK to run the project's Gradle on, the one Android Studio would use: its own bundled JDK
-     * (jbr), else JAVA_HOME, else the simulator's. A project's Gradle may not run on a JDK newer than
-     * it knows, so the simulator's own (possibly newest) JDK comes last. Only JDK 17 or newer, as the
-     * Android build of FTC SDK 10 and later needs.
+     * The JDKs that may run the project's Gradle, in the order Android Studio would pick them: the
+     * project's own Gradle JDK setting (Android Studio keeps it in .gradle/config.properties, its
+     * default GRADLE_LOCAL_JAVA_HOME), Android Studio's bundled JDK (jbr, also as JetBrains Toolbox
+     * installs it), then JAVA_HOME.
      */
-    static Path gradleJdk() {
-        List<Path> candidates = new ArrayList<>();
-        String home = System.getProperty("user.home");
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (windows()) {
-            for (String env : new String[]{"ProgramFiles", "LOCALAPPDATA"}) {
-                String dir = System.getenv(env);
+    public static List<JdkCandidate> jdkCandidates(Path project, Map<String, String> env, String home, String osName) {
+        List<JdkCandidate> out = new ArrayList<>();
+        Path config = project.resolve(".gradle").resolve("config.properties");
+        if (Files.isRegularFile(config)) {
+            Properties p = new Properties();
+            try (Reader r = Files.newBufferedReader(config, StandardCharsets.UTF_8)) {
+                p.load(r);
+                String javaHome = p.getProperty("java.home");
+                if (javaHome != null && !javaHome.isBlank()) {
+                    out.add(new JdkCandidate(Paths.get(javaHome.trim()), "the project's Gradle JDK (.gradle/config.properties)"));
+                }
+            } catch (IOException | RuntimeException ignored) {
+                // unreadable: Android Studio's own settings below
+            }
+        }
+        String os = osName.toLowerCase(Locale.ROOT);
+        List<Path> jbr = new ArrayList<>();
+        if (os.contains("win")) {
+            String localAppData = env.get("LOCALAPPDATA");
+            for (String dir : new String[]{env.get("ProgramFiles"), localAppData}) {
                 if (dir == null) continue;
-                candidates.add(Paths.get(dir, "Android", "Android Studio", "jbr"));
-                candidates.add(Paths.get(dir, "Programs", "Android Studio", "jbr"));
+                jbr.add(Paths.get(dir, "Android", "Android Studio", "jbr"));
+                for (Path app : children(Paths.get(dir, "Programs"), "Android Studio")) jbr.add(app.resolve("jbr"));   // Toolbox 2
+            }
+            if (localAppData != null) {   // Toolbox 1: apps\AndroidStudio\ch-0\<version>\jbr
+                for (Path channel : children(Paths.get(localAppData, "JetBrains", "Toolbox", "apps", "AndroidStudio"), "ch-")) {
+                    for (Path version : children(channel, "")) jbr.add(version.resolve("jbr"));
+                }
             }
         } else if (os.contains("mac")) {
-            candidates.add(Paths.get("/Applications/Android Studio.app/Contents/jbr/Contents/Home"));
-            candidates.add(Paths.get(home, "Applications", "Android Studio.app", "Contents", "jbr", "Contents", "Home"));
+            for (Path apps : new Path[]{Paths.get("/Applications"), Paths.get(home, "Applications")}) {
+                for (Path app : children(apps, "Android Studio")) jbr.add(app.resolve("Contents/jbr/Contents/Home"));
+            }
+            Path toolbox = Paths.get(home, "Library", "Application Support", "JetBrains", "Toolbox", "apps", "AndroidStudio");
+            for (Path channel : children(toolbox, "ch-")) {
+                for (Path version : children(channel, "")) {
+                    for (Path app : children(version, "Android Studio")) jbr.add(app.resolve("Contents/jbr/Contents/Home"));
+                }
+            }
         } else {
-            candidates.add(Paths.get(home, "android-studio", "jbr"));
-            candidates.add(Paths.get("/opt/android-studio/jbr"));
-            candidates.add(Paths.get("/usr/local/android-studio/jbr"));
-            candidates.add(Paths.get("/snap/android-studio/current/jbr"));
+            jbr.add(Paths.get(home, "android-studio", "jbr"));
+            jbr.add(Paths.get("/opt/android-studio/jbr"));
+            jbr.add(Paths.get("/usr/local/android-studio/jbr"));
+            jbr.add(Paths.get("/snap/android-studio/current/jbr"));
+            Path toolbox = Paths.get(home, ".local", "share", "JetBrains", "Toolbox", "apps");
+            jbr.add(toolbox.resolve("android-studio").resolve("jbr"));   // Toolbox 2
+            for (Path channel : children(toolbox.resolve("AndroidStudio"), "ch-")) {
+                for (Path version : children(channel, "")) jbr.add(version.resolve("jbr"));
+            }
         }
-        String javaHome = System.getenv("JAVA_HOME");
-        if (javaHome != null && !javaHome.isBlank()) candidates.add(Paths.get(javaHome));
-        Path own = Paths.get(System.getProperty("java.home"));
-        for (Path c : candidates) {
-            if (Files.isRegularFile(c.resolve("bin").resolve(windows() ? "java.exe" : "java")) && jdkMajor(c) >= 17) return c;
+        for (Path j : jbr) out.add(new JdkCandidate(j, "Android Studio's JDK"));
+        String javaHome = env.get("JAVA_HOME");
+        try {
+            if (javaHome != null && !javaHome.isBlank()) out.add(new JdkCandidate(Paths.get(javaHome.replace("\"", "").trim()), "JAVA_HOME"));
+        } catch (java.nio.file.InvalidPathException ignored) {
+            // not a folder
         }
-        return own;
+        return out;
+    }
+
+    /** The folders in {@code dir} whose names start with {@code prefix}, newest name first. */
+    private static List<Path> children(Path dir, String prefix) {
+        try (java.util.stream.Stream<Path> s = Files.list(dir)) {
+            return s.filter(Files::isDirectory).filter(p -> p.getFileName().toString().startsWith(prefix))
+                    .sorted(java.util.Comparator.comparing((Path p) -> p.getFileName().toString()).reversed()).toList();
+        } catch (IOException | RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * The first of {@code candidates}, then the simulator's own JDK ({@code own}), that is a JDK 17
+     * or newer (as the Android build of FTC SDK 10 and later needs) and that the project's Gradle
+     * ({@code gradleVersion}, null if unknown) can run on: Gradle refuses a Java newer than it knows
+     * (FtcRobotController 10.3 and 11.0 use Gradle 8.9, which runs on Java 22 at most). If none it
+     * can run on, the first JDK 17 or newer anyway. The reason says where it was found and what was
+     * passed over.
+     */
+    public static GradleJdk chooseJdk(List<JdkCandidate> candidates, Path own, String gradleVersion) {
+        int max = maxJava(gradleVersion);
+        List<JdkCandidate> all = new ArrayList<>(candidates);
+        all.add(new JdkCandidate(own, "the simulator's JDK"));
+        List<String> passed = new ArrayList<>();
+        JdkCandidate tooNew = null;
+        int tooNewVersion = 0;
+        for (JdkCandidate c : all) {
+            if (!Files.isRegularFile(c.home().resolve("bin").resolve(windows() ? "java.exe" : "java"))) continue;
+            int v = jdkMajor(c.home());
+            if (v < 17) {
+                passed.add(c.source() + " (Java " + (v == 0 ? "?" : v) + ", older than 17)");
+                continue;
+            }
+            if (v > max) {
+                passed.add(c.source() + " (Java " + v + ", newer than Gradle " + gradleVersion + " runs on)");
+                if (tooNew == null) {
+                    tooNew = c;
+                    tooNewVersion = v;
+                }
+                continue;
+            }
+            String why = c.source() + ", Java " + v;
+            return new GradleJdk(c.home(), passed.isEmpty() ? why : why + "; passed over " + String.join(", ", passed));
+        }
+        if (tooNew != null) {
+            return new GradleJdk(tooNew.home(), tooNew.source() + ", Java " + tooNewVersion + ", though Gradle " + gradleVersion
+                    + " runs on Java " + max + " at most: install Android Studio or a JDK " + max + " if the build fails");
+        }
+        return new GradleJdk(own, "the simulator's JDK");
+    }
+
+    /** {Gradle major, minor, newest Java it runs on}, newest Gradle first (Gradle's compatibility matrix). */
+    private static final int[][] GRADLE_JAVA = {{9, 1, 25}, {8, 14, 24}, {8, 10, 23}, {8, 8, 22}, {8, 5, 21}, {8, 3, 20},
+            {7, 6, 19}, {7, 5, 18}, {7, 3, 17}};
+
+    /** The newest Java a Gradle version runs on (any when the version is unknown). */
+    public static int maxJava(String gradleVersion) {
+        if (gradleVersion == null) return Integer.MAX_VALUE;
+        Matcher m = Pattern.compile("(\\d+)\\.(\\d+)").matcher(gradleVersion);
+        if (!m.lookingAt()) return Integer.MAX_VALUE;
+        int major = Integer.parseInt(m.group(1)), minor = Integer.parseInt(m.group(2));
+        for (int[] row : GRADLE_JAVA) {
+            if (major > row[0] || (major == row[0] && minor >= row[1])) return row[2];
+        }
+        return 16;
+    }
+
+    /** The Gradle version the project's wrapper downloads (gradle-8.9-bin.zip: "8.9"), or null. */
+    public static String gradleVersion(Path project) {
+        Path wrapper = project.resolve("gradle").resolve("wrapper").resolve("gradle-wrapper.properties");
+        Properties p = new Properties();
+        try (Reader r = Files.newBufferedReader(wrapper, StandardCharsets.UTF_8)) {
+            p.load(r);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        Matcher m = Pattern.compile("gradle-(\\d+\\.\\d+(?:\\.\\d+)?)(?:-[\\w.-]+?)?-(?:bin|all)\\.zip").matcher(p.getProperty("distributionUrl", ""));
+        return m.find() ? m.group(1) : null;
     }
 
     /** A JDK's major version from its release file (0 if unknown). */
@@ -322,7 +444,8 @@ public final class RobotDeploy {
         String javaHome = tools.jdk().toString();
         listener.accept(new Event(robot, "running", serial == null ? "Building the Robot Controller app…"
                 : "Building the Robot Controller app and installing it on " + serial + "…",
-                List.of("> JAVA_HOME=" + javaHome, "> " + String.join(" ", command))));
+                List.of("> JAVA_HOME=" + javaHome + (tools.jdkReason() == null ? "" : "   (" + tools.jdkReason() + ")"),
+                        "> " + String.join(" ", command))));
 
         ProcessBuilder pb = new ProcessBuilder(command).directory(tools.project().toFile()).redirectErrorStream(true);
         Map<String, String> env = pb.environment();
