@@ -308,6 +308,7 @@ public final class TeamCodeCompiler {
                 OpMode.class,                                                              // simulator SDK
                 org.firstinspires.ftc.vision.VisionPortal.class,                           // FIRST Vision
                 org.firstinspires.ftc.robotcore.external.matrices.MatrixF.class,           // FIRST RobotCore
+                com.qualcomm.hardware.rev.RevBlinkinLedDriver.class,                       // FIRST Hardware
                 org.openftc.apriltag.AprilTagDetectorJNI.class,                            // AprilTag wrapper
                 org.opencv.core.Mat.class};                                                // OpenCV
         Set<String> entries = new java.util.LinkedHashSet<>();

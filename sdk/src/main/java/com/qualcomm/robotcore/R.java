@@ -21,5 +21,7 @@ public final class R {
         public static final int usb_vid_name_logitech = 0x7f110006;
         public static final int usb_vid_name_microsoft = 0x7f110007;
         public static final int usb_vid_name_qualcomm = 0x7f110008;
+        public static final int configTypeAnalogInput = 0x7f110009;
+        public static final int configTypeLED = 0x7f11000a;
     }
 }

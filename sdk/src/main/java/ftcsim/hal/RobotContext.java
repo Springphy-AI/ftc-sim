@@ -87,6 +87,12 @@ public final class RobotContext {
         CURRENT.set(this);
     }
 
+    /** Makes the calling thread part of {@code robot}, or of no robot for null. */
+    static void set(RobotContext robot) {
+        if (robot == null) CURRENT.remove();
+        else CURRENT.set(robot);
+    }
+
     /** Runs {@code task} on the calling thread as part of this robot. */
     public void run(Runnable task) {
         RobotContext previous = CURRENT.get();

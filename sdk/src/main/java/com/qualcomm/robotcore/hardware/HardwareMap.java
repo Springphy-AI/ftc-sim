@@ -13,6 +13,10 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
+import org.firstinspires.ftc.robotcore.internal.system.AppUtil;
+
+import android.content.Context;
+
 import com.qualcomm.robotcore.util.SerialNumber;
 
 /**
@@ -27,12 +31,27 @@ public class HardwareMap implements Iterable<HardwareDevice> {
     public DeviceMapping<ServoController> servoController = new DeviceMapping<ServoController>(ServoController.class);
     public DeviceMapping<Servo> servo = new DeviceMapping<Servo>(Servo.class);
     public DeviceMapping<CRServo> crservo = new DeviceMapping<CRServo>(CRServo.class);
+    public DeviceMapping<TouchSensorMultiplexer> touchSensorMultiplexer = new DeviceMapping<TouchSensorMultiplexer>(TouchSensorMultiplexer.class);
+    public DeviceMapping<AnalogInput> analogInput = new DeviceMapping<AnalogInput>(AnalogInput.class);
     public DeviceMapping<DigitalChannel> digitalChannel = new DeviceMapping<DigitalChannel>(DigitalChannel.class);
+    public DeviceMapping<OpticalDistanceSensor> opticalDistanceSensor = new DeviceMapping<OpticalDistanceSensor>(OpticalDistanceSensor.class);
     public DeviceMapping<TouchSensor> touchSensor = new DeviceMapping<TouchSensor>(TouchSensor.class);
+    public DeviceMapping<PWMOutput> pwmOutput = new DeviceMapping<PWMOutput>(PWMOutput.class);
+    public DeviceMapping<I2cDevice> i2cDevice = new DeviceMapping<I2cDevice>(I2cDevice.class);
+    public DeviceMapping<I2cDeviceSynch> i2cDeviceSynch = new DeviceMapping<I2cDeviceSynch>(I2cDeviceSynch.class);
     public DeviceMapping<ColorSensor> colorSensor = new DeviceMapping<ColorSensor>(ColorSensor.class);
+    public DeviceMapping<LED> led = new DeviceMapping<LED>(LED.class);
+    public DeviceMapping<AccelerationSensor> accelerationSensor = new DeviceMapping<AccelerationSensor>(AccelerationSensor.class);
+    public DeviceMapping<CompassSensor> compassSensor = new DeviceMapping<CompassSensor>(CompassSensor.class);
+    public DeviceMapping<GyroSensor> gyroSensor = new DeviceMapping<GyroSensor>(GyroSensor.class);
+    public DeviceMapping<IrSeekerSensor> irSeekerSensor = new DeviceMapping<IrSeekerSensor>(IrSeekerSensor.class);
+    public DeviceMapping<LightSensor> lightSensor = new DeviceMapping<LightSensor>(LightSensor.class);
+    public DeviceMapping<UltrasonicSensor> ultrasonicSensor = new DeviceMapping<UltrasonicSensor>(UltrasonicSensor.class);
     public DeviceMapping<VoltageSensor> voltageSensor = new DeviceMapping<VoltageSensor>(VoltageSensor.class);
 
     public final List<DeviceMapping<? extends HardwareDevice>> allDeviceMappings;
+    /** The Robot Controller app (for its package name and resources). */
+    public final Context appContext = AppUtil.getDefContext();
 
     protected final Map<String, List<HardwareDevice>> allDevicesMap = new HashMap<String, List<HardwareDevice>>();
     protected final List<HardwareDevice> allDevicesList = new ArrayList<HardwareDevice>();
@@ -47,9 +66,22 @@ public class HardwareMap implements Iterable<HardwareDevice> {
         all.add(servoController);
         all.add(servo);
         all.add(crservo);
+        all.add(touchSensorMultiplexer);
+        all.add(analogInput);
         all.add(digitalChannel);
+        all.add(opticalDistanceSensor);
         all.add(touchSensor);
+        all.add(pwmOutput);
+        all.add(i2cDevice);
+        all.add(i2cDeviceSynch);
         all.add(colorSensor);
+        all.add(led);
+        all.add(accelerationSensor);
+        all.add(compassSensor);
+        all.add(gyroSensor);
+        all.add(irSeekerSensor);
+        all.add(lightSensor);
+        all.add(ultrasonicSensor);
         all.add(voltageSensor);
         allDeviceMappings = Collections.unmodifiableList(all);
     }

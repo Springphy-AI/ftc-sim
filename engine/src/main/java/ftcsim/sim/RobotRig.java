@@ -35,6 +35,7 @@ import com.qualcomm.robotcore.hardware.configuration.typecontainers.ServoConfigu
 import ftcsim.config.MotorModels;
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.CameraBackend;
+import ftcsim.hal.AnalogPort;
 import ftcsim.hal.DigitalPort;
 import ftcsim.hal.HalSession;
 import ftcsim.hal.ImuBackend;
@@ -111,6 +112,11 @@ public final class RobotRig {
     record TouchMount(RobotConfig.Device device, DigitalPort port) {
     }
 
+    /** A hub's analog inputs. */
+    static final int ANALOG_PER_HUB = 4;
+    /** Analog inputs, LEDs and Blinkin LED drivers. */
+    private final PortDevices portDevices = new PortDevices();
+
     /** A robot at its start spot for station 1 of the season's home alliance. */
     public RobotRig(RobotConfig config, PhysicsWorld world) {
         this(config, world, defaultStart(config, world));
@@ -182,6 +188,15 @@ public final class RobotRig {
                 case "webcam":
                     webcams.add(d);
                     break;
+                case "analog":
+                    portDevices.analog(d, alloc.analog(d.name));
+                    break;
+                case "led":
+                    portDevices.led(d, alloc.digital(d.name));
+                    break;
+                case "blinkin":
+                    portDevices.blinkin(d, alloc.servo(d.name, false));
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown device type \"" + d.type + "\" for " + d.name);
             }
@@ -243,7 +258,12 @@ public final class RobotRig {
 
     /** Hands out hub ports in order: Control Hub first, then Expansion Hub 2. */
     private final class Allocator {
-        private int motorIndex = 0, servoIndex = 0, digitalIndex = 0;
+        private int motorIndex = 0, servoIndex = 0, digitalIndex = 0, analogIndex = 0;
+
+        AnalogPort analog(String name) {
+            int i = analogIndex++;
+            return new AnalogPort(name, hub(i / ANALOG_PER_HUB), i % ANALOG_PER_HUB);
+        }
 
         private SimHub hub(int index) {
             while (hubs.size() <= index) {
@@ -343,6 +363,7 @@ public final class RobotRig {
             }
         }
         for (RobotConfig.Device w : webcams) put(map, w.name, w.aliases, new SimWebcamName(w.name, cameras.get(w)));
+        portDevices.addTo(map, session, servoControllers::get, (d, device) -> put(map, d.name, d.aliases, device));
         return map;
     }
 
@@ -385,6 +406,7 @@ public final class RobotRig {
         for (Mechanism m : mechanisms) m.afterWorldStep(dt);
         updateBattery(dt);
         updateMotionSensors(dt);
+        portDevices.step(motors, servos);
         if (stepCount++ % 5 == 0) updateSlowSensors();
     }
 
@@ -575,6 +597,7 @@ public final class RobotRig {
             double[] p = om.backend.robotPose();   // meters and radians
             out.put(om.device.name, pose(p[0] / 0.0254, p[1] / 0.0254, "in", Math.toDegrees(p[2])));
         }
+        portDevices.readings(out);
         return out;
     }
 

@@ -92,6 +92,14 @@ public class RobotLog {
         log('E', TAG, trace(e));
     }
 
+    public static void logStackTrace(Throwable throwable) {
+        logStacktrace(throwable);
+    }
+
+    public static void logStackTrace(String tag, Throwable throwable) {
+        log('E', tag, trace(throwable));
+    }
+
     public static void logExceptionHeader(Exception e, String format, Object... args) {
         log('E', TAG, fmt(format, args) + ": " + e);
     }

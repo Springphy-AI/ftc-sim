@@ -42,6 +42,31 @@ public final class OpModeSession {
         if (s != null && s.abandoned) throw new OpModeManagerImpl.ForceStopException();
     }
 
+    /**
+     * {@code task} to run on a thread shared by robots (a pool the SDK keeps in a static field): it
+     * runs as part of the robot, and the OpMode, of the thread that hands it over now, not of
+     * whichever OpMode's thread happened to start the pool's thread.
+     */
+    public static Runnable inCallersContext(final Runnable task) {
+        final RobotContext robot = RobotContext.current();
+        final OpModeSession session = CURRENT.get();
+        return new Runnable() {
+            @Override
+            public void run() {
+                RobotContext previousRobot = RobotContext.current();
+                OpModeSession previousSession = CURRENT.get();
+                RobotContext.set(robot);
+                CURRENT.set(session);
+                try {
+                    task.run();
+                } finally {
+                    RobotContext.set(previousRobot);
+                    CURRENT.set(previousSession);
+                }
+            }
+        };
+    }
+
     private final String name;
     private final OpMode opMode;
     private final RobotContext robot;

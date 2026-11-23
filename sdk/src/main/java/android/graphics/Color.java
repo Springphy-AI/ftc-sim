@@ -86,6 +86,7 @@ public class Color {
         return argb(alpha, Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255));
     }
 
+    /** "#RRGGBB", "#AARRGGBB", or one of Android's color names (any case). */
     public static int parseColor(String colorString) {
         if (colorString.charAt(0) == '#') {
             long color = Long.parseLong(colorString.substring(1), 16);
@@ -96,6 +97,37 @@ public class Color {
             }
             return (int) color;
         }
+        Integer color = NAMES.get(colorString.toLowerCase(java.util.Locale.ROOT));
+        if (color != null) return color;
         throw new IllegalArgumentException("Unknown color");
+    }
+
+    /** Android's Color.sColorNameMap. */
+    private static final java.util.Map<String, Integer> NAMES = new java.util.HashMap<String, Integer>();
+
+    static {
+        NAMES.put("black", BLACK);
+        NAMES.put("darkgray", DKGRAY);
+        NAMES.put("gray", GRAY);
+        NAMES.put("lightgray", LTGRAY);
+        NAMES.put("white", WHITE);
+        NAMES.put("red", RED);
+        NAMES.put("green", GREEN);
+        NAMES.put("blue", BLUE);
+        NAMES.put("yellow", YELLOW);
+        NAMES.put("cyan", CYAN);
+        NAMES.put("magenta", MAGENTA);
+        NAMES.put("aqua", 0xFF00FFFF);
+        NAMES.put("fuchsia", 0xFFFF00FF);
+        NAMES.put("darkgrey", DKGRAY);
+        NAMES.put("grey", GRAY);
+        NAMES.put("lightgrey", LTGRAY);
+        NAMES.put("lime", 0xFF00FF00);
+        NAMES.put("maroon", 0xFF800000);
+        NAMES.put("navy", 0xFF000080);
+        NAMES.put("olive", 0xFF808000);
+        NAMES.put("purple", 0xFF800080);
+        NAMES.put("silver", 0xFFC0C0C0);
+        NAMES.put("teal", 0xFF008080);
     }
 }

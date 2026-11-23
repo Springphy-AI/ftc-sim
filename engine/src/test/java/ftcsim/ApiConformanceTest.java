@@ -38,10 +38,12 @@ class ApiConformanceTest {
     );
 
     /**
-     * Classes that are not in the SDK's jars but do exist in the robot app. RobotCore's resource
-     * ids (com.qualcomm.robotcore.R) are generated into the Robot Controller app when it is built.
+     * Classes that are not in the SDK's jars but do exist in the robot app. RobotCore's and
+     * Hardware's resource ids (com.qualcomm.robotcore.R, com.qualcomm.hardware.R) are generated into
+     * the Robot Controller app when it is built.
      */
-    private static final Set<String> ALLOWED_CLASSES = Set.of("com.qualcomm.robotcore.R", "com.qualcomm.robotcore.R$string");
+    private static final Set<String> ALLOWED_CLASSES = Set.of("com.qualcomm.robotcore.R", "com.qualcomm.robotcore.R$string",
+            "com.qualcomm.hardware.R", "com.qualcomm.hardware.R$string");
 
     private static final ToolProvider JAVAP = ToolProvider.findFirst("javap").orElseThrow();
 

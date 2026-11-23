@@ -580,6 +580,7 @@ export class DriverStation {
     $('sensorTable').tBodies[0].innerHTML = Object.entries(d.sensors).map(([name, v]) => {
       let text;
       if (v == null) text = 'out of range';
+      else if (typeof v === 'string') text = v;
       else if (typeof v === 'boolean') text = v ? 'pressed' : 'released';
       else if (typeof v === 'number') text = `${(v * 100).toFixed(1)} cm`;
       else if (Array.isArray(v) && v.length === 4) text = `r ${v[0].toFixed(3)} g ${v[1].toFixed(3)} b ${v[2].toFixed(3)} a ${v[3].toFixed(3)}`;

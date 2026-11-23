@@ -31,6 +31,7 @@ configurations {
 dependencies {
     ftcAars "org.firstinspires.ftc:Vision:${ftcSdkVersion}@aar"
     ftcAars "org.firstinspires.ftc:RobotCore:${ftcSdkVersion}@aar"
+    ftcAars "org.firstinspires.ftc:Hardware:${ftcSdkVersion}@aar"
     ftcAars "org.openftc:apriltag:${aprilTagPluginVersion}@aar"
 }
 
@@ -96,6 +97,35 @@ def robotCoreClasses = [
         'com/qualcomm/robotcore/util/Range*.class',
         'com/qualcomm/robotcore/util/SortOrder*.class',
         'com/qualcomm/robotcore/util/Statistics*.class',
+        // Devices that only pass calls to their controller, which the simulated hub implements.
+        'com/qualcomm/robotcore/hardware/AnalogInput.class',
+        'com/qualcomm/robotcore/hardware/AnalogInputController.class',
+        'com/qualcomm/robotcore/hardware/LED.class',
+        // The device interfaces HardwareMap has mappings for (the simulated robot has none of these).
+        'com/qualcomm/robotcore/hardware/AccelerationSensor.class',
+        'com/qualcomm/robotcore/hardware/CompassSensor*.class',
+        'com/qualcomm/robotcore/hardware/Engagable.class',
+        'com/qualcomm/robotcore/hardware/GyroSensor.class',
+        'com/qualcomm/robotcore/hardware/HardwareDeviceHealth*.class',
+        'com/qualcomm/robotcore/hardware/I2cAddrConfig.class',
+        'com/qualcomm/robotcore/hardware/I2cAddressableDevice.class',
+        'com/qualcomm/robotcore/hardware/I2cDevice.class',
+        'com/qualcomm/robotcore/hardware/I2cDeviceSynch.class',
+        'com/qualcomm/robotcore/hardware/I2cDeviceSynch$*.class',
+        'com/qualcomm/robotcore/hardware/I2cDeviceSynchSimple.class',
+        'com/qualcomm/robotcore/hardware/I2cWaitControl.class',
+        'com/qualcomm/robotcore/hardware/IrSeekerSensor*.class',
+        'com/qualcomm/robotcore/hardware/PWMOutput.class',
+        'com/qualcomm/robotcore/hardware/RobotConfigNameable.class',
+        'com/qualcomm/robotcore/hardware/TimestampedData.class',
+        'com/qualcomm/robotcore/hardware/TimestampedI2cData.class',
+        'com/qualcomm/robotcore/hardware/TouchSensorMultiplexer.class',
+        'com/qualcomm/robotcore/hardware/UltrasonicSensor.class',
+        // Enums FIRST's device annotations name (javac warns when it can't find them).
+        'com/qualcomm/robotcore/hardware/ControlSystem.class',
+        'com/qualcomm/robotcore/hardware/configuration/ServoFlavor.class',
+        // The helpers Blocks OpModes exported as Java call.
+        'org/firstinspires/ftc/robotcore/external/JavaUtil*.class',
 ]
 def robotCoreExcluded = [
         'org/firstinspires/ftc/robotcore/external/navigation/MotionDetection*',   // phone accelerometer
@@ -111,6 +141,22 @@ def ftcRobotCoreJar = tasks.register('ftcRobotCoreJar', Jar) {
     from({ zipTree(aarDir.get().file("RobotCore-${ftcSdkVersion}.jar")) }) {
         include robotCoreClasses
         exclude robotCoreExcluded
+    }
+}
+
+// The pure-Java classes of FIRST's Hardware module that robot code uses.
+def hardwareClasses = [
+        'com/qualcomm/hardware/rev/RevBlinkinLedDriver*.class',   // sets a pulse width on a servo port
+]
+
+def ftcHardwareJar = tasks.register('ftcHardwareJar', Jar) {
+    description = "The pure-Java classes of FIRST's Hardware module that robot code uses."
+    dependsOn unpackFtcAars
+    inputs.property('classes', hardwareClasses)
+    archiveFileName = "ftc-hardware-${ftcSdkVersion}-pure.jar"
+    destinationDirectory = libsDir
+    from({ zipTree(aarDir.get().file("Hardware-${ftcSdkVersion}.jar")) }) {
+        include hardwareClasses
     }
 }
 
@@ -133,7 +179,7 @@ def ftcResources = tasks.register('ftcResources', Sync) {
 sourceSets.main.resources.srcDir(ftcResources)
 
 dependencies {
-    api files(ftcVisionJar, ftcRobotCoreJar)
+    api files(ftcVisionJar, ftcRobotCoreJar, ftcHardwareJar)
     api files(aarDir.map { it.file("apriltag-${aprilTagPluginVersion}.jar") }).builtBy(unpackFtcAars)
 
     // OpenCV's Java API at the robot's version (FTC SDK 12.0 ships OpenCV 4.10.0), with the native

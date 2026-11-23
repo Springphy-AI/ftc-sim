@@ -165,7 +165,7 @@ public final class RobotConfig {
 
     /** Any non-drivetrain device. Only the fields relevant to its type are used. */
     public static final class Device {
-        /** motor, servo, crservo, pinpoint, otos, distance, color, touch, digital_touch, webcam */
+        /** motor, servo, crservo, pinpoint, otos, distance, color, touch, digital_touch, webcam, analog, led, blinkin */
         public String type;
         public String name;
         public List<String> aliases = new ArrayList<>();
@@ -202,6 +202,10 @@ public final class RobotConfig {
         public boolean intakeReversed() {
             return "reverse".equalsIgnoreCase(intakeDirection == null ? "" : intakeDirection.trim());
         }
+
+        // analog: a constant voltage, or the servo or motor whose angle it reads (0-3.3 V per turn)
+        public double volts = 0;
+        public String encoderOf;
     }
 
     public static final class Load {

@@ -11,6 +11,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
+import android.content.Context;
 import android.content.res.Resources;
 
 /**
@@ -19,14 +20,16 @@ import android.content.res.Resources;
  * strings. Strings come from RobotCore's own string resources (copied unmodified from FIRST's
  * package at build time), looked up by the ids in {@code com.qualcomm.robotcore.R}.
  */
-public class Application {
+public class Application extends Context {
     private final Resources resources = new Resources();
     private Map<Integer, String> strings;
 
+    @Override
     public String getPackageName() {
         return "com.qualcomm.ftcrobotcontroller";
     }
 
+    @Override
     public Resources getResources() {
         return resources;
     }
@@ -51,9 +54,12 @@ public class Application {
                 Element e = (Element) list.item(i);
                 byName.put(e.getAttribute("name"), e.getTextContent());
             }
-            for (Field f : Class.forName("com.qualcomm.robotcore.R$string").getFields()) {
-                String text = byName.get(f.getName());
-                if (text != null) strings.put(f.getInt(null), text);
+            // The app's resources are merged: the Hardware module's ids name strings RobotCore has too.
+            for (String r : new String[]{"com.qualcomm.robotcore.R$string", "com.qualcomm.hardware.R$string"}) {
+                for (Field f : Class.forName(r).getFields()) {
+                    String text = byName.get(f.getName());
+                    if (text != null) strings.put(f.getInt(null), text);
+                }
             }
         } catch (Exception e) {
             // no strings: callers get the resource id instead
