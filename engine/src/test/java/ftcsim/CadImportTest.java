@@ -217,6 +217,33 @@ class CadImportTest {
     }
 
     @Test
+    void aCadWhoseWheelsArentFoundWeighsWhatTheRobotFileSays() throws Exception {
+        RobotConfig cfg = RobotConfig.load(Path.of("robots/mecanum.json"), false);
+        double mass = cfg.chassis.massKg;
+        RobotModel found = mecanumWith(cfg, List.of());
+        assertEquals(mass, found.totalMass, 1e-9, "four wheels found");
+        // The same CAD with its wheels named Tire: not found, so the physics gives the robot wheels of its own.
+        cfg = RobotConfig.load(Path.of("robots/mecanum.json"), false);
+        RobotConfig.Cad cad = new RobotConfig.Cad();
+        cad.file = "test.step";
+        cad.forward = "+x";
+        cad.up = "+z";
+        cfg.cad = cad;
+        List<MeshPart> parts = new ArrayList<>();
+        parts.add(part("Robot/Drivetrain/Plate", 0, 0, 0.06, 0.40, 0.40, 0.01));
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                parts.add(wheel("Robot/Drivetrain/Tire", 0.052, 0.038, new double[]{sx * 0.168, sy * 0.175, 0.052}, true));
+            }
+        }
+        RobotModel m = ModelBuilder.fromStep(cfg, parts, "test.step");
+        assertTrue(m.notes.stream().anyMatch(n -> n.startsWith("no wheel parts found")), m.notes.toString());
+        assertTrue(m.summary.endsWith(String.format(java.util.Locale.ROOT, "%.1f kg", mass)), m.summary);
+        ModelBuilder.applyTo(cfg, m);
+        assertEquals(mass, cfg.chassis.massKg, 1e-9, "what the page shows");
+    }
+
+    @Test
     void extraWheelsAreNeverMergedIntoACornerWheel() throws Exception {
         // A full-size omni wheel in the middle of each side, as on a 6-wheel base: a mecanum
         // drive has four wheels, so the corners' are used and the middle two left out.

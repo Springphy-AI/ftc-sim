@@ -812,7 +812,10 @@ public final class ModelBuilder {
     }
 
     private RobotModel finish(String fileName, int partCount) {
-        double total = 0;
+        // The physics gives the robot every wheel its drive has: the ones not found in the CAD
+        // weigh DEFAULT_WHEEL_MASS_KG each (what stepMasses kept back for them), and count too.
+        long found = groups.stream().filter(g -> g.kind == RobotModel.Kind.WHEEL).count();
+        double total = Math.max(0, wheelKeys(cfg.drive.type).size() - found) * DEFAULT_WHEEL_MASS_KG;
         for (RobotModel.Group g : groups) {
             if (g.kind == RobotModel.Kind.SPINNER) continue;   // counted in its parent
             total += g.mass;
