@@ -68,6 +68,9 @@ public final class TeamCodeCompiler {
     private static final Pattern PACKAGE = Pattern.compile("(?m)^\\s*package\\s+([\\w.]+)\\s*;");
     private static final Pattern SIM_INTERNALS = Pattern.compile("(?m)^[ \\t]*(import\\s+(?:static\\s+)?ftcsim\\.)|\\b(ftcsim\\.hal\\.)");
 
+    /** How many of one file's compile errors the page is given; it is told how many more there are. */
+    public static final int PROBLEMS_PER_FILE = 20;
+
     private final List<SourceRoot> roots;
     private final Path workDir;
     private int buildNumber = 0;
@@ -126,32 +129,47 @@ public final class TeamCodeCompiler {
 
         Path out = workDir.resolve("build-" + (++buildNumber) + "-" + System.currentTimeMillis());
         String classpath = sdkClasspath();
-        List<String> options = List.of("--release", "8", "-Xlint:-options", "-nowarn", "-proc:none",
+        // -Xmaxerrs: javac stops reporting at 100 errors by default, and a file it says nothing about
+        // can't be set aside. One old season's Road Runner drive class alone has more than that.
+        List<String> options = List.of("--release", "8", "-Xlint:-options", "-nowarn", "-Xmaxerrs", "1000000", "-proc:none",
                 "-encoding", "UTF-8", "-g", "-classpath", classpath, "-d", out.toString());
         try (StandardJavaFileManager fm = javac.getStandardFileManager(null, Locale.US, StandardCharsets.UTF_8)) {
             Files.createDirectories(out);   // also when there is nothing to compile (an empty TeamCode)
-            for (int round = 0; round < 12 && !active.isEmpty(); round++) {
+            // Compiles what is left until javac succeeds, setting aside the files it finds errors in,
+            // so every file left has its classes. A file can compile against a class whose own file
+            // has errors and fail once that file is set aside: a chain of such files takes a round each.
+            while (!active.isEmpty()) {
                 deleteTree(out);
                 Files.createDirectories(out);
                 List<File> sources = active.stream().sorted().map(Path::toFile).collect(Collectors.toList());
                 Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromFiles(sources);
                 DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
-                boolean ok = javac.getTask(null, fm, diags, options, null, units).call();
-                if (ok) break;
-                Map<Path, String> failing = new LinkedHashMap<>();
+                if (javac.getTask(null, fm, diags, options, null, units).call()) break;
+                Map<Path, List<Diagnostic<? extends JavaFileObject>>> failing = new LinkedHashMap<>();
                 for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {
                     if (d.getKind() != Diagnostic.Kind.ERROR || d.getSource() == null) continue;
-                    Path p = Paths.get(d.getSource().toUri());
-                    failing.putIfAbsent(p, "line " + d.getLineNumber() + ": " + firstLine(d.getMessage(Locale.US)));
-                    problems.add(problem(p, texts.get(p), d));
+                    failing.computeIfAbsent(Paths.get(d.getSource().toUri()), k -> new ArrayList<>()).add(d);
                 }
-                if (failing.isEmpty()) {
-                    String msg = diags.getDiagnostics().stream().map(d -> d.getMessage(Locale.US)).collect(Collectors.joining("; "));
+                boolean setAside = false;
+                for (Map.Entry<Path, List<Diagnostic<? extends JavaFileObject>>> e : failing.entrySet()) {
+                    Path p = e.getKey();
+                    if (!active.remove(p)) continue;
+                    setAside = true;
+                    Diagnostic<? extends JavaFileObject> first = e.getValue().get(0);
+                    skipped.add(new Skipped(display(p), "line " + first.getLineNumber() + ": " + firstLine(first.getMessage(Locale.US))));
+                    problems.addAll(problems(p, texts.get(p), e.getValue()));
+                }
+                if (!setAside) {
+                    // An error that isn't in one of the files javac was given: nothing to set aside.
+                    String msg = diags.getDiagnostics().stream().filter(d -> d.getKind() == Diagnostic.Kind.ERROR)
+                            .map(d -> firstLine(d.getMessage(Locale.US))).distinct().limit(5).collect(Collectors.joining("; "));
                     return new Result(false, "Compilation failed: " + msg, null, List.of(), skipped, problems, 0, System.currentTimeMillis() - t0);
                 }
-                for (Map.Entry<Path, String> e : failing.entrySet()) {
-                    if (active.remove(e.getKey())) skipped.add(new Skipped(display(e.getKey()), e.getValue()));
-                }
+            }
+            if (active.isEmpty()) {
+                // Every file was set aside: no class a failed round left behind may pass for the build.
+                deleteTree(out);
+                Files.createDirectories(out);
             }
         } catch (IOException e) {
             return new Result(false, "Compilation failed: " + e.getMessage(), null, List.of(), skipped, problems, 0, System.currentTimeMillis() - t0);
@@ -179,6 +197,23 @@ public final class TeamCodeCompiler {
         String msg = String.format(Locale.US, "Built %d file%s in %.1f s%s", active.size(), active.size() == 1 ? "" : "s",
                 millis / 1000.0, skipped.isEmpty() ? "" : String.format(Locale.US, "; %d skipped", skipped.size()));
         return new Result(true, msg, loader, opModes, skipped, problems, active.size(), millis);
+    }
+
+    /**
+     * A file's javac errors as {@link Problem}s for the page: the first {@value #PROBLEMS_PER_FILE},
+     * then how many more there are (an old season's file can have hundreds, all for one missing library).
+     */
+    private List<Problem> problems(Path file, String text, List<Diagnostic<? extends JavaFileObject>> errors) {
+        List<Problem> out = new ArrayList<>();
+        for (Diagnostic<? extends JavaFileObject> d : errors.subList(0, Math.min(errors.size(), PROBLEMS_PER_FILE))) {
+            out.add(problem(file, text, d));
+        }
+        if (errors.size() > PROBLEMS_PER_FILE) {
+            Problem last = out.get(out.size() - 1);
+            out.add(new Problem(last.root(), last.file(), last.line(), last.column(), last.endLine(), last.endColumn(),
+                    "and " + (errors.size() - PROBLEMS_PER_FILE) + " more errors in this file"));
+        }
+        return out;
     }
 
     /** A javac error as a {@link Problem}, its position worked out in the file's own text. */
