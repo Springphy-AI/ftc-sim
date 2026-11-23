@@ -229,6 +229,31 @@ class PhysicsLoopTest {
         }
     }
 
+    /**
+     * The loop pauses for about half a millisecond between passes, so motor commands reach the
+     * field and sensors see it every millisecond. On Windows the pause used to last a whole 15.6 ms
+     * timer tick, and each pass ran about 16 steps at once.
+     */
+    @Test
+    void thePhysicsLoopPausesAboutAMillisecond(@TempDir Path dir) throws Exception {
+        Simulator sim = start(dir);
+        try {
+            Thread.sleep(500);   // (the physics settles in, the JIT warms up)
+            long[] before = sim.pauseHistogram();
+            Thread.sleep(2000);
+            long[] after = sim.pauseHistogram();
+            long pauses = 0;
+            for (int i = 0; i < after.length; i++) pauses += after[i] - before[i];
+            long seen = 0;
+            int median = 0;
+            while (seen < (pauses + 1) / 2) seen += after[median] - before[median++];
+            double medianMs = median / 4.0;   // (the bucket's upper end)
+            assertTrue(medianMs <= 4, "median pause of the physics loop: " + medianMs + " ms (" + pauses + " pauses in 2 s)");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
     @Test
     void whatATaskOnThePhysicsThreadThrowsReachesItsCaller(@TempDir Path dir) throws Exception {
         Simulator sim = start(dir);

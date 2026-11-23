@@ -297,8 +297,22 @@ public final class Simulator {
                     loopFailed("The device panel", e);
                 }
             }
-            LockSupport.parkNanos(400_000L);
+            long pauseStart = System.nanoTime();
+            LockSupport.parkNanos(400_000L);   // about 0.45 ms; on Windows about 1 ms, see TimerResolution
+            pauses[(int) Math.min(pauses.length - 1, (System.nanoTime() - pauseStart) / 250_000L)]++;
         }
+    }
+
+    /**
+     * How long the loop's pauses between passes lasted: index i counts the pauses of i/4 to
+     * (i+1)/4 ms (the last, 31.75 ms or more). About a millisecond at most, or commands and sensors
+     * meet the field in bursts. Read by the tests; the loop writes it without locking.
+     */
+    private final long[] pauses = new long[128];
+
+    /** A copy of {@link #pauses}. */
+    public long[] pauseHistogram() {
+        return pauses.clone();
     }
 
     /**

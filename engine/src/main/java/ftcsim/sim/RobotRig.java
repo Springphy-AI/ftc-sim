@@ -128,6 +128,7 @@ public final class RobotRig {
         this.config = config;
         this.world = world;
         this.start = start.clone();
+        TimerResolution.hold();   // (Windows) the physics loop, bus latency and webcams pause for about 1 ms, not 15.6
 
         Allocator alloc = new Allocator();
         // Drivetrain motors first, so they land on the Control Hub like on most robots.
