@@ -128,16 +128,28 @@ public class HiveTipTest {
 
         /**
          * Waits long enough for a slow tip (the damper makes a marginal one take several seconds),
-         * then reports whether the HIVE tipped or at least left its stop for good.
+         * then says what the HIVE did: held still on its stop, crept off it, or swung all the way over.
          */
-        public boolean tipped() {
+        public Outcome outcome() {
             run(8.0);
-            return red.tips() > 0 || Math.abs(red.angle() - red.start.phi()) > 0.02;
+            if (red.tips() > 0) return Outcome.TIPPED;
+            return Math.abs(red.angle() - red.start.phi()) > 0.02 ? Outcome.CREPT : Outcome.HELD;
+        }
+
+        /** Whether the HIVE tipped or at least left its stop for good (see {@link #outcome()}). */
+        public boolean tipped() {
+            return outcome() != Outcome.HELD;
         }
     }
 
-    /** True if the red HIVE tips with these balls in its up CELL (the last one tossed if asked). */
-    public static boolean scenario(int nectar, int pollen, boolean tossLast) throws Exception {
+    /**
+     * What a HIVE did with a load: "holds" means it stayed on its stop (HELD); "tips" means it swung
+     * all the way over (TIPPED), not just crept off its stop.
+     */
+    public enum Outcome { HELD, CREPT, TIPPED }
+
+    /** What the red HIVE does with these balls in its up CELL (the last one tossed if asked). */
+    public static Outcome scenario(int nectar, int pollen, boolean tossLast) throws Exception {
         Field f = new Field();
         f.emptyCell();
         int n = 0, total = nectar + pollen;
@@ -149,7 +161,7 @@ public class HiveTipTest {
             if (++n == total && tossLast) f.toss("pollen");
             else f.place("pollen");
         }
-        return f.tipped();
+        return f.outcome();
     }
 
     @Test
@@ -165,22 +177,22 @@ public class HiveTipTest {
     // Section 12.3, "Necessary" rows.
     @Test
     void threeNectarOnePollenThenATossedPollenDoesNotTip() throws Exception {
-        assertTrue(!scenario(3, 2, true));
+        assertEquals(Outcome.HELD, scenario(3, 2, true));
     }
 
     @Test
     void threeNectarTwoPollenThenATossedPollenTips() throws Exception {
-        assertTrue(scenario(3, 3, true));
+        assertEquals(Outcome.TIPPED, scenario(3, 3, true));
     }
 
     @Test
     void sixPollenThenATossedPollenDoesNotTip() throws Exception {
-        assertTrue(!scenario(0, 7, true));
+        assertEquals(Outcome.HELD, scenario(0, 7, true));
     }
 
     @Test
     void sevenPollenThenATossedPollenTips() throws Exception {
-        assertTrue(scenario(0, 8, true));
+        assertEquals(Outcome.TIPPED, scenario(0, 8, true));
     }
 
     // The gently placed holds from the calibration process (12.4). The "Preferred" placed tips (a 3rd
@@ -188,37 +200,42 @@ public class HiveTipTest {
     // 3 NECTAR + 2 LAUNCHED POLLEN never tips it, as teams see on the field.
     @Test
     void threeNectarTwoPollenPlacedHolds() throws Exception {
-        assertTrue(!scenario(3, 2, false));
+        assertEquals(Outcome.HELD, scenario(3, 2, false));
     }
 
     @Test
     void sevenPollenPlacedHolds() throws Exception {
-        assertTrue(!scenario(0, 7, false));
+        assertEquals(Outcome.HELD, scenario(0, 7, false));
     }
 
     // Section 12.3, "Preferred" rows: on the field a gently placed 3rd POLLEN on 3 NECTAR, or 8th POLLEN,
     // tips the HIVE. This HIVE is deliberately stiffer (above), so it holds; these pin that choice down.
     @Test
     void threeNectarTwoPollenThenAPlacedPollenHolds() throws Exception {
-        assertTrue(!scenario(3, 3, false));
+        assertEquals(Outcome.HELD, scenario(3, 3, false));
     }
 
     @Test
     void sevenPollenThenAPlacedPollenHolds() throws Exception {
-        assertTrue(!scenario(0, 8, false));
+        assertEquals(Outcome.HELD, scenario(0, 8, false));
     }
 
     /**
      * What happened to a launch: whether the HIVE tipped, how many balls the red audience CELL holds at
      * the end, and how far the robot stood from that CELL's open end.
      */
-    public record Launch(boolean tipped, int inCell, double distanceM) {}
+    public record Launch(Outcome outcome, int inCell, double distanceM) {
+        /** Whether the HIVE tipped or at least left its stop for good. */
+        public boolean tipped() {
+            return outcome != Outcome.HELD;
+        }
+    }
 
     /** Launches this many of the robot's pre-loaded POLLEN at the red up CELL; true if the HIVE tips. */
-    private static boolean launchFromRobot(int count, double power, double hoodPos, double y) throws Exception {
+    private static Outcome launchFromRobot(int count, double power, double hoodPos, double y) throws Exception {
         Launch l = launch(count, power, hoodPos, y);
         assertTrue(l.tipped() || l.inCell() == 3 + count, "all launched POLLEN landed in the CELL");
-        return l.tipped();
+        return l.outcome();
     }
 
     /**
@@ -245,20 +262,20 @@ public class HiveTipTest {
         feeder.position = 1.0;
         feeder.pwmEnabled = true;
         f.run(2.0);
-        boolean tipped = f.tipped();
-        return new Launch(tipped, BiobuzzGame.of(f.elements).cellCounts().get("red audience"), distance);
+        Outcome outcome = f.outcome();
+        return new Launch(outcome, BiobuzzGame.of(f.elements).cellCounts().get("red audience"), distance);
     }
 
     @Test
     void threeNectarAndTwoLaunchedPollenHold() throws Exception {
-        assertTrue(!launchFromRobot(2, 0.38, 0.9, -1.0));
-        assertTrue(!launchFromRobot(2, 0.45, 0.7, -1.2));
+        assertEquals(Outcome.HELD, launchFromRobot(2, 0.38, 0.9, -1.0));
+        assertEquals(Outcome.HELD, launchFromRobot(2, 0.45, 0.7, -1.2));
     }
 
     @Test
     void aThirdLaunchedPollenTips() throws Exception {
-        assertTrue(launchFromRobot(3, 0.38, 0.9, -1.0));
-        assertTrue(launchFromRobot(3, 0.45, 0.7, -1.2));
+        assertEquals(Outcome.TIPPED, launchFromRobot(3, 0.38, 0.9, -1.0));
+        assertEquals(Outcome.TIPPED, launchFromRobot(3, 0.45, 0.7, -1.2));
     }
 
     @Test
@@ -267,7 +284,7 @@ public class HiveTipTest {
         f.place("pollen");
         f.place("pollen");
         f.toss("pollen");
-        assertTrue(f.tipped());
+        assertEquals(Outcome.TIPPED, f.outcome());
         assertEquals("rear", f.red.upCell());
         assertEquals(-f.red.start.phi(), f.red.angle(), 0.01, "resting on the other stop");
         // The CELL that was up now points down, open end low: what was in it has rolled out.

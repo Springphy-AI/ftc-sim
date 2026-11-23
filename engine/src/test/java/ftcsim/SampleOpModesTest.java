@@ -84,7 +84,19 @@ class SampleOpModesTest {
         assertTrue(b.skipped().isEmpty(), "every bundled sample should compile");
         long samples = b.opModes().stream().filter(OpModeInfo::sample).count();
         System.out.println("  " + b.opModes().size() + " OpModes, " + samples + " samples");
-        assertTrue(samples >= 25);
+        // Every sample file with an OpMode in it gives one: none is lost on the way to the list.
+        long sampleOpModeFiles;
+        try (var files = Files.walk(Path.of("examples/samples"))) {
+            sampleOpModeFiles = files.filter(f -> f.toString().endsWith(".java")).filter(f -> {
+                try {
+                    return java.util.regex.Pattern.compile("(?m)^@(TeleOp|Autonomous)\\b").matcher(Files.readString(f)).find();
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }).count();
+        }
+        assertTrue(sampleOpModeFiles >= 25, "the samples are there: " + sampleOpModeFiles);
+        assertEquals(sampleOpModeFiles, samples, "one OpMode per sample file with @TeleOp or @Autonomous");
         sim.shutdown();
     }
 

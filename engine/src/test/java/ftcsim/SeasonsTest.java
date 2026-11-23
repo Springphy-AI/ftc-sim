@@ -289,11 +289,14 @@ class SeasonsTest {
         for (int tag = 21; tag <= 23; tag++) {
             game.setMotif(tag);
             assertEquals(motifs[tag - 21], game.motif());
+            int obeliskTags = 0;
             for (FieldTag t : cameras.tags(s.rig.world.moverAngles())) {
                 if (t.id() < 21 || t.id() > 23) continue;
+                obeliskTags++;
                 boolean towardField = t.normal()[0] > 0.99;
                 assertEquals(t.id() == tag, towardField, "tag " + t.id() + " faces the field only when it is the MOTIF");
             }
+            assertEquals(3, obeliskTags, "the OBELISK's three tags are on the field");
         }
         assertTrue(game.stats().stream().anyMatch(st -> st.label().equals("MOTIF") && st.value().equals("PPG")));
     }

@@ -130,6 +130,8 @@ class OpModeLifecycleTest {
         waitFor(Simulator.DsState.INIT);
         sim.handle("{\"type\":\"start\"}");
         waitFor(Simulator.DsState.RUNNING);
+        // (so a check that its thread has ended can't pass because the thread has another name)
+        assertTrue(threadAlive("OpMode " + opMode), "the OpMode runs on a thread named \"OpMode " + opMode + "\"");
         sim.handle("{\"type\":\"stop\"}");
         long deadline = System.currentTimeMillis() + 4000;
         while (sim.dsState() != Simulator.DsState.IDLE && System.currentTimeMillis() < deadline) Thread.sleep(20);
