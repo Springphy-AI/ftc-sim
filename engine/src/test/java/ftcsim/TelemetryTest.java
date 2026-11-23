@@ -1,10 +1,14 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.junit.jupiter.api.Test;
@@ -14,21 +18,105 @@ import ftcsim.hal.SimTelemetry;
 /** What the Driver Station shows for a sequence of Telemetry calls, as FIRST's TelemetryImpl shows it. */
 class TelemetryTest {
 
-    private final SimTelemetry telemetry = new SimTelemetry();
     private long now = 0;
+    /** A telemetry whose every update() comes a second after the last: each one transmits. */
+    private final SimTelemetry telemetry = new SimTelemetry(() -> now += 1_000_000_000L);
 
-    /** The lines the Driver Station shows after the next transmission. */
+    /** The lines of the last transmission, or null if none since the last call. */
     private List<String> shown() {
-        now += 1_000_000_000L;   // past the transmission interval
-        SimTelemetry.Frame f = telemetry.takeFrameIfDue(now);
+        SimTelemetry.Frame f = telemetry.takeFrame();
         return f == null ? null : f.lines;
     }
 
-    /** The log the Driver Station shows after the next transmission. */
+    /** The log of the last transmission, or null if none since the last call. */
     private List<String> shownLog() {
-        now += 1_000_000_000L;
-        SimTelemetry.Frame f = telemetry.takeFrameIfDue(now);
+        SimTelemetry.Frame f = telemetry.takeFrame();
         return f == null ? null : f.log;
+    }
+
+    private long clock = 0;
+    /** A telemetry on a clock that only moves when a test moves it. */
+    private final SimTelemetry timed = new SimTelemetry(() -> clock);
+
+    private static final long MS = 1_000_000L;
+
+    @Test
+    void funcsAndActionsRunOnlyWhenATransmissionIsDue() {
+        // TelemetryImpl.tryUpdate runs the actions and composes the lines only when it transmits, at
+        // most once per transmission interval, however often update() is called.
+        int[] funcCalls = {0}, actionCalls = {0};
+        timed.addData("count", () -> ++funcCalls[0]);
+        timed.addAction(() -> actionCalls[0]++);
+        clock = 300 * MS;
+        int transmissions = 0;
+        for (int i = 0; i < 300; i++) {   // a 1 ms loop for 300 ms
+            if (timed.update()) transmissions++;
+            clock += MS;
+        }
+        assertEquals(2, transmissions, "update() reports whether it transmitted");
+        assertEquals(2, funcCalls[0], "the Func ran once per transmission");
+        assertEquals(2, actionCalls[0]);
+        assertEquals(List.of("count : 2"), timed.takeFrame().lines);
+    }
+
+    @Test
+    void anUpdateTooSoonIsSentByTheEventLoopUnlessNewDataComesFirst() {
+        timed.addData("x", 1);
+        assertFalse(timed.update(), "within 250 ms of INIT");
+        assertNull(timed.takeFrame());
+        clock = 260 * MS;
+        assertTrue(timed.tryUpdateIfDirty(), "the event loop sends what update() asked for");
+        assertEquals(List.of("x : 1"), timed.takeFrame().lines);
+
+        timed.addData("x", 2);
+        assertFalse(timed.update());
+        timed.addData("x", 3);   // new data: the update() waiting is not sent on its own
+        clock += 300 * MS;
+        assertFalse(timed.tryUpdateIfDirty());
+        assertNull(timed.takeFrame());
+        assertTrue(timed.update());
+        assertEquals(List.of("x : 3"), timed.takeFrame().lines);
+    }
+
+    @Test
+    void aLogEntryIsSentAsSoonAsTheIntervalAllows() {
+        clock = 300 * MS;
+        timed.addData("x", 1);
+        assertTrue(timed.update());
+        timed.takeFrame();
+        timed.addData("x", 2);   // not updated: the log goes with the lines last sent
+        clock += 300 * MS;
+        timed.log().add("hello");
+        SimTelemetry.Frame f = timed.takeFrame();
+        assertEquals(List.of("x : 1"), f.lines);
+        assertEquals(List.of("hello"), f.log);
+    }
+
+    @Test
+    void theFieldDoesNotWaitForSlowTelemetryCode() throws Exception {
+        // The physics thread takes telemetry frames; it must not wait while an OpMode's telemetry
+        // action or Func runs (FIRST's IMU samples read the IMU in one).
+        SimTelemetry t = new SimTelemetry();
+        t.setMsTransmissionInterval(0);
+        t.addData("x", 1);
+        t.update();
+        CountDownLatch inAction = new CountDownLatch(1);
+        t.addAction(() -> {
+            inAction.countDown();
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Thread opMode = new Thread(t::update);
+        opMode.start();
+        inAction.await();
+        long start = System.nanoTime();
+        t.takeFrame();
+        double ms = (System.nanoTime() - start) / 1e6;
+        opMode.join();
+        assertTrue(ms < 100, "taking a frame waited " + ms + " ms for the OpMode's action");
     }
 
     @Test
@@ -138,7 +226,8 @@ class TelemetryTest {
         assertEquals(List.of("kept : 1", "next : 3"), shown());
         telemetry.clearAll();
         telemetry.update();
-        assertEquals(List.of(), shown());
+        // A TelemetryMessage with no data isn't sent: the Driver Station keeps showing the last one.
+        assertNull(shown());
     }
 
     @Test

@@ -524,7 +524,7 @@ public final class SimRobot {
             if (s != session) return;
             if (hal != null) hal.close();
             rig.failsafe();
-            SimTelemetry.Frame f = telemetry == null ? null : telemetry.flush();
+            SimTelemetry.Frame f = telemetry == null ? null : telemetry.takeFrame();
             if (f != null) sim.broadcast(telemetryJson(f));
             String preselect = active != null && active.kind() == OpModeInfo.Kind.AUTONOMOUS ? active.preselectTeleOp() : "";
             if (preselect != null && !preselect.isEmpty() && build != null
@@ -874,7 +874,7 @@ public final class SimRobot {
             }
         }
         if (t != null) {
-            SimTelemetry.Frame f = t.takeFrameIfDue(now);
+            SimTelemetry.Frame f = t.takeFrame();
             if (f != null) sim.broadcast(telemetryJson(f));
         }
         loadIfIdle();

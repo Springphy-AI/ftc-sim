@@ -87,12 +87,4 @@ public abstract class LinearOpMode extends OpMode {
     @Override
     public final void stop() {
     }
-
-    @Override
-    public void internalPostInitLoop() {
-    }
-
-    @Override
-    public void internalPostLoop() {
-    }
 }

@@ -152,6 +152,8 @@ public final class OpModeSession {
             gp.resetEdgeDetection();
             gp.setTriggerThreshold(Gamepad.DEFAULT_TRIGGER_THRESHOLD);
         }
+        // ... and TelemetryInternal.resetTelemetryForOpMode, if the OpMode's telemetry is the SDK's.
+        if (opMode.telemetry instanceof SimTelemetry) ((SimTelemetry) opMode.telemetry).resetForOpMode();
         stopHooks = robot != null ? robot.newOpModeStopHooks() : null;
         opMode.resetRuntime();   // as OpModeManagerImpl, before the OpMode's thread starts
         thread = new Thread(new Runnable() {
@@ -183,9 +185,11 @@ public final class OpModeSession {
 
     /**
      * What the Robot Controller's event loop does for a LinearOpMode on each iteration while it is in
-     * INIT or running (LinearOpMode.internalOnEventLoopIteration): sets {@code time} to getRuntime()
-     * and wakes whatever waits on the OpMode's running notifier. An iterative OpMode's time is set
-     * before each of its callbacks instead.
+     * INIT or running (LinearOpMode.internalOnEventLoopIteration): sets {@code time} to getRuntime(),
+     * wakes whatever waits on the OpMode's running notifier, and sends the telemetry an update()
+     * asked for once the transmission interval allows (tryUpdateIfDirty), which runs telemetry
+     * actions and Funcs on this thread, as on the robot. An iterative OpMode's time is set before
+     * each of its callbacks instead, and its telemetry sent after each.
      */
     private void runEventLoop() {
         Object notifier = ACCESS.runningNotifier(opMode);
@@ -195,10 +199,20 @@ public final class OpModeSession {
                 synchronized (notifier) {
                     notifier.notifyAll();
                 }
+                Telemetry t = opMode.telemetry;
+                if (t instanceof SimTelemetry) ((SimTelemetry) t).tryUpdateIfDirty();
                 Thread.sleep(EVENT_LOOP_MS);
             }
         } catch (InterruptedException e) {
             // the simulator is shutting down
+        } catch (RuntimeException e) {
+            // A telemetry action or Func threw on the event loop's thread: an error in the OpMode.
+            if (state == State.STOPPED || abandoned || stopRequested) return;
+            error = e;
+            listener.onError(this, e);
+            markStopRequested();
+            thread.interrupt();
+            listener.onStopRequestedByOpMode(this);
         }
     }
 
@@ -297,6 +311,7 @@ public final class OpModeSession {
             }
         } finally {
             try {
+                sendLastTelemetry();
                 if (stopHooks != null) RobotContext.runOpModeStopHooks(stopHooks);
             } finally {
                 state = State.STOPPED;
@@ -308,27 +323,48 @@ public final class OpModeSession {
     /** As the SDK's OpMode.internalRunOpMode. */
     private void runIterative() throws InterruptedException {
         opMode.init();
-        opMode.internalPostInitLoop();
         while (!startRequested && !stopRequested) {
             preUserCode();
             opMode.init_loop();
+            postUserCode();
             opMode.internalPostInitLoop();
             sleepAfterLoop();
         }
         if (startRequested) {
             preUserCode();
             opMode.start();
-            opMode.internalPostLoop();
+            postUserCode();
             while (!stopRequested) {
                 preUserCode();
                 opMode.loop();
+                postUserCode();
                 opMode.internalPostLoop();
                 sleepAfterLoop();
             }
         }
         preUserCode();
         opMode.stop();
-        opMode.internalPostLoop();
+        postUserCode();
+    }
+
+    /** As OpMode.internalPostUserCode, after init_loop(), start(), loop() and stop(): telemetry.update(). */
+    private void postUserCode() {
+        opMode.telemetry.update();
+    }
+
+    /**
+     * As the SDK when an OpMode's thread ends: if its telemetry is the SDK's, what an update() asked
+     * for is sent now, whatever the interval.
+     */
+    private void sendLastTelemetry() {
+        Telemetry t = opMode.telemetry;
+        if (!(t instanceof SimTelemetry)) return;
+        try {
+            t.setMsTransmissionInterval(0);
+            ((SimTelemetry) t).tryUpdateIfDirty();
+        } catch (RuntimeException e) {
+            SimLog.log('W', "Telemetry", "the last telemetry of " + name + " could not be composed: " + e);
+        }
     }
 
     /**

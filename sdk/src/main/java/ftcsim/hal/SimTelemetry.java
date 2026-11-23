@@ -7,6 +7,8 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 
 import org.firstinspires.ftc.robotcore.external.Func;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
@@ -14,8 +16,13 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 /**
  * Telemetry as FIRST's TelemetryImpl keeps it: items and lines (an item added to an item goes on a
  * new line after it, one added to a line goes on that line), values formatted as it formats them,
- * Func values and actions run when a transmission is composed, retained items, auto-clear, a log,
- * and a transmission interval (250 ms by default) that throttles what reaches the Driver Station.
+ * retained items, auto-clear and a log. As TelemetryImpl.tryUpdate, update() transmits only once the
+ * transmission interval (250 ms by default) has passed since the last transmission, and only then
+ * runs the actions and evaluates the Func values; an update() that comes too soon is sent by the
+ * event loop's tryUpdateIfDirty() once the interval has passed, unless new data comes first.
+ *
+ * <p>A transmission is handed to the engine through {@link #takeFrame()}, which never waits for the
+ * OpMode: the physics thread takes frames, and robot code's actions and Funcs can be slow.
  */
 public final class SimTelemetry implements Telemetry {
 
@@ -37,86 +44,122 @@ public final class SimTelemetry implements Telemetry {
     /** The robot's locale: the Control Hub formats numbers as en_US does. */
     private static final DecimalFormatSymbols ROBOT_SYMBOLS = DecimalFormatSymbols.getInstance(Locale.US);
 
+    private enum UpdateReason {USER, LOG, IFDIRTY}
+
     private final Object lock = new Object();
-    private final LineableContainer lines = new LineableContainer();
-    private final List<Runnable> actions = new LinkedList<Runnable>();
     private final LogImpl log = new LogImpl();
     private final DecimalFormat decimalFormat = new DecimalFormat("0.####", ROBOT_SYMBOLS);
+    /** System.nanoTime, or a test's clock. */
+    private final LongSupplier clock;
+    /** The latest transmission, until the engine takes it. */
+    private final AtomicReference<Frame> outbox = new AtomicReference<Frame>();
 
-    private boolean autoClear = true;
-    private int msTransmissionInterval = 250;
-    private String itemSeparator = " | ";
-    private String captionValueSeparator = " : ";
-    private DisplayFormat displayFormat = DisplayFormat.CLASSIC;
-    private boolean dirty = false;
+    // What TelemetryImpl.resetTelemetryForOpMode sets (all but the decimal places).
+    private LineableContainer lines;
+    private List<String> composedLines;
+    private List<Runnable> actions;
+    private long transmissionTimerStart;
+    /** An update() asked for a transmission that hasn't happened yet. */
+    private boolean dirty;
     /** Set by update() with auto-clear on: the next line or item added clears what is shown first. */
-    private boolean clearOnAdd = false;
+    private boolean clearOnAdd;
+    private boolean autoClear;
+    private int msTransmissionInterval;
+    private String itemSeparator;
+    private String captionValueSeparator;
+    private DisplayFormat displayFormat = DisplayFormat.CLASSIC;
 
-    private List<String> lastComposedLines = Collections.emptyList();
-    private Frame pending = null;
-    private long lastTransmitNanos = 0;
+    public SimTelemetry() {
+        this(new LongSupplier() {
+            @Override
+            public long getAsLong() {
+                return System.nanoTime();
+            }
+        });
+    }
+
+    /** With a clock of its own (nanoseconds), for tests. */
+    public SimTelemetry(LongSupplier clock) {
+        this.clock = clock;
+        resetForOpMode();
+    }
 
     // ---- engine side ------------------------------------------------------------------------
 
-    /** Returns the frame to show if one is waiting and the transmission interval has elapsed. */
-    public Frame takeFrameIfDue(long nowNanos) {
+    /** The latest transmission not yet shown, or null. Never waits for the OpMode. */
+    public Frame takeFrame() {
+        return outbox.getAndSet(null);
+    }
+
+    /**
+     * TelemetryImpl.resetTelemetryForOpMode, which INIT calls: nothing shown, no actions, an empty
+     * log, the transmission timer restarted, and the default settings (but not the decimal places).
+     */
+    public void resetForOpMode() {
         synchronized (lock) {
-            if (pending == null) return null;
-            if (nowNanos - lastTransmitNanos < msTransmissionInterval * 1000000L) return null;
-            Frame f = pending;
-            pending = null;
-            lastTransmitNanos = nowNanos;
-            return f;
+            lines = new LineableContainer();
+            composedLines = new ArrayList<String>();
+            actions = new LinkedList<Runnable>();
+            log.reset();
+            transmissionTimerStart = clock.getAsLong();
+            dirty = false;
+            clearOnAdd = false;
+            autoClear = true;
+            msTransmissionInterval = 250;
+            captionValueSeparator = " : ";
+            itemSeparator = " | ";
         }
     }
 
-    /** Sends whatever is pending right away (used when an OpMode stops). */
-    public Frame flush() {
-        synchronized (lock) {
-            Frame f = pending;
-            pending = null;
-            lastTransmitNanos = System.nanoTime();
-            return f;
-        }
-    }
-
-    /** Called after each init_loop()/loop() of an iterative OpMode: sends telemetry if there is any. */
-    public static void autoUpdate(Telemetry telemetry) {
-        if (telemetry instanceof SimTelemetry) {
-            ((SimTelemetry) telemetry).updateIfDirty();
-        } else if (telemetry != null) {
-            telemetry.update();
-        }
-    }
-
-    public void updateIfDirty() {
-        synchronized (lock) {
-            // Retained items (e.g. Func-valued ones) and actions need refreshing every loop too.
-            if (dirty || !lines.isEmpty() || !actions.isEmpty()) update();
-        }
+    /**
+     * TelemetryImpl.tryUpdateIfDirty, which the event loop calls for a LinearOpMode about every 5 ms
+     * and the OpMode's thread calls as it ends: sends what an update() or the log asked for once the
+     * transmission interval allows.
+     */
+    public boolean tryUpdateIfDirty() {
+        return tryUpdate(UpdateReason.IFDIRTY);
     }
 
     // ---- Telemetry --------------------------------------------------------------------------
 
     /**
-     * Runs the actions and composes the lines, as TelemetryImpl does when it transmits. What an
-     * action or a Func throws comes out of update(), as on the robot.
+     * Transmits if the transmission interval has passed since the last transmission: runs the
+     * actions, composes the lines (evaluating the Funcs) and sends them. What an action or a Func
+     * throws comes out of update(), as on the robot. Returns whether it transmitted.
      */
     @Override
     public boolean update() {
+        return tryUpdate(UpdateReason.USER);
+    }
+
+    /** TelemetryImpl.tryUpdate. */
+    private boolean tryUpdate(UpdateReason reason) {
         synchronized (lock) {
-            for (Runnable action : actions) {
-                action.run();
+            boolean result = false;
+            boolean intervalElapsed = (clock.getAsLong() - transmissionTimerStart) / 1e6 > msTransmissionInterval;
+            boolean wantToTransmit = reason == UpdateReason.USER || reason == UpdateReason.LOG
+                    || (reason == UpdateReason.IFDIRTY && (dirty || log.dirty));
+            boolean recompose = reason == UpdateReason.USER || dirty;
+            if (intervalElapsed && wantToTransmit) {
+                for (Runnable action : actions) {
+                    action.run();
+                }
+                if (recompose) composedLines = compose();
+                // (a message with nothing in it isn't sent: the Driver Station keeps what it shows)
+                if (!composedLines.isEmpty() || !log.entries.isEmpty()) {
+                    outbox.set(new Frame(new ArrayList<String>(composedLines), log.snapshot(), displayFormat));
+                }
+                log.dirty = false;
+                dirty = false;
+                transmissionTimerStart = clock.getAsLong();
+                result = true;
+            } else if (reason == UpdateReason.USER) {
+                dirty = true;
             }
-            lastComposedLines = compose();
-            pending = new Frame(lastComposedLines, log.snapshot(), displayFormat);
-            long now = System.nanoTime();
-            boolean transmitted = now - lastTransmitNanos >= msTransmissionInterval * 1000000L;
-            // As FIRST's TelemetryImpl: auto-clear clears when the next data is added, not now, so
-            // another update() with nothing new shows the same lines again.
-            clearOnAdd = autoClear;
-            dirty = false;
-            return transmitted;
+            // As TelemetryImpl: auto-clear clears when the next data is added, not now, so another
+            // update() with nothing new shows the same lines again.
+            if (reason == UpdateReason.USER) clearOnAdd = autoClear;
+            return result;
         }
     }
 
@@ -126,12 +169,6 @@ public final class SimTelemetry implements Telemetry {
             out.add(l.getComposed(true));
         }
         return out;
-    }
-
-    private void logChanged() {
-        synchronized (lock) {
-            pending = new Frame(lastComposedLines, log.snapshot(), displayFormat);
-        }
     }
 
     @Override
@@ -164,13 +201,16 @@ public final class SimTelemetry implements Telemetry {
         return lines.addLineAfter(null, lineCaption);
     }
 
-    /** A line or an item is about to be added: clears what update() left, if it asked for that. */
+    /**
+     * A line or an item is about to be added: clears what update() left, if it asked for that. As
+     * TelemetryImpl.onAddData, an update() still waiting to be sent isn't any more: new data is coming.
+     */
     private void onAddData() {
         if (clearOnAdd) {
             clear();
             clearOnAdd = false;
         }
-        dirty = true;
+        dirty = false;
     }
 
     @Override
@@ -196,6 +236,7 @@ public final class SimTelemetry implements Telemetry {
     public void clear() {
         synchronized (lock) {
             clearOnAdd = false;
+            dirty = false;
             lines.removeAllRecurse(false);
         }
     }
@@ -204,6 +245,7 @@ public final class SimTelemetry implements Telemetry {
     public void clearAll() {
         synchronized (lock) {
             clearOnAdd = false;
+            dirty = false;
             actions.clear();
             lines.removeAllRecurse(true);
         }
@@ -592,11 +634,19 @@ public final class SimTelemetry implements Telemetry {
         }
     }
 
-    /** TelemetryImpl$LogImpl: 9 entries, oldest first. */
+    /** TelemetryImpl$LogImpl: 9 entries, oldest first; an entry is sent as soon as the interval allows. */
     private final class LogImpl implements Log {
-        private final List<String> entries = new ArrayList<String>();
-        private int capacity = 9;
-        private DisplayOrder displayOrder = DisplayOrder.OLDEST_FIRST;
+        List<String> entries;
+        private int capacity;
+        private DisplayOrder displayOrder;
+        boolean dirty;
+
+        void reset() {
+            entries = new ArrayList<String>();
+            capacity = 9;
+            dirty = false;
+            displayOrder = DisplayOrder.OLDEST_FIRST;
+        }
 
         List<String> snapshot() {
             synchronized (lock) {
@@ -646,17 +696,18 @@ public final class SimTelemetry implements Telemetry {
         public void add(String format, Object... args) {
             synchronized (lock) {
                 entries.add(String.format(format, args));
+                dirty = true;
                 prune();
+                tryUpdate(UpdateReason.LOG);
             }
-            logChanged();
         }
 
         @Override
         public void clear() {
             synchronized (lock) {
                 entries.clear();
+                dirty = true;
             }
-            logChanged();
         }
     }
 }

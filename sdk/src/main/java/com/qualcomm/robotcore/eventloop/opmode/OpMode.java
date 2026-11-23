@@ -5,7 +5,6 @@ import java.util.HashMap;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 import ftcsim.hal.ContextBlackboard;
-import ftcsim.hal.SimTelemetry;
 
 /**
  * Base class for user defined iterative OpModes: init() once, init_loop() repeatedly until START,
@@ -76,10 +75,8 @@ public abstract class OpMode extends OpModeInternal {
     }
 
     public void internalPostInitLoop() {
-        SimTelemetry.autoUpdate(telemetry);
     }
 
     public void internalPostLoop() {
-        SimTelemetry.autoUpdate(telemetry);
     }
 }
