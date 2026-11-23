@@ -24,7 +24,7 @@ def architecture():
     Y = 104   # everything below the top row (editing and deploying) moves down by one row
     with f.group("sdk-layer"):
         f.rect(24, Y + 160, 688, 120, fill="tint", stroke="edge")
-        f.text("b-title", 40, Y + 182, "FTC SDK 12.0 API, checked against FIRST’s jars (115 classes, 1,083 members)", weight=600)
+        f.text("b-title", 40, Y + 182, "FTC SDK 12.0 API, checked against FIRST’s jars (111 classes, 1,130 members)", weight=600)
     with f.group("connectors"):
         f.line(124, 128, 124, Y + 56, arrow="end")
         f.path(f"M224 {Y + 76}H246V92H268", arrow="end")
