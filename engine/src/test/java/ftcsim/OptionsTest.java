@@ -137,6 +137,27 @@ class OptionsTest {
     }
 
     @Test
+    void theHelpListsEveryOptionAndKey() throws Exception {
+        String help = Main.usageText();
+        // Every option the simulator takes, with a value it accepts, is in --help.
+        String[][] options = {{"--project", "/p"}, {"-p", "/p"}, {"--robot", "r.json"}, {"-r", "r.json"}, {"--season", "decode"},
+                {"-s", "decode"}, {"--alliance", "blue"}, {"--port", "8100"}, {"--no-browser"}, {"--robots", "2"},
+                {"--project2", "/p"}, {"--robot2", "r.json"}, {"--alliance2", "red"}};
+        for (String[] o : options) {
+            parse(Map.of(), o);
+            String listed = o[0].replaceAll("[2-9]$", "K");
+            assertTrue(help.matches("(?s).*(^|[\\s,])" + java.util.regex.Pattern.quote(listed) + "[\\s,].*"), listed + " is not in --help");
+        }
+        assertTrue(parse(Map.of(), "-h").help());
+        assertTrue(parse(Map.of(), "--help").help());
+        assertTrue(help.contains("-h, --help"), help);
+        for (String key : List.of("project", "robot", "season", "alliance", "port", "open_browser", "robots", "projectK", "robotK", "allianceK")) {
+            assertTrue(help.matches("(?s).*sim\\.properties.*[\\s,(]" + key + "[\\s,)].*"), key + "= is not in --help");
+        }
+        assertTrue(help.contains("up to N+9"), "the port fallback: " + help);
+    }
+
+    @Test
     void theSimulatorExplainsAMistakeInsteadOfCrashing() throws Exception {
         // The real program, as run-sim starts it: exit code 2 and a sentence, no stack trace.
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();

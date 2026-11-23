@@ -26,20 +26,8 @@ import ftcsim.sim.SimRobot;
 import ftcsim.sim.Simulator;
 
 /**
- * FTC simulator entry point.
- *
- * <pre>
- *   ftc-sim [--season NAME] [--project DIR] [--robot FILE] [--port N] [--no-browser]
- *           [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
- * </pre>
- *
- * --project points at your FtcRobotController project; the simulator compiles its
- * TeamCode/src/main/java (and the SDK samples folder) and rebuilds whenever you save.
- * More robots (up to 4) share the field: --project2 / --robot2 / --alliance2 set up robot 2, and so
- * on; a robot without its own project or robot file uses robot 1's.
- * --season picks the game (a folder in seasons/, or the path of one); BIOBUZZ by default.
- * Defaults can be kept in sim.properties next to this program (season=..., project=..., robot=...,
- * port=..., robots=..., project2=..., robot2=..., alliance2=...).
+ * FTC simulator entry point. run-sim.bat / run-sim.sh start it in the simulator's folder; its options
+ * and sim.properties' keys are in {@link #usageText()} (what --help prints).
  */
 public final class Main {
 
@@ -385,28 +373,45 @@ public final class Main {
     }
 
     private static void usage() {
-        System.out.println("""
-                Usage: ftc-sim [--season NAME] [--project DIR] [--robot FILE] [--port N] [--no-browser]
-                               [--robots N] [--project2 DIR] [--robot2 FILE] [--alliance2 red|blue] ...
+        System.out.println(usageText());
+    }
 
-                  --season NAME     the game to play: a season in seasons/ (%s), or the path
-                                    of a season folder; default %s
-                  --project DIR     your FtcRobotController project (uses DIR/TeamCode/src/main/java)
-                  --robot FILE      robot description, default robots/mecanum.json
-                  --port N          web port, default 8080
-                  --no-browser      do not open the browser
+    /** What --help prints: every option and sim.properties key. */
+    static String usageText() {
+        return """
+                Usage: .\\run-sim.bat [options]     (Windows)
+                       sh run-sim.sh [options]     (macOS, Linux)
+
+                  -p, --project DIR   your FtcRobotController project (the folder with TeamCode in it):
+                                      the simulator builds its TeamCode/src/main/java and FIRST's
+                                      samples, and builds again when you save; without it, the
+                                      simulator's examples
+                  -r, --robot FILE    the robot's description; default robots/mecanum.json
+                  -s, --season NAME   the game: a season in seasons/ (%s) or the path of a
+                                      season folder; default %s
+                      --alliance A    robot 1's alliance, red or blue; default red
+                      --port N        the Driver Station page's port; default 8080. If another
+                                      program has it, the next free one up to N+9 is used
+                      --no-browser    don't open the Driver Station page in the browser
+                  -h, --help          print this and stop
 
                 More robots on the same field (up to 4, at most two per alliance):
-                  --robots N        put N robots on the field; each runs robot 1's project and robot
-                                    file unless it gets its own with the options below
-                  --projectK DIR    robot K's FtcRobotController project (K = 2, 3, 4)
-                  --robotK FILE     robot K's description
-                  --allianceK A     robot K's alliance, red or blue
-                                    (default: robot 1 red, robot 2 blue, robot 3 red, robot 4 blue)
+                      --robots N      put N robots on the field; each runs robot 1's project and robot
+                                      file unless it gets its own with the options below
+                      --projectK DIR  robot K's FtcRobotController project (K = 2, 3, 4)
+                      --robotK FILE   robot K's description
+                      --allianceK A   robot K's alliance, red or blue
+                                      (default: robot 1 red, robot 2 blue, robot 3 red, robot 4 blue)
 
-                Defaults can also be set in sim.properties (season=, project=, robot=, port=, open_browser=,
-                robots=, project2=, robot2=, alliance2=, ...).""".formatted(
-                String.join(", ", Season.available(Paths.get("").toAbsolutePath().resolve("seasons"))), Season.DEFAULT));
+                A relative path is where you typed the command; a robot file or season that isn't
+                there is taken from the simulator's folder (robots/..., seasons/...).
+
+                Defaults can be kept in sim.properties, in the simulator's folder, one key=value a line:
+                project, robot, season, alliance, port, open_browser (true or false), robots, and
+                projectK, robotK, allianceK (project1, robot1 and alliance1 are robot 1's too). Its
+                paths are relative to the simulator's folder. Options on the command line win; with
+                --robots, robots after N that sim.properties sets up are left out.""".formatted(
+                String.join(", ", Season.available(Paths.get("").toAbsolutePath().resolve("seasons"))), Season.DEFAULT);
     }
 
     private static void open(String url) {
