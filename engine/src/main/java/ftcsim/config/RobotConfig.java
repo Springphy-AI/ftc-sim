@@ -301,6 +301,7 @@ public final class RobotConfig {
                     + drive.mirroredSide + "\"");
         }
         validateDriveMotors();
+        validateUniqueNames();
         MotorModels.get(drive.motor);
         for (Device d : devices) {
             if ("motor".equals(d.type)) MotorModels.get(d.motor);
@@ -334,6 +335,32 @@ public final class RobotConfig {
             if (other != null && !other.equals(e.getValue())) {
                 throw new IllegalArgumentException("drive.motors: \"" + motor + "\" drives wheels on both sides");
             }
+        }
+    }
+
+    /**
+     * Every name robot code can look up is one device's: a drive motor (which several wheels of
+     * one side may share), the IMU, a device or an alias. Two devices with one name would be one
+     * port, or one hardware map entry hiding the other, as a real robot's configuration rejects.
+     */
+    private void validateUniqueNames() {
+        java.util.Map<String, String> owner = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : drive.motors.entrySet()) {
+            String name = e.getValue().getAsString();
+            owner.putIfAbsent(name, "drive.motors." + e.getKey());
+        }
+        claimName(owner, imu.name, "imu.name");
+        for (Device d : devices) {
+            claimName(owner, d.name, "a " + d.type + " in devices");
+            if (d.aliases != null) for (String a : d.aliases) claimName(owner, a, "the aliases of " + d.name);
+        }
+    }
+
+    private static void claimName(java.util.Map<String, String> owner, String name, String what) {
+        String first = owner.putIfAbsent(name, what);
+        if (first != null) {
+            throw new IllegalArgumentException("the name \"" + name + "\" is used twice: by " + first + " and by " + what
+                    + ". Every device needs its own name");
         }
     }
 
