@@ -127,17 +127,22 @@ public final class SimDcMotorController implements DcMotorControllerEx {
         return p.zeroPowerBehavior == DcMotor.ZeroPowerBehavior.FLOAT && p.power == 0;
     }
 
+    /** As LynxDcMotorController: the hub's default tolerance of 5 ticks, whatever was set before. */
     @Override
     public void setMotorTargetPosition(int motor, int position) {
-        setMotorTargetPosition(motor, position, port(motor).targetTolerance);
+        setMotorTargetPosition(motor, position, 5);
     }
 
     @Override
     public void setMotorTargetPosition(int motor, int position, int tolerance) {
         MotorPort p = port(motor);
+        // As LynxSetMotorTargetPositionCommand: the tolerance is sent as an unsigned 16-bit number.
+        if (tolerance < 0 || tolerance > 65535) {
+            throw new IllegalArgumentException(String.format("illegal tolerance: %d", tolerance));
+        }
         if (!writable()) return;
         Latency.command();
-        p.targetTolerance = Math.max(0, tolerance);
+        p.targetTolerance = tolerance;
         p.targetPosition = position;
         p.targetPositionSet = true;
     }

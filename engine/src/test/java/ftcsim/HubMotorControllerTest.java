@@ -2,6 +2,7 @@ package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -45,6 +46,23 @@ class HubMotorControllerTest {
         MotorPort port = rig.motors.get("launcher").port;
         return hardwareMap.getAll(LynxModule.class).stream()
                 .filter(m -> m.getModuleAddress() == port.hub.moduleAddress).findFirst().orElseThrow();
+    }
+
+    @Test
+    void aTargetToleranceTheHubCannotTakeIsRefused() {
+        // LynxSetMotorTargetPositionCommand takes 0..65535 and throws for anything else.
+        launcher.setTargetPositionTolerance(-1);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> launcher.setTargetPosition(100));
+        assertEquals("illegal tolerance: -1", e.getMessage());
+        launcher.setTargetPositionTolerance(70000);
+        assertThrows(IllegalArgumentException.class, () -> launcher.setTargetPosition(100));
+        // The controller's two-argument call always sends the hub's default tolerance of 5.
+        launcher.setTargetPositionTolerance(40);
+        launcher.setTargetPosition(100);
+        MotorPort port = rig.motors.get("launcher").port;
+        assertEquals(40, port.targetTolerance);
+        ((com.qualcomm.robotcore.hardware.DcMotorControllerEx) launcher.getController()).setMotorTargetPosition(port.port, 100);
+        assertEquals(5, port.targetTolerance);
     }
 
     @Test
