@@ -57,6 +57,7 @@ public final class Main {
             usage();
             return;
         }
+        options.warnings().forEach(System.err::println);
         String[] project = options.project(), robot = options.robot(), alliance = options.alliance();
         String season = options.season();
         int count = options.count();
@@ -163,10 +164,11 @@ public final class Main {
 
     /**
      * What to start: sim.properties' settings with the command line's over them. project, robot and
-     * alliance are by robot number, from 1 (null where not given); count is how many robots.
+     * alliance are by robot number, from 1 (null where not given); count is how many robots;
+     * warnings are for the user.
      */
     record Options(String season, String[] project, String[] robot, String[] alliance, int count, int port,
-                   boolean openBrowser, boolean help) {
+                   boolean openBrowser, boolean help, List<String> warnings) {
     }
 
     /** A mistake in the options or in sim.properties, said in a sentence: exit code 2, no stack trace. */
@@ -200,6 +202,10 @@ public final class Main {
         int robots = number(props.getOrDefault("robots", "1"), "robots= in sim.properties");
         int port = number(props.getOrDefault("port", "8080"), "port= in sim.properties");
         boolean openBrowser = Boolean.parseBoolean(props.getOrDefault("open_browser", "true"));
+        List<String> warnings = new ArrayList<>();
+        boolean robotsTyped = false;     // --robots on the command line
+        String typedNumbered = null;     // the command line's option for the highest-numbered robot
+        int typedCount = 1;
 
         Pattern numbered = Pattern.compile("--(project|robot|alliance)([1-9])");
         for (int i = 0; i < args.length; i++) {
@@ -214,7 +220,10 @@ public final class Main {
                     case "robot" -> robot[k] = v;
                     default -> alliance[k] = v;
                 }
-                count = Math.max(count, k);
+                if (k >= typedCount) {
+                    typedCount = k;
+                    typedNumbered = a;
+                }
                 continue;
             }
             switch (a) {
@@ -222,19 +231,37 @@ public final class Main {
                 case "--project", "-p" -> project[1] = fromCaller(value(args, i++), callerDir);
                 case "--robot", "-r" -> robot[1] = value(args, i++);
                 case "--alliance" -> alliance[1] = value(args, i++);
-                case "--robots" -> robots = number(value(args, i++), a);
+                case "--robots" -> {
+                    robots = number(value(args, i++), a);
+                    robotsTyped = true;
+                }
                 case "--port" -> port = number(value(args, i++), a);
                 case "--no-browser" -> openBrowser = false;
                 case "--help", "-h" -> {
-                    return new Options(season, project, robot, alliance, count, port, openBrowser, true);
+                    return new Options(season, project, robot, alliance, count, port, openBrowser, true, warnings);
                 }
                 default -> throw new UsageError("Unknown option " + a, true);
             }
         }
         if (robots < 1 || robots > max) throw new UsageError("The number of robots must be between 1 and " + max + ", not " + robots, false);
         if (port < 1 || port > 65535) throw new UsageError("The port must be between 1 and 65535, not " + port, false);
-        count = Math.max(count, robots);
-        return new Options(season, project, robot, alliance, count, port, openBrowser, false);
+        if (robotsTyped) {
+            // --robots on the command line is how many robots there are: sim.properties' settings
+            // for robots after those are left out (they used to add their robots back).
+            if (typedCount > robots) throw new UsageError("--robots " + robots + ", but " + typedNumbered + " is for robot " + typedCount, false);
+            List<String> left = new ArrayList<>();
+            for (int k = robots + 1; k <= count; k++) {
+                if (project[k] != null || robot[k] != null || alliance[k] != null) left.add(Integer.toString(k));
+            }
+            if (!left.isEmpty()) {
+                warnings.add("--robots " + robots + ": leaving out robot " + String.join(" and ", left)
+                        + ", which sim.properties sets up.");
+            }
+            count = robots;
+        } else {
+            count = Math.max(Math.max(count, typedCount), robots);
+        }
+        return new Options(season, project, robot, alliance, count, port, openBrowser, false, warnings);
     }
 
     /** The value after option {@code args[i]}: missing when it is the last argument or another option. */

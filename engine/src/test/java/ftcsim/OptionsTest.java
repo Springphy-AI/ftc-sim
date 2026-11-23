@@ -93,6 +93,29 @@ class OptionsTest {
     }
 
     @Test
+    void robotsOnTheCommandLineIsHowManyRobotsThereAre() throws Exception {
+        Map<String, String> two = Map.of("project2", "/teams/other", "robot2", "robots/tank.json");
+        assertEquals(2, parse(two).count(), "sim.properties sets up robot 2");
+        Main.Options one = parse(two, "--robots", "1");
+        assertEquals(1, one.count(), "--robots 1 leaves robot 2 out");
+        assertEquals(List.of("--robots 1: leaving out robot 2, which sim.properties sets up."), one.warnings());
+        assertEquals(List.of(), parse(two).warnings());
+
+        Map<String, String> four = Map.of("robots", "4", "alliance3", "red", "robot4", "robots/tank.json");
+        assertEquals(4, parse(four).count());
+        Main.Options fewer = parse(four, "--robots", "2");
+        assertEquals(2, fewer.count());
+        assertEquals(List.of("--robots 2: leaving out robot 3 and 4, which sim.properties sets up."), fewer.warnings());
+        assertEquals(3, parse(Map.of("robots", "3")).count(), "robots= in sim.properties as before");
+        assertEquals(3, parse(two, "--robots", "3").count(), "more robots than sim.properties sets up");
+        assertEquals(3, parse(Map.of(), "--project3", "/teams/third").count(), "--project3 adds robots 2 and 3");
+
+        // Typed together, they disagree: say so rather than pick one.
+        Main.UsageError e = assertThrows(Main.UsageError.class, () -> parse(Map.of(), "--robots", "1", "--robot2", "robots/tank.json"));
+        assertEquals("--robots 1, but --robot2 is for robot 2", e.getMessage());
+    }
+
+    @Test
     void theSimulatorExplainsAMistakeInsteadOfCrashing() throws Exception {
         // The real program, as run-sim starts it: exit code 2 and a sentence, no stack trace.
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
