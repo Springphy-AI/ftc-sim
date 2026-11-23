@@ -106,13 +106,13 @@ public final class Main {
             return;
         }
         WebServer server = new WebServer(sim);
-        int bound = -1;
-        for (int attempt = 0; attempt < 10 && bound < 0; attempt++) {
-            try {
-                bound = server.start(port + attempt);
-            } catch (Exception e) {
-                if (attempt == 9) throw e;
-            }
+        int bound;
+        try {
+            bound = server.start(port, 10);
+        } catch (IllegalStateException e) {
+            System.err.println(e.getMessage());
+            System.exit(2);
+            return;
         }
         sim.start();
         String url = "http://localhost:" + bound + "/";

@@ -5,6 +5,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,7 +37,14 @@ import com.google.gson.JsonParser;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
+import io.javalin.util.JavalinBindException;
 import io.javalin.websocket.WsContext;
+
+import org.eclipse.jetty.server.Connector;
+import org.eclipse.jetty.server.HttpConfiguration;
+import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
 
 import ftcsim.cad.CadImport;
 import ftcsim.cad.CadMeshFile;
@@ -118,8 +129,45 @@ public final class WebServer {
         });
     }
 
+    /**
+     * Starts on {@code port}, or on the next of {@code tries} ports when another program has it, and
+     * returns the port.
+     *
+     * @throws IllegalStateException when every one is taken
+     */
+    public int start(int port, int tries) {
+        JavalinBindException taken = null;
+        for (int p = port; p < port + tries && p <= 65535; p++) {
+            try {
+                return start(p);
+            } catch (JavalinBindException e) {
+                taken = e;
+            }
+        }
+        throw new IllegalStateException("Ports " + port + " to " + Math.min(port + tries - 1, 65535)
+                + " are all in use by other programs: start with --port and another number.", taken);
+    }
+
+    /**
+     * Starts on {@code port} (0: any free port, for tests), at 127.0.0.1 and [::1]. The page is
+     * opened at localhost, which browsers may try at [::1] first: a program there, or on every
+     * address (Node's listen(port), Docker, many servers), would get the page's requests while the
+     * simulator listened at 127.0.0.1 alone, and on macOS binding 127.0.0.1 doesn't fail when a
+     * program has the port on every address. So a port where a program answers at either address
+     * is taken.
+     *
+     * @throws JavalinBindException when another program has the port
+     */
     public int start(int port) {
+        if (port != 0 && answered(port)) {
+            throw new JavalinBindException("Port " + port + " is in use by another program",
+                    new java.net.BindException("a program answers at localhost:" + port));
+        }
+        // Port 0 picks a port for each address: one address, so the URL's port is the only one.
+        boolean ipv6 = port != 0 && ipv6Loopback();
         app = Javalin.create(config -> {
+            config.jetty.addConnector((server, http) -> connector(server, http, "127.0.0.1", port));
+            if (ipv6) config.jetty.addConnector((server, http) -> connector(server, http, "::1", port));
             config.staticFiles.add("/web", Location.CLASSPATH);
             config.startup.showJavalinBanner = false;
             // Every request must be addressed to this computer by name. A web site that points its
@@ -170,12 +218,42 @@ public final class WebServer {
                 ws.onError(this::clientGone);
             });
         });
-        app.start("127.0.0.1", port);
+        app.start();
         return app.port();
     }
 
     public void stop() {
         if (app != null) app.stop();
+    }
+
+    private static Connector connector(Server server, HttpConfiguration http, String host, int port) {
+        ServerConnector c = new ServerConnector(server, new HttpConnectionFactory(http));
+        c.setHost(host);
+        c.setPort(port);
+        return c;
+    }
+
+    /** Whether a program answers on {@code port} at this computer's own address, IPv4 or IPv6. */
+    static boolean answered(int port) {
+        for (String host : new String[]{"127.0.0.1", "::1"}) {
+            try (Socket s = new Socket()) {
+                s.connect(new InetSocketAddress(InetAddress.getByName(host), port), 500);
+                return true;
+            } catch (IOException e) {
+                // nothing there (or no IPv6)
+            }
+        }
+        return false;
+    }
+
+    /** Whether this computer has an IPv6 loopback address to listen at. */
+    static boolean ipv6Loopback() {
+        try (ServerSocket s = new ServerSocket()) {
+            s.bind(new InetSocketAddress(InetAddress.getByName("::1"), 0));
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** A page closed or lost its connection: when it was the last one, every OpMode stops, as when a robot loses its Driver Station. */

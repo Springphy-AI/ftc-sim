@@ -227,4 +227,63 @@ class WebServerTest {
         other.abort();
         waitFor(Simulator.DsState.IDLE, 3000);
     }
+
+    /** A port nothing listens on, at any address, nor on the next 9. */
+    private static int freePorts() throws Exception {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            int p;
+            try (java.net.ServerSocket s = new java.net.ServerSocket(0)) {
+                p = s.getLocalPort();
+            }
+            if (p + 10 > 65535) continue;
+            boolean free = true;
+            for (int q = p; q < p + 10 && free; q++) {
+                try (java.net.ServerSocket s = new java.net.ServerSocket()) {
+                    s.bind(new java.net.InetSocketAddress(q));
+                } catch (java.io.IOException e) {
+                    free = false;
+                }
+            }
+            if (free) return p;
+        }
+        throw new IllegalStateException("no free ports");
+    }
+
+    @Test
+    void aPortAnotherProgramHasAtLocalhostIsPassedOver() throws Exception {
+        try (java.net.ServerSocket s = new java.net.ServerSocket()) {
+            s.bind(new java.net.InetSocketAddress(java.net.InetAddress.getByName("::1"), 0));
+        } catch (java.io.IOException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "no IPv6 here");
+        }
+        // The page is opened at localhost, which a browser may try at [::1] first. A program there,
+        // or on every address (Node's listen(port), Docker), would get the page's requests.
+        for (String address : List.of("::", "::1")) {
+            int p = freePorts();
+            try (java.net.ServerSocket other = new java.net.ServerSocket()) {
+                other.bind(new java.net.InetSocketAddress(java.net.InetAddress.getByName(address), p));
+                WebServer second = new WebServer(sim);
+                try {
+                    int chosen = second.start(p, 10);
+                    assertTrue(chosen > p && chosen < p + 10, "another program has [" + address + "]:" + p + ", the simulator took " + chosen);
+                } finally {
+                    second.stop();
+                }
+            }
+        }
+        // Free: the simulator takes it, and its page loads at either address, as localhost may be either.
+        int p = freePorts();
+        WebServer third = new WebServer(sim);
+        try {
+            assertEquals(p, third.start(p, 10));
+            for (String url : List.of("http://127.0.0.1:" + p + "/", "http://[::1]:" + p + "/", "http://localhost:" + p + "/")) {
+                var response = HttpClient.newHttpClient().send(java.net.http.HttpRequest.newBuilder(URI.create(url)).build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, response.statusCode(), url);
+                assertTrue(response.body().contains("FTC Simulator"), url);
+            }
+        } finally {
+            third.stop();
+        }
+    }
 }
