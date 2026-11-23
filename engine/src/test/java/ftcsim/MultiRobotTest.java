@@ -7,14 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -34,6 +35,21 @@ import ftcsim.sim.Simulator;
 class MultiRobotTest {
 
     private final List<String> messages = new CopyOnWriteArrayList<>();
+    /** Every simulator a test started: stopped after it, passed or failed, so none runs on into the next tests. */
+    private final List<Simulator> started = new ArrayList<>();
+
+    @TempDir
+    Path work;
+    private int builds;
+
+    @AfterEach
+    void stopSimulators() {
+        for (Simulator sim : started) sim.shutdown();
+    }
+
+    private Path buildDir() {
+        return work.resolve("build-" + builds++);
+    }
 
     private Simulator start(int robots) throws Exception {
         Path home = Path.of("").toAbsolutePath();
@@ -42,10 +58,11 @@ class MultiRobotTest {
         for (int i = 0; i < robots; i++) {
             TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
                     new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false),
-                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), Files.createTempDirectory("ftcsim-test"));
+                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), buildDir());
             specs.add(new Simulator.RobotSpec(robotFile, compiler, "test", null));
         }
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile.getParent(), specs);
+        started.add(sim);
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {
@@ -274,7 +291,7 @@ class MultiRobotTest {
         List<Simulator.RobotSpec> specs = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
             TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
-                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), Files.createTempDirectory("ftcsim-test"));
+                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), buildDir());
             specs.add(new Simulator.RobotSpec(robotFile, compiler, "test", "red"));
         }
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile.getParent(), specs);   // not started: no physics thread

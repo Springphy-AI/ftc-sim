@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +13,9 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import biobuzz.BiobuzzGame;
 import biobuzz.HiveBody;
@@ -26,6 +27,16 @@ import ftcsim.sim.Simulator;
 /** Runs the bundled example TeamCode on the default mecanum robot. */
 class ExampleOpModesTest {
     private final List<String> messages = new CopyOnWriteArrayList<>();
+    /** Every simulator a test started: stopped after it, passed or failed, so none runs on into the next tests. */
+    private final List<Simulator> started = new ArrayList<>();
+
+    @TempDir
+    Path work;
+
+    @AfterEach
+    void stopSimulators() {
+        for (Simulator sim : started) sim.shutdown();
+    }
 
     private Simulator start() throws Exception {
         return start("robots/mecanum.json");
@@ -34,9 +45,10 @@ class ExampleOpModesTest {
     private Simulator start(String robotFile) throws Exception {
         Path home = Path.of("").toAbsolutePath();
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
-                new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), Files.createTempDirectory("ftcsim-ex"));
+                new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), work.resolve("build-" + started.size()));
         Path robot = home.resolve(robotFile);
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(), compiler, "test");
+        started.add(sim);
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {

@@ -7,10 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import ftcsim.physics.FieldModel;
 import ftcsim.runner.OpModeInfo;
@@ -24,15 +27,25 @@ import ftcsim.sim.Simulator;
 class SampleOpModesTest {
 
     private final List<String> messages = new CopyOnWriteArrayList<>();
+    /** Every simulator a test started: stopped after it, passed or failed, so none runs on into the next tests. */
+    private final List<Simulator> started = new ArrayList<>();
+
+    @TempDir
+    Path work;
+
+    @AfterEach
+    void stopSimulators() {
+        for (Simulator sim : started) sim.shutdown();
+    }
 
     private Simulator start(String robot) throws Exception {
         Path home = Path.of("").toAbsolutePath();
-        Path work = Files.createTempDirectory("ftcsim-test");
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
                 new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false),
-                new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), work);
+                new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), work.resolve("build-" + started.size()));
         Path robotFile = home.resolve("robots/" + robot);
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile, robotFile.getParent(), compiler, "test");
+        started.add(sim);
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {

@@ -28,11 +28,15 @@ class PhysicsLoopTest {
     private final AtomicReference<String> lastState = new AtomicReference<>();
     private final AtomicReference<String> lastDevices = new AtomicReference<>();
 
+    /** Where TeamCode is built: apart from the TeamCode it builds. */
+    @TempDir
+    Path work;
+    private int builds;
+
     private Simulator start(Path teamCode) throws Exception {
         Path home = Path.of("").toAbsolutePath();
         Path robotFile = home.resolve("robots/mecanum.json");
-        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(teamCode, false)),
-                Files.createTempDirectory("ftcsim-test"));
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(teamCode, false)), work.resolve("build-" + builds++));
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile, robotFile.getParent(), compiler, "test");
         sim.setOutput(new Simulator.Output() {
             @Override

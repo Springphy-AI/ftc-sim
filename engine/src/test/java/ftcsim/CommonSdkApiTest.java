@@ -120,7 +120,7 @@ class CommonSdkApiTest {
 
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robotFile, robots,
                 new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir.resolve("src"), false)),
-                        Files.createTempDirectory("ftcsim-test")), "test");
+                        dir.resolve("build")), "test");
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {

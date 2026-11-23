@@ -24,6 +24,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagMetadata;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.ode4j.math.DVector3C;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -106,14 +107,14 @@ class SeasonsTest {
     }
 
     @Test
-    void robotFileStartSpotIsPerSeason() throws Exception {
+    void robotFileStartSpotIsPerSeason(@TempDir Path tmp) throws Exception {
         RobotConfig tank = RobotConfig.load(Path.of("robots/tank.json"));
         assertArrayEquals(new double[]{-1.2, -1.2, 0}, tank.startFor("biobuzz"), 1e-9);
         assertEquals(null, tank.startFor("decode"));
         Setup s = setup("decode", "tank.json");
         assertArrayEquals(s.field.season.startSpot("red", 1), s.rig.start, 1e-9, "DECODE puts it on its own red start spot");
         // A robot file from before there were seasons: its plain start is a BIOBUZZ spot.
-        Path old = Files.createTempDirectory("ftcsim-start").resolve("old.json");
+        Path old = tmp.resolve("old.json");
         Files.writeString(old, Files.readString(Path.of("robots/mecanum.json"))
                 .replace("\n  \"io\":", "\n  \"start\": [-1.0, 0.5, 90],\n  \"io\":"));
         RobotConfig legacy = RobotConfig.load(old);
@@ -303,12 +304,11 @@ class SeasonsTest {
      * coordinates. So the season's field and FIRST's agree, and TeamCode localizes correctly.
      */
     @Test
-    void firstsAprilTagLocalizationWorksOnTheDecodeField() throws Exception {
-        Path dir = Files.createTempDirectory("ftcsim-decode");
+    void firstsAprilTagLocalizationWorksOnTheDecodeField(@TempDir Path dir) throws Exception {
         Files.createDirectories(dir.resolve("teamcode"));
         Path robot = Path.of("robots/mecanum.json").toAbsolutePath();
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir.resolve("teamcode"), false)),
-                Files.createTempDirectory("ftcsim-decode-build"));
+                dir.resolve("build"));
         Simulator sim = new Simulator(Season.load("decode").field, robot, robot.getParent(), compiler, "test");
         VisionPortal portal = null;
         try {

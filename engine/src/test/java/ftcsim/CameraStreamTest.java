@@ -9,12 +9,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import ftcsim.hal.CameraPreviews;
 import ftcsim.physics.FieldModel;
@@ -26,11 +26,11 @@ import ftcsim.sim.Simulator;
 class CameraStreamTest {
 
     @Test
-    void liveViewIsServedAsMjpeg() throws Exception {
+    void liveViewIsServedAsMjpeg(@TempDir Path work) throws Exception {
         VisionAssumptions.assumeDetectorAvailable();
         Path home = Path.of("").toAbsolutePath();
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
-                new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), Files.createTempDirectory("ftcsim-cam"));
+                new TeamCodeCompiler.SourceRoot(home.resolve("examples/samples"), true)), work);
         Path robot = home.resolve("robots/mecanum.json");
         Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(), compiler, "test");
         WebServer server = new WebServer(sim);

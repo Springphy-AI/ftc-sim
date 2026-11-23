@@ -40,7 +40,7 @@ class WebServerTest {
         // A robots folder of its own: a CAD upload that got through would add a robot file to it.
         Path robot = Files.copy(home.resolve("robots/mecanum.json"), Files.createDirectories(tmp.resolve("robots")).resolve("mecanum.json"));
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)),
-                Files.createTempDirectory("ftcsim-test"));
+                tmp.resolve("build"));
         sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(), compiler, "test");
         server = new WebServer(sim);
         port = server.start(0);

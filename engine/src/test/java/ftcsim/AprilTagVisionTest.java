@@ -26,6 +26,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
@@ -77,17 +78,21 @@ class AprilTagVisionTest {
         if (sim != null) sim.shutdown();
     }
 
+    @TempDir
+    Path tmp;
+    private int setUps;
+
     /** A mecanum robot whose webcam is tilted up toward the HIVE, parked under the red HIVE. */
     private SimWebcamName setUp(double x, double y, double headingDeg, double pitchDeg) throws Exception {
         Path home = Path.of("").toAbsolutePath();
-        Path dir = Files.createTempDirectory("ftcsim-vision");
+        Path dir = Files.createDirectories(tmp.resolve("robot-" + setUps++));
         String json = Files.readString(home.resolve("robots/mecanum.json"))
                 .replace("\"pitch_deg\": 20 }", "\"pitch_deg\": " + pitchDeg + " }");
         Path robot = dir.resolve("vision.json");
         Files.writeString(robot, json);
         Files.createDirectories(dir.resolve("teamcode"));
         TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir.resolve("teamcode"), false)),
-                Files.createTempDirectory("ftcsim-vision-build"));
+                dir.resolve("build"));
         sim = new Simulator(FieldModel.loadBiobuzz(), robot, dir, compiler, "test");
         sim.setOutput(new Simulator.Output() {
             @Override

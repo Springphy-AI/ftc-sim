@@ -33,6 +33,10 @@ class OpModeLifecycleTest {
 
     @TempDir
     Path dir;
+    /** Where TeamCode is built: apart from {@link #dir}, the TeamCode it builds. */
+    @TempDir
+    Path work;
+    private int builds;
     private Simulator sim;
 
     @AfterEach
@@ -50,7 +54,7 @@ class OpModeLifecycleTest {
     private void start() throws Exception {
         Path robot = Path.of("").toAbsolutePath().resolve("robots/mecanum.json");
         sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(),
-                new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir, false)), Files.createTempDirectory("ftcsim-test")), "test");
+                new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir, false)), work.resolve("build-" + builds++)), "test");
         sim.setOutput(new Simulator.Output() {
             @Override
             public void broadcast(String json) {

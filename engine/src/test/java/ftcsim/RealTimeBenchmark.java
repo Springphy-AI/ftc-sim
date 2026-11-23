@@ -44,7 +44,7 @@ class RealTimeBenchmark {
         List<Simulator.RobotSpec> specs = new ArrayList<>();
         for (int i = 0; i < robots; i++) {
             TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(
-                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), Files.createTempDirectory("ftcsim-bench"));
+                    new TeamCodeCompiler.SourceRoot(home.resolve("examples/teamcode"), false)), Files.createDirectories(home.resolve("build/benchmark-teamcode/" + i)));
             specs.add(new Simulator.RobotSpec(file, compiler, "bench", null));
         }
         return new Simulator(FieldModel.loadBiobuzz(), file.getParent(), specs);
