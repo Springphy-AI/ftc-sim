@@ -1,6 +1,8 @@
 package ftcsim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 
@@ -20,6 +22,78 @@ class TelemetryTest {
         now += 1_000_000_000L;   // past the transmission interval
         SimTelemetry.Frame f = telemetry.takeFrameIfDue(now);
         return f == null ? null : f.lines;
+    }
+
+    /** The log the Driver Station shows after the next transmission. */
+    private List<String> shownLog() {
+        now += 1_000_000_000L;
+        SimTelemetry.Frame f = telemetry.takeFrameIfDue(now);
+        return f == null ? null : f.log;
+    }
+
+    @Test
+    void numbersAreFormattedAsTheDriverStationShowsThem() {
+        // TelemetryImpl$Value formats a Double or Float with DecimalFormat("0.####") when it is added;
+        // other objects with toString(), a format with String.format, and a Func's value with
+        // toString() only.
+        telemetry.addData("sum", 0.1 + 0.2);
+        telemetry.addData("third", 1 / 3f);
+        telemetry.addData("big", 1e10);
+        telemetry.addData("count", 42);
+        telemetry.addData("formatted", "%03d", 7);
+        telemetry.addData("func", () -> 0.1 + 0.2);
+        telemetry.addData("nothing", (Object) null);
+        telemetry.update();
+        assertEquals(List.of("sum : 0.3", "third : 0.3333", "big : 10000000000", "count : 42", "formatted : 007",
+                "func : 0.30000000000000004", "nothing : "), shown());
+    }
+
+    @Test
+    void setNumDecimalPlacesChangesTheValuesAddedAfterIt() {
+        telemetry.setNumDecimalPlaces(2, 3);
+        telemetry.addData("pi", Math.PI);
+        telemetry.addData("one", 1.0);
+        telemetry.addData("func", () -> Math.PI);   // not a number TelemetryImpl formats
+        telemetry.update();
+        assertEquals(List.of("pi : 3.142", "one : 1.00", "func : 3.141592653589793"), shown());
+    }
+
+    @Test
+    void dataAddedToAnItemGoesOnANewLineRightAfterIt() {
+        // ItemImpl.addData adds to the item's container after the item: a new line after a top-level
+        // item, the same line for an item of a line.
+        Telemetry.Item first = telemetry.addData("a", 1);
+        telemetry.addData("c", 3);
+        first.addData("b", 2);
+        telemetry.addLine("pose ").addData("x", 4).addData("y", 5);
+        telemetry.update();
+        assertEquals(List.of("a : 1", "b : 2", "c : 3", "pose x : 4 | y : 5"), shown());
+    }
+
+    @Test
+    void theLogShowsItsOldestEntryFirst() {
+        assertEquals(Telemetry.Log.DisplayOrder.OLDEST_FIRST, telemetry.log().getDisplayOrder());
+        telemetry.log().add("one");
+        telemetry.log().add("two %d", 2);
+        telemetry.log().add("50%");   // add(entry) is add("%s", entry): a percent sign is text
+        telemetry.update();
+        assertEquals(List.of("one", "two 2", "50%"), shownLog());
+    }
+
+    @Test
+    void whatAFuncOrAnActionThrowsComesOutOfUpdate() {
+        telemetry.addData("broken", () -> {
+            throw new IllegalStateException("sensor gone");
+        });
+        assertThrows(IllegalStateException.class, telemetry::update);
+        telemetry.clearAll();
+        Runnable action = () -> {
+            throw new ArithmeticException();
+        };
+        assertSame(action, telemetry.addAction(action), "the token is the action, as TelemetryImpl returns it");
+        assertThrows(ArithmeticException.class, telemetry::update);
+        telemetry.removeAction(action);
+        telemetry.update();
     }
 
     @Test

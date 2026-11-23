@@ -1,21 +1,21 @@
 package ftcsim.hal;
 
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import org.firstinspires.ftc.robotcore.external.Func;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 /**
- * Telemetry implementation with the SDK's semantics: items and lines, Func values evaluated at
- * transmission, retained items, auto-clear, a log, and a transmission interval (250 ms by default)
- * that throttles what reaches the Driver Station.
+ * Telemetry as FIRST's TelemetryImpl keeps it: items and lines (an item added to an item goes on a
+ * new line after it, one added to a line goes on that line), values formatted as it formats them,
+ * Func values and actions run when a transmission is composed, retained items, auto-clear, a log,
+ * and a transmission interval (250 ms by default) that throttles what reaches the Driver Station.
  */
 public final class SimTelemetry implements Telemetry {
 
@@ -34,18 +34,20 @@ public final class SimTelemetry implements Telemetry {
         }
     }
 
+    /** The robot's locale: the Control Hub formats numbers as en_US does. */
+    private static final DecimalFormatSymbols ROBOT_SYMBOLS = DecimalFormatSymbols.getInstance(Locale.US);
+
     private final Object lock = new Object();
-    private final List<LineImpl> lines = new ArrayList<LineImpl>();
-    private final Map<Object, Runnable> actions = new LinkedHashMap<Object, Runnable>();
+    private final LineableContainer lines = new LineableContainer();
+    private final List<Runnable> actions = new LinkedList<Runnable>();
     private final LogImpl log = new LogImpl();
+    private final DecimalFormat decimalFormat = new DecimalFormat("0.####", ROBOT_SYMBOLS);
 
     private boolean autoClear = true;
     private int msTransmissionInterval = 250;
     private String itemSeparator = " | ";
     private String captionValueSeparator = " : ";
     private DisplayFormat displayFormat = DisplayFormat.CLASSIC;
-    private int minDecimals = -1;
-    private int maxDecimals = -1;
     private boolean dirty = false;
     /** Set by update() with auto-clear on: the next line or item added clears what is shown first. */
     private boolean clearOnAdd = false;
@@ -96,15 +98,15 @@ public final class SimTelemetry implements Telemetry {
 
     // ---- Telemetry --------------------------------------------------------------------------
 
+    /**
+     * Runs the actions and composes the lines, as TelemetryImpl does when it transmits. What an
+     * action or a Func throws comes out of update(), as on the robot.
+     */
     @Override
     public boolean update() {
         synchronized (lock) {
-            for (Runnable action : new ArrayList<Runnable>(actions.values())) {
-                try {
-                    action.run();
-                } catch (RuntimeException e) {
-                    SimLog.log('W', "Telemetry", "telemetry action threw " + e);
-                }
+            for (Runnable action : actions) {
+                action.run();
             }
             lastComposedLines = compose();
             pending = new Frame(lastComposedLines, log.snapshot(), displayFormat);
@@ -119,9 +121,9 @@ public final class SimTelemetry implements Telemetry {
     }
 
     private List<String> compose() {
-        List<String> out = new ArrayList<String>(lines.size());
-        for (LineImpl line : lines) {
-            out.add(line.render());
+        List<String> out = new ArrayList<String>(lines.list.size());
+        for (Lineable l : lines.list) {
+            out.add(l.getComposed(true));
         }
         return out;
     }
@@ -134,91 +136,67 @@ public final class SimTelemetry implements Telemetry {
 
     @Override
     public Item addData(String caption, String format, Object... args) {
-        synchronized (lock) {
-            return newLine("").addItem(caption).setValue(format, args);
-        }
+        return lines.addItemAfter(null, caption, new Value<Object>(format, args));
     }
 
     @Override
     public Item addData(String caption, Object value) {
-        synchronized (lock) {
-            return newLine("").addItem(caption).setValue(value);
-        }
+        return lines.addItemAfter(null, caption, new Value<Object>(value));
     }
 
     @Override
     public <T> Item addData(String caption, Func<T> valueProducer) {
-        synchronized (lock) {
-            return newLine("").addItem(caption).setValue(valueProducer);
-        }
+        return lines.addItemAfter(null, caption, new Value<T>(valueProducer));
     }
 
     @Override
     public <T> Item addData(String caption, String format, Func<T> valueProducer) {
-        synchronized (lock) {
-            return newLine("").addItem(caption).setValue(format, valueProducer);
-        }
+        return lines.addItemAfter(null, caption, new Value<T>(format, valueProducer));
     }
 
     @Override
     public Line addLine() {
-        return addLine("");
+        return lines.addLineAfter(null, "");
     }
 
     @Override
     public Line addLine(String lineCaption) {
-        synchronized (lock) {
-            return newLine(lineCaption);
-        }
+        return lines.addLineAfter(null, lineCaption);
     }
 
     /** A line or an item is about to be added: clears what update() left, if it asked for that. */
     private void onAddData() {
         if (clearOnAdd) {
             clear();
+            clearOnAdd = false;
         }
-    }
-
-    private LineImpl newLine(String caption) {
-        onAddData();
-        LineImpl line = new LineImpl(caption == null ? "null" : caption);
-        lines.add(line);
         dirty = true;
-        return line;
     }
 
     @Override
     public boolean removeItem(Item item) {
-        synchronized (lock) {
-            for (Iterator<LineImpl> it = lines.iterator(); it.hasNext(); ) {
-                LineImpl line = it.next();
-                if (line.items.remove(item)) {
-                    if (line.items.isEmpty() && line.caption.isEmpty()) it.remove();
-                    return true;
-                }
-            }
-            return false;
+        if (item instanceof ItemImpl) {
+            ItemImpl i = (ItemImpl) item;
+            return i.parent.remove(i);
         }
+        return false;
     }
 
     @Override
     public boolean removeLine(Line line) {
-        synchronized (lock) {
-            return lines.remove(line);
+        if (line instanceof LineImpl) {
+            LineImpl l = (LineImpl) line;
+            return l.parent.remove(l);
         }
+        return false;
     }
 
+    /** Removes the items that aren't retained, and the lines left without items. */
     @Override
     public void clear() {
         synchronized (lock) {
             clearOnAdd = false;
-            for (Iterator<LineImpl> it = lines.iterator(); it.hasNext(); ) {
-                LineImpl line = it.next();
-                for (Iterator<ItemImpl> items = line.items.iterator(); items.hasNext(); ) {
-                    if (!items.next().retained) items.remove();
-                }
-                if (line.items.isEmpty()) it.remove();
-            }
+            lines.removeAllRecurse(false);
         }
     }
 
@@ -226,24 +204,24 @@ public final class SimTelemetry implements Telemetry {
     public void clearAll() {
         synchronized (lock) {
             clearOnAdd = false;
-            lines.clear();
             actions.clear();
+            lines.removeAllRecurse(true);
         }
     }
 
+    /** As TelemetryImpl: the action itself is the token removeAction() takes. */
     @Override
     public Object addAction(Runnable action) {
         synchronized (lock) {
-            Object token = new Object();
-            actions.put(token, action);
-            return token;
+            actions.add(action);
+            return action;
         }
     }
 
     @Override
     public boolean removeAction(Object token) {
         synchronized (lock) {
-            return actions.remove(token) != null;
+            return actions.remove(token);
         }
     }
 
@@ -259,9 +237,7 @@ public final class SimTelemetry implements Telemetry {
 
     @Override
     public boolean isAutoClear() {
-        synchronized (lock) {
-            return autoClear;
-        }
+        return autoClear;
     }
 
     @Override
@@ -273,23 +249,19 @@ public final class SimTelemetry implements Telemetry {
 
     @Override
     public int getMsTransmissionInterval() {
-        synchronized (lock) {
-            return msTransmissionInterval;
-        }
+        return msTransmissionInterval;
     }
 
     @Override
     public void setMsTransmissionInterval(int msTransmissionInterval) {
         synchronized (lock) {
-            this.msTransmissionInterval = Math.max(0, msTransmissionInterval);
+            this.msTransmissionInterval = msTransmissionInterval;
         }
     }
 
     @Override
     public String getItemSeparator() {
-        synchronized (lock) {
-            return itemSeparator;
-        }
+        return itemSeparator;
     }
 
     @Override
@@ -301,9 +273,7 @@ public final class SimTelemetry implements Telemetry {
 
     @Override
     public String getCaptionValueSeparator() {
-        synchronized (lock) {
-            return captionValueSeparator;
-        }
+        return captionValueSeparator;
     }
 
     @Override
@@ -320,11 +290,12 @@ public final class SimTelemetry implements Telemetry {
         }
     }
 
+    /** As TelemetryImpl: the decimal places of Double and Float values added from now on. */
     @Override
     public void setNumDecimalPlaces(int minDecimalPlaces, int maxDecimalPlaces) {
         synchronized (lock) {
-            this.minDecimals = Math.max(0, minDecimalPlaces);
-            this.maxDecimals = Math.max(this.minDecimals, maxDecimalPlaces);
+            decimalFormat.setMinimumFractionDigits(minDecimalPlaces);
+            decimalFormat.setMaximumFractionDigits(maxDecimalPlaces);
         }
     }
 
@@ -333,103 +304,214 @@ public final class SimTelemetry implements Telemetry {
         return log;
     }
 
-    private String formatValue(Object value) {
-        if (value == null) return "null";
-        if (maxDecimals >= 0 && (value instanceof Double || value instanceof Float)) {
-            double d = ((Number) value).doubleValue();
-            String s = String.format(Locale.US, "%." + maxDecimals + "f", d);
-            if (s.indexOf('.') >= 0) {
-                int keep = s.indexOf('.') + 1 + minDecimals;
-                int end = s.length();
-                while (end > keep && s.charAt(end - 1) == '0') end--;
-                if (end > 0 && s.charAt(end - 1) == '.') end--;
-                s = s.substring(0, end);
-            }
-            return s;
-        }
-        return value.toString();
+    // ---- items and lines, as TelemetryImpl's ------------------------------------------------------
+
+    private interface Lineable {
+        String getComposed(boolean recompose);
     }
 
-    // ---- items and lines --------------------------------------------------------------------
+    /** What an item shows: TelemetryImpl$Value. */
+    private final class Value<T> {
+        final String format;
+        final Object[] formatArgs;
+        final Object value;
+        final Func<T> valueProducer;
+        String composed;
 
-    private final class LineImpl implements Line {
-        final String caption;
-        final List<ItemImpl> items = new ArrayList<ItemImpl>();
-
-        LineImpl(String caption) {
-            this.caption = caption;
+        Value(String format, Object... formatArgs) {
+            this.format = format;
+            this.formatArgs = formatArgs;
+            this.value = null;
+            this.valueProducer = null;
         }
 
-        ItemImpl addItem(String caption) {
-            onAddData();
-            ItemImpl item = new ItemImpl(this, caption);
-            items.add(item);
-            dirty = true;
-            return item;
+        Value(String format, Func<T> valueProducer) {
+            this.format = format;
+            this.formatArgs = null;
+            this.value = null;
+            this.valueProducer = valueProducer;
         }
 
-        String render() {
-            StringBuilder sb = new StringBuilder(caption);
-            for (int i = 0; i < items.size(); i++) {
-                if (i > 0) sb.append(itemSeparator);
-                sb.append(items.get(i).render());
+        /** A Double or Float is formatted now, with the decimal places set now ("0.####" by default). */
+        Value(Object value) {
+            this.format = null;
+            this.formatArgs = null;
+            this.valueProducer = null;
+            synchronized (lock) {
+                this.value = value instanceof Double || value instanceof Float ? decimalFormat.format(value) : value;
+            }
+        }
+
+        Value(Func<T> valueProducer) {
+            this.format = null;
+            this.formatArgs = null;
+            this.value = null;
+            this.valueProducer = valueProducer;
+        }
+
+        boolean isProducer() {
+            return valueProducer != null;
+        }
+
+        String getComposed(boolean recompose) {
+            if (recompose || composed == null) composed = compose();
+            return composed;
+        }
+
+        private String compose() {
+            if (format != null) {
+                if (formatArgs != null) return String.format(format, formatArgs);
+                if (valueProducer != null) return String.format(format, valueProducer.value());
+            } else {
+                if (value != null) return value.toString();
+                if (valueProducer != null) return valueProducer.value().toString();
+            }
+            return "";
+        }
+    }
+
+    /** A list of lines and items (the screen) or of items (a line): TelemetryImpl$LineableContainer. */
+    private final class LineableContainer {
+        final ArrayList<Lineable> list = new ArrayList<Lineable>();
+
+        /** As TelemetryImpl, a container takes at most 255 entries; more are dropped. */
+        private void boundedAddToList(int index, Lineable l) {
+            if (list.size() < 255) list.add(index, l);
+        }
+
+        private int indexAfter(Lineable prev) {
+            return prev == null ? list.size() : list.indexOf(prev) + 1;
+        }
+
+        Line addLineAfter(Lineable prev, String lineCaption) {
+            synchronized (lock) {
+                onAddData();
+                LineImpl line = new LineImpl(lineCaption, this);
+                boundedAddToList(indexAfter(prev), line);
+                return line;
+            }
+        }
+
+        Item addItemAfter(Lineable prev, String caption, Value<?> value) {
+            synchronized (lock) {
+                onAddData();
+                ItemImpl item = new ItemImpl(this, caption, value);
+                boundedAddToList(indexAfter(prev), item);
+                return item;
+            }
+        }
+
+        boolean isEmpty() {
+            synchronized (lock) {
+                return list.isEmpty();
+            }
+        }
+
+        boolean remove(Lineable l) {
+            synchronized (lock) {
+                for (int i = 0; i < list.size(); i++) {
+                    if (list.get(i) == l) {
+                        list.remove(i);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        /** Removes the items {@code all} or not retained, and the lines that are then empty. */
+        boolean removeAllRecurse(boolean all) {
+            synchronized (lock) {
+                boolean removed = false;
+                int i = 0;
+                while (i < list.size()) {
+                    Lineable l = list.get(i);
+                    if (l instanceof LineImpl) {
+                        LineImpl line = (LineImpl) l;
+                        line.lineables.removeAllRecurse(all);
+                        if (line.lineables.isEmpty()) {
+                            list.remove(i);
+                            removed = true;
+                        } else {
+                            i++;
+                        }
+                    } else if (l instanceof ItemImpl) {
+                        if (all || !((ItemImpl) l).isRetained()) {
+                            list.remove(i);
+                            removed = true;
+                        } else {
+                            i++;
+                        }
+                    } else {
+                        i++;
+                    }
+                }
+                return removed;
+            }
+        }
+    }
+
+    private final class LineImpl implements Line, Lineable {
+        final LineableContainer parent;
+        final String lineCaption;
+        final LineableContainer lineables = new LineableContainer();
+
+        LineImpl(String lineCaption, LineableContainer parent) {
+            this.lineCaption = lineCaption;
+            this.parent = parent;
+        }
+
+        @Override
+        public String getComposed(boolean recompose) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(lineCaption);
+            boolean first = true;
+            for (Lineable l : lineables.list) {
+                if (!first) sb.append(itemSeparator);
+                sb.append(l.getComposed(recompose));
+                first = false;
             }
             return sb.toString();
         }
 
         @Override
         public Item addData(String caption, String format, Object... args) {
-            synchronized (lock) {
-                return addItem(caption).setValue(format, args);
-            }
+            return lineables.addItemAfter(null, caption, new Value<Object>(format, args));
         }
 
         @Override
         public Item addData(String caption, Object value) {
-            synchronized (lock) {
-                return addItem(caption).setValue(value);
-            }
+            return lineables.addItemAfter(null, caption, new Value<Object>(value));
         }
 
         @Override
         public <T> Item addData(String caption, Func<T> valueProducer) {
-            synchronized (lock) {
-                return addItem(caption).setValue(valueProducer);
-            }
+            return lineables.addItemAfter(null, caption, new Value<T>(valueProducer));
         }
 
         @Override
         public <T> Item addData(String caption, String format, Func<T> valueProducer) {
-            synchronized (lock) {
-                return addItem(caption).setValue(format, valueProducer);
-            }
+            return lineables.addItemAfter(null, caption, new Value<T>(format, valueProducer));
         }
     }
 
-    private final class ItemImpl implements Item {
-        final LineImpl line;
+    private final class ItemImpl implements Item, Lineable {
+        final LineableContainer parent;
         String caption;
-        String value = "";
-        Func<?> producer;
-        String producerFormat;
-        boolean retained = false;
+        Value<?> value;
+        Boolean retained;
 
-        ItemImpl(LineImpl line, String caption) {
-            this.line = line;
-            this.caption = caption == null ? "null" : caption;
+        ItemImpl(LineableContainer parent, String caption, Value<?> value) {
+            this.parent = parent;
+            this.caption = caption;
+            this.value = value;
         }
 
-        String render() {
-            String v = value;
-            if (producer != null) {
-                try {
-                    Object produced = producer.value();
-                    v = producerFormat != null ? String.format(producerFormat, produced) : formatValue(produced);
-                } catch (RuntimeException e) {
-                    v = "<" + e.getClass().getSimpleName() + ">";
-                }
+        @Override
+        public String getComposed(boolean recompose) {
+            synchronized (lock) {
+                return String.format("%s%s%s", caption, captionValueSeparator, value.getComposed(recompose));
             }
-            return caption + captionValueSeparator + v;
         }
 
         @Override
@@ -439,60 +521,42 @@ public final class SimTelemetry implements Telemetry {
 
         @Override
         public Item setCaption(String caption) {
-            synchronized (lock) {
-                this.caption = caption;
-                dirty = true;
-                return this;
-            }
+            this.caption = caption;
+            return this;
         }
 
         @Override
         public Item setValue(String format, Object... args) {
-            synchronized (lock) {
-                this.value = String.format(format, args);
-                this.producer = null;
-                dirty = true;
-                return this;
-            }
+            return internalSetValue(new Value<Object>(format, args));
         }
 
         @Override
         public Item setValue(Object value) {
-            synchronized (lock) {
-                this.value = formatValue(value);
-                this.producer = null;
-                dirty = true;
-                return this;
-            }
+            return internalSetValue(new Value<Object>(value));
         }
 
         @Override
         public <T> Item setValue(Func<T> valueProducer) {
-            synchronized (lock) {
-                this.producer = valueProducer;
-                this.producerFormat = null;
-                // Items whose values come from a Func are retained by default, as in the SDK.
-                this.retained = true;
-                dirty = true;
-                return this;
-            }
+            return internalSetValue(new Value<T>(valueProducer));
         }
 
         @Override
         public <T> Item setValue(String format, Func<T> valueProducer) {
+            return internalSetValue(new Value<T>(format, valueProducer));
+        }
+
+        private Item internalSetValue(Value<?> v) {
             synchronized (lock) {
-                this.producer = valueProducer;
-                this.producerFormat = format;
-                this.retained = true;
-                dirty = true;
+                this.value = v;
                 return this;
             }
         }
 
+        /** Items whose values come from a Func are retained unless told otherwise, as in the SDK. */
         @Override
         public Item setRetained(Boolean retained) {
             synchronized (lock) {
-                this.retained = retained == null ? producer != null : retained;
+                this.retained = retained;
                 return this;
             }
         }
@@ -500,64 +564,70 @@ public final class SimTelemetry implements Telemetry {
         @Override
         public boolean isRetained() {
             synchronized (lock) {
-                return retained;
+                return retained != null ? retained : value.isProducer();
             }
         }
 
+        // An item added to an item goes right after it, in the same container: on a line of its own
+        // after a top-level item, or after it on the same line for an item of a line.
+
         @Override
         public Item addData(String caption, String format, Object... args) {
-            return line.addData(caption, format, args);
+            return parent.addItemAfter(this, caption, new Value<Object>(format, args));
         }
 
         @Override
         public Item addData(String caption, Object value) {
-            return line.addData(caption, value);
+            return parent.addItemAfter(this, caption, new Value<Object>(value));
         }
 
         @Override
         public <T> Item addData(String caption, Func<T> valueProducer) {
-            return line.addData(caption, valueProducer);
+            return parent.addItemAfter(this, caption, new Value<T>(valueProducer));
         }
 
         @Override
         public <T> Item addData(String caption, String format, Func<T> valueProducer) {
-            return line.addData(caption, format, valueProducer);
+            return parent.addItemAfter(this, caption, new Value<T>(format, valueProducer));
         }
     }
 
+    /** TelemetryImpl$LogImpl: 9 entries, oldest first. */
     private final class LogImpl implements Log {
-        private final LinkedList<String> entries = new LinkedList<String>();
+        private final List<String> entries = new ArrayList<String>();
         private int capacity = 9;
-        private DisplayOrder displayOrder = DisplayOrder.NEWEST_FIRST;
+        private DisplayOrder displayOrder = DisplayOrder.OLDEST_FIRST;
 
         List<String> snapshot() {
             synchronized (lock) {
                 List<String> out = new ArrayList<String>(entries);
-                if (displayOrder == DisplayOrder.NEWEST_FIRST) Collections.reverse(out);
+                if (displayOrder != DisplayOrder.OLDEST_FIRST) Collections.reverse(out);
                 return out;
+            }
+        }
+
+        private void prune() {
+            synchronized (lock) {
+                while (entries.size() > capacity && entries.size() > 0) entries.remove(0);
             }
         }
 
         @Override
         public int getCapacity() {
-            synchronized (lock) {
-                return capacity;
-            }
+            return capacity;
         }
 
         @Override
         public void setCapacity(int capacity) {
             synchronized (lock) {
-                this.capacity = Math.max(0, capacity);
-                while (entries.size() > this.capacity) entries.removeFirst();
+                this.capacity = capacity;
+                prune();
             }
         }
 
         @Override
         public DisplayOrder getDisplayOrder() {
-            synchronized (lock) {
-                return displayOrder;
-            }
+            return displayOrder;
         }
 
         @Override
@@ -569,16 +639,16 @@ public final class SimTelemetry implements Telemetry {
 
         @Override
         public void add(String entry) {
-            synchronized (lock) {
-                entries.addLast(entry);
-                while (entries.size() > capacity) entries.removeFirst();
-            }
-            logChanged();
+            add("%s", entry);
         }
 
         @Override
         public void add(String format, Object... args) {
-            add(String.format(format, args));
+            synchronized (lock) {
+                entries.add(String.format(format, args));
+                prune();
+            }
+            logChanged();
         }
 
         @Override
