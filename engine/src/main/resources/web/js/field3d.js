@@ -378,6 +378,9 @@ export class FieldView {
 
   /** One sphere per game piece, in the order the simulator streams their positions. */
   setBalls(list) {
+    // Every hello brings the list again: the renderer lets go of the last one's buffers and shaders
+    // only when they are disposed. (Disposing a material leaves its textures: the holes stay cached.)
+    for (const m of new Set((this.balls ?? []).flatMap((b) => [b.geometry, b.material]))) m.dispose();
     this.ballGroup.clear();
     this.balls = [];
     const geos = {};
