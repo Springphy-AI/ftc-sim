@@ -173,25 +173,30 @@ public final class Season {
             case "mirror_x" -> new double[]{-x, y, 180 - h};
             default -> new double[]{-x, -y, h + 180};
         };
-        out[2] = ((out[2] + 180) % 360 + 360) % 360 - 180;
+        out[2] = normalizeDeg(out[2]);
         return out;
     }
 
     /**
      * Station 2's spot when a robot file gives station 1's: season.json "partner" says how
-     * ("mirror_y": across the y = 0 line, beside it when it is on that line), or null to use
-     * the season's own station 2 spot.
+     * ("mirror_y": across the y = 0 line, facing the mirrored way too; beside it, facing the
+     * same way, when it is on that line), or null to use the season's own station 2 spot.
      */
     public double[] partnerOf(double[] pose) {
         if ("mirror_y".equals(partner)) {
-            double y = Math.abs(pose[1]) >= 0.3 ? -pose[1] : pose[1] + 0.65;
-            return new double[]{pose[0], y, pose[2]};
+            if (Math.abs(pose[1]) < 0.3) return new double[]{pose[0], pose[1] + 0.65, pose[2]};
+            return new double[]{pose[0], -pose[1], normalizeDeg(-pose[2])};
         }
         if ("mirror_x".equals(partner)) {
-            double x = Math.abs(pose[0]) >= 0.3 ? -pose[0] : pose[0] + 0.65;
-            return new double[]{x, pose[1], pose[2]};
+            if (Math.abs(pose[0]) < 0.3) return new double[]{pose[0] + 0.65, pose[1], pose[2]};
+            return new double[]{-pose[0], pose[1], normalizeDeg(180 - pose[2])};
         }
         return null;
+    }
+
+    /** An angle in degrees as -180 up to 180. */
+    private static double normalizeDeg(double deg) {
+        return ((deg + 180) % 360 + 360) % 360 - 180;
     }
 
     /** What the browser needs besides the field: names and where the audience and drivers are. */

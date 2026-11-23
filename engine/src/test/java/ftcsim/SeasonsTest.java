@@ -121,6 +121,21 @@ class SeasonsTest {
         assertEquals(null, legacy.startFor("decode"), "not a spot on the DECODE field");
     }
 
+    @Test
+    void theAlliancePartnerOfARobotFilesStartFacesTheMirroredWay() throws Exception {
+        Season biobuzz = Season.load("biobuzz");   // partner: mirror_y
+        // robots/my-robot.json: back to the audience wall, facing the red HIVE (+y). Its partner
+        // starts against the rear wall, so it must face -y: into the field, not into the wall.
+        double[] own = RobotConfig.load(Path.of("robots/my-robot.json")).startFor("biobuzz");
+        assertArrayEquals(new double[]{-0.3239, 1.5964, -90}, biobuzz.partnerOf(own), 1e-9);
+        assertArrayEquals(new double[]{-1.2, 1.2, -30}, biobuzz.partnerOf(new double[]{-1.2, -1.2, 30}), 1e-9);
+        assertArrayEquals(new double[]{-1.2, 0.75, 30}, biobuzz.partnerOf(new double[]{-1.2, 0.1, 30}), 1e-9,
+                "on the line: beside it, facing the same way");
+        // And the partner of the other alliance's robot is where the field's symmetry puts it.
+        double[] blue2 = biobuzz.otherAlliance(biobuzz.partnerOf(own));
+        assertEquals(-blue2[2], biobuzz.otherAlliance(own)[2], 1e-9, "the blue robots face mirrored ways too");
+    }
+
     // ---- DECODE ----------------------------------------------------------------------------------
 
     @Test
