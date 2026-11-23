@@ -170,14 +170,18 @@ ds.onDsChange((i, st) => {
 
 // ---- CAD models: conversion progress and problems --------------------------------------------
 let cadNoticeTimer = null;
+let cadProblems = null;     // the robots' CAD problems, while the notice shows them
+let cadProblemsSaid = '';   // the CAD problems last shown: said once, until they change
 function cadNotice(text, kind = '', hideAfterMs = 0) {
   const el = $('cadNotice');
   clearTimeout(cadNoticeTimer);
+  cadProblems = null;
   el.hidden = !text;
-  el.textContent = text || '';
+  $('cadNoticeText').textContent = text || '';
   el.className = 'cad-notice' + (kind ? ' ' + kind : '');
   if (hideAfterMs) cadNoticeTimer = setTimeout(() => { el.hidden = true; }, hideAfterMs);
 }
+$('cadNoticeClose').addEventListener('click', () => cadNotice(''));
 
 let imported = null;       // {robot, file}: a robot just made from a STEP file, until it's built
 let importShownAt = 0;
@@ -205,7 +209,17 @@ function checkCad() {
       imported = null;
     }
   });
-  if (problems.length) cadNotice(problems.join('\n'), 'err');
+  // What's wrong shows when it changes, until it's dismissed or no robot has a problem any more
+  // (a notice about something else, a conversion or an import, stays).
+  const text = problems.join('\n');
+  if (text === cadProblemsSaid) return;
+  cadProblemsSaid = text;
+  if (text) {
+    cadNotice(text, 'err');
+    cadProblems = text;
+  } else if (cadProblems !== null) {
+    cadNotice('');
+  }
 }
 
 // ---- a robot from CAD: pick or drop the STEP file of its assembly -----------------------------
