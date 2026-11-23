@@ -100,6 +100,9 @@ def robotCoreClasses = [
         // Devices that only pass calls to their controller, which the simulated hub implements.
         'com/qualcomm/robotcore/hardware/AnalogInput.class',
         'com/qualcomm/robotcore/hardware/AnalogInputController.class',
+        // How an IMU is mounted, and the IMU's quaternion math (BHI260IMU's QuaternionBasedImuHelper).
+        'com/qualcomm/robotcore/hardware/ImuOrientationOnRobot.class',
+        'com/qualcomm/robotcore/hardware/QuaternionBasedImuHelper*.class',
         'com/qualcomm/robotcore/hardware/LED.class',
         // The device interfaces HardwareMap has mappings for (the simulated robot has none of these).
         'com/qualcomm/robotcore/hardware/AccelerationSensor.class',
@@ -147,6 +150,8 @@ def ftcRobotCoreJar = tasks.register('ftcRobotCoreJar', Jar) {
 // The pure-Java classes of FIRST's Hardware module that robot code uses.
 def hardwareClasses = [
         'com/qualcomm/hardware/rev/RevBlinkinLedDriver*.class',   // sets a pulse width on a servo port
+        'com/qualcomm/hardware/rev/RevHubOrientationOnRobot*.class',
+        'com/qualcomm/hardware/rev/RevImuOrientationOnRobot*.class',
 ]
 
 def ftcHardwareJar = tasks.register('ftcHardwareJar', Jar) {

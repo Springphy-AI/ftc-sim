@@ -5,7 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.firstinspires.ftc.robotcore.external.navigation.Quaternion;
 import org.ode4j.math.DMatrix3C;
 import org.ode4j.math.DVector3;
 
@@ -205,8 +204,7 @@ public final class RobotRig {
         RevHubOrientationOnRobot mount = new RevHubOrientationOnRobot(
                 RevHubOrientationOnRobot.LogoFacingDirection.valueOf(config.imu.logo.trim().toUpperCase(java.util.Locale.ROOT)),
                 RevHubOrientationOnRobot.UsbFacingDirection.valueOf(config.imu.usb.trim().toUpperCase(java.util.Locale.ROOT)));
-        Quaternion q = mount.imuCoordinateSystemOrientationFromPerspectiveOfRobot();
-        imu = new ImuBackend(Rotations.fromQuaternion(q.w, q.x, q.y, q.z));
+        imu = new ImuBackend(mount);
 
         body = new RobotBody(world, config, motors::get);
         try {
@@ -543,7 +541,7 @@ public final class RobotRig {
         for (MotorUnit u : motors.values()) u.resetState();
         for (Mechanism m : mechanisms) m.reset();   // with its encoder back at 0, the arm must be back at its start too
         for (ServoJoint j : servoJoints) j.hornAtLinkStart();   // (Reset put the CAD links back at their start)
-        imu.yawOffsetRad = 0;
+        imu.powerCycle();
         captureImuReference();
     }
 
