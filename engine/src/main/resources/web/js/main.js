@@ -21,6 +21,7 @@ const locked = Number.isInteger(param) && param >= 1 ? param - 1 : null;
 let robots = [];          // from the hello message
 let robotFiles = [];
 let current = locked ?? 0;
+let offField = false;     // this is a ?robot=N page and robot N isn't on the field: it acts on no robot
 try {
   const saved = Number(sessionStorage.getItem('ftcsim.robot'));
   if (locked === null && Number.isInteger(saved) && saved >= 0) current = saved;
@@ -54,7 +55,7 @@ const setPlacing = (on) => {
   placeBtn.classList.toggle('on', on);
   $('placeHint').hidden = !on;
   view.setPlaceMode(on, (x, y, h) => {
-    send({ type: 'place', robot: current, x, y, h });
+    if (!offField) send({ type: 'place', robot: current, x, y, h });
     setPlacing(false);
   });
 };
@@ -122,8 +123,8 @@ function renderStats(stats) {
     d.querySelector('.v').textContent = st.value;
   });
 }
-$('resetBtn').addEventListener('click', () => send({ type: 'reset', robot: current }));
-$('robotSelect').addEventListener('change', (e) => send({ type: 'robot', robot: current, file: e.target.value }));
+$('resetBtn').addEventListener('click', () => { if (!offField) send({ type: 'reset', robot: current }); });
+$('robotSelect').addEventListener('change', (e) => { if (!offField) send({ type: 'robot', robot: current, file: e.target.value }); });
 
 /** Shows robot i's Driver Station (and points the chase camera and Place robot at it). */
 function showRobot(i) {
@@ -159,7 +160,20 @@ function renderRobotInfo() {
   $('resetBtn').title = several
     ? 'Power-cycle every robot, put them back at their start positions and restage the game pieces'
     : 'Power-cycle the robot, put it back at its start position and restage the game pieces';
-  if (locked !== null) document.title = `Robot ${current + 1} · FTC Simulator`;
+  if (locked !== null) document.title = `Robot ${locked + 1}${offField ? ' (not on the field)' : ''} · FTC Simulator`;
+}
+
+/**
+ * A ?robot=N page for a robot that isn't on the field (the simulator restarted with fewer) shows the
+ * last robot but acts on none: that robot has a driver of its own. Its buttons come back when robot
+ * N does.
+ */
+function setOffField(on) {
+  offField = on;
+  if (on) setPlacing(false);
+  for (const id of ['placeBtn', 'resetBtn', 'cadImportBtn']) $(id).disabled = on;
+  ds.setOffField(on);
+  code.setOffField(on);
 }
 
 ds.onPick((i) => showRobot(i));
@@ -224,6 +238,10 @@ function checkCad() {
 
 // ---- a robot from CAD: pick or drop the STEP file of its assembly -----------------------------
 async function importCad(file, i = current) {
+  if (offField) {
+    cadNotice(`Robot ${locked + 1} isn't on the field: there is no robot here to make from CAD.`, 'err', 8000);
+    return;
+  }
   const who = robots.length > 1 ? `Robot ${i + 1}: ` : '';
   if (!/\.(step|stp)$/i.test(file.name)) {
     cadNotice(`${who}${file.name} isn't a STEP file. Export the robot's assembly as STEP (.step or .stp) from your CAD and use that.`, 'err', 12000);
@@ -313,10 +331,11 @@ function onMessage(msg) {
       }
       robots = msg.robots;
       robotFiles = msg.robotFiles;
-      if (current >= robots.length) current = locked !== null ? robots.length - 1 : 0;
-      // A ?robot=N page for a robot that isn't on the field (the simulator restarted with fewer)
-      // shows the last one but drives nothing: that robot has a driver of its own.
-      if (locked !== null && locked >= robots.length) {
+      // A ?robot=N page shows robot N, or the last one while N isn't on the field (setOffField).
+      if (locked !== null) current = Math.min(locked, robots.length - 1);
+      else if (current >= robots.length) current = 0;
+      setOffField(locked !== null && locked >= robots.length);
+      if (offField) {
         setConnection(false, `Robot ${locked + 1} isn't on the field: ${robots.length} robot${robots.length === 1 ? ' is' : 's are'}`);
       } else if (locked !== null) {
         setConnection(true, 'Connected');

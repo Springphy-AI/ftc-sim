@@ -60,6 +60,7 @@ export class DriverStation {
     this.selectListeners = [];    // someone picked an OpMode in a menu
     this.samplesListeners = [];   // whether the shown robot lists the FTC samples may have changed
     this.robotFiles = [];         // robots/*.json, for each card's robot file menu
+    this.offField = false;        // a ?robot=N page whose robot isn't on the field: it acts on no robot
 
     $('opmodeSelect').addEventListener('change', (e) => {
       // Remember the choice until the simulator confirms it, so an older update can't undo it.
@@ -109,7 +110,13 @@ export class DriverStation {
   /** Sends a command to the robot on screen. */
   send(msg) { this.sendTo(this.current, msg); }
 
-  sendTo(i, msg) { this.sendRaw({ ...msg, robot: i }); }
+  sendTo(i, msg) { if (!this.offField) this.sendRaw({ ...msg, robot: i }); }
+
+  /** This ?robot=N page's robot isn't on the field (true) or is again: its controls act on no robot meanwhile. */
+  setOffField(on) {
+    this.offField = on;
+    this.renderControls();
+  }
 
   /** Called when a robot's Driver Station state changes: fn(robot, ds). */
   onDsChange(fn) { this.listeners.push(fn); }
@@ -310,11 +317,13 @@ export class DriverStation {
     const hasSel = !!$('opmodeSelect').value;
     btn.className = 'big ' + { IDLE: 'init', INIT: 'start', RUNNING: 'running', STOPPING: 'stopping' }[st];
     btn.textContent = { IDLE: 'INIT', INIT: '▶  START', RUNNING: '■  STOP', STOPPING: 'Stopping…' }[st];
-    btn.disabled = st === 'STOPPING' || (st === 'IDLE' && !hasSel);
-    $('stopBtn').disabled = !(st === 'INIT' || st === 'RUNNING');
-    $('opmodeSelect').disabled = st !== 'IDLE';
+    const off = this.offField;
+    btn.disabled = off || st === 'STOPPING' || (st === 'IDLE' && !hasSel);
+    $('stopBtn').disabled = off || !(st === 'INIT' || st === 'RUNNING');
+    $('opmodeSelect').disabled = off || st !== 'IDLE';
+    for (const id of ['autoTimer', 'buildBtn', 'errorDismiss', 'errorFix']) $(id).disabled = off;
     const robotSel = $('robotSelect');
-    robotSel.disabled = st !== 'IDLE';
+    robotSel.disabled = off || st !== 'IDLE';
     robotSel.closest('label').title = st === 'IDLE' ? 'Robot description (robots/*.json)' : 'Stop the OpMode to change the robot';
     const pill = $('dsState');
     pill.className = 'pill ' + st.toLowerCase();

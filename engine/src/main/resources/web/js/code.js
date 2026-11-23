@@ -121,6 +121,7 @@ export class CodeEditor {
     this.lastTickets = [];     // each robot's build request for the latest save
     this.waiters = [];
     this.running = false;
+    this.offField = false;     // a ?robot=N page whose robot isn't on the field: nothing to run
     this.sticky = false;       // the status line shows an action's outcome until the next action
     this.samplesWereShown = null;
     this.readOnly = new Compartment();
@@ -677,7 +678,7 @@ export class CodeEditor {
 
   /** @param fromKeys pressed with Ctrl/Cmd+Enter in the file: once the OpMode starts, the keys drive it, not type */
   async run({ fromKeys = false } = {}) {
-    if (this.running) return;
+    if (this.running || this.offField) return;
     const i = this.robot;
     const b = this.buffer;
     this.running = true;
@@ -750,9 +751,15 @@ export class CodeEditor {
       this.status(`Not run: ${e.message}`, 'err', true);
     } finally {
       this.running = false;
-      $('codeRun').disabled = false;
+      $('codeRun').disabled = this.offField;
       this.renderStatus();
     }
+  }
+
+  /** This ?robot=N page's robot isn't on the field (true) or is again: Save & run runs nothing meanwhile. */
+  setOffField(on) {
+    this.offField = on;
+    $('codeRun').disabled = on || this.running;
   }
 
   // ---- rendering --------------------------------------------------------------------------------
