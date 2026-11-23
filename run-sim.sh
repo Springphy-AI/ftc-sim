@@ -19,32 +19,52 @@ jdk_major() {
     echo "${v:-0}"
 }
 
-# The major version of the javac on PATH, 0 if none. `javac -version` (not just `command -v
-# javac`) because macOS ships a /usr/bin/javac stub that exists even when no JDK is installed.
-path_javac_major() {
-    v=$(javac -version 2>&1 | sed -n 's/^javac \([0-9][0-9._]*\).*/\1/p' | head -n 1)
-    case "$v" in 1.*) v=${v#1.} ;; esac
-    v=${v%%[._]*}
-    echo "${v:-0}"
+# Whether folder $1 is a JDK (not a JRE) of Java 17 or newer.
+jdk17() {
+    [ -n "$1" ] && [ -x "$1/bin/javac" ] && [ "$(jdk_major "$1")" -ge 17 ]
 }
 
-# A JDK 17 or newer: JAVA_HOME, then javac on PATH, then the newest by version in ~/.jdks (macOS
-# JDKs keep bin/ under Contents/Home). Folder names don't tell the version (temurin-11 sorts
-# after corretto-21), so each JDK's own release file does.
-if [ -n "$JAVA_HOME" ] && { [ ! -x "$JAVA_HOME/bin/javac" ] || [ "$(jdk_major "$JAVA_HOME")" -lt 17 ]; }; then
+# The folder of the JDK whose javac is on PATH, as that javac says (macOS's /usr/bin/javac is a stub
+# that exists even when no JDK is installed, and Linux's is a link); nothing if there is none.
+path_jdk() {
+    javac -J-XshowSettings:properties -version 2>&1 | sed -n 's/^ *java\.home = //p' | head -n 1
+}
+
+# Android Studio's own JDK (jbr), where its installers put it; FTCSIM_ANDROID_STUDIO_JBR, a list
+# separated by ":", replaces these (for the tests).
+android_studio_jdks() {
+    if [ -n "${FTCSIM_ANDROID_STUDIO_JBR+set}" ]; then
+        printf '%s\n' "$FTCSIM_ANDROID_STUDIO_JBR" | tr ':' '\n'
+        return
+    fi
+    printf '%s\n' "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+        "$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+        "$HOME/android-studio/jbr" /opt/android-studio/jbr /usr/local/android-studio/jbr \
+        /snap/android-studio/current/jbr "$HOME/.local/share/JetBrains/Toolbox/apps/android-studio/jbr"
+}
+
+# A JDK 17 or newer: JAVA_HOME, then the javac on PATH, then the newest by version of the JDKs in
+# ~/.jdks and Android Studio's (macOS JDKs keep bin/ under Contents/Home). Folder names don't tell
+# the version (temurin-11 sorts after corretto-21), so each JDK's own release file does. JAVA_HOME
+# is always set to the one chosen: Gradle and the simulator's start script run its java.
+if [ -n "$JAVA_HOME" ] && ! jdk17 "$JAVA_HOME"; then
     echo "JAVA_HOME ($JAVA_HOME) is not a JDK 17 or newer; looking for one." >&2
     unset JAVA_HOME
 fi
-if [ -z "$JAVA_HOME" ] && [ "$(path_javac_major)" -lt 17 ]; then
+if [ -z "$JAVA_HOME" ]; then
+    h=$(path_jdk)
+    if jdk17 "$h"; then JAVA_HOME=$h; fi
+fi
+if [ -z "$JAVA_HOME" ]; then
     best= best_v=0
     old_ifs=$IFS
     IFS='
-'   # folder names may contain spaces: split the list on newlines only
-    for d in $(ls -d "$HOME"/.jdks/* 2>/dev/null | sort); do
+'   # folder names may contain spaces: split the lists on newlines only
+    for d in $(ls -d "$HOME"/.jdks/* 2>/dev/null | sort) $(android_studio_jdks); do
         for h in "$d" "$d/Contents/Home"; do
-            [ -x "$h/bin/javac" ] || continue
+            jdk17 "$h" || continue
             v=$(jdk_major "$h")
-            if [ "$v" -ge 17 ] && [ "$v" -ge "$best_v" ]; then best=$h best_v=$v; fi
+            if [ "$v" -ge "$best_v" ]; then best=$h best_v=$v; fi
         done
     done
     IFS=$old_ifs
@@ -53,10 +73,10 @@ if [ -z "$JAVA_HOME" ] && [ "$(path_javac_major)" -lt 17 ]; then
         exit 1
     fi
     JAVA_HOME=$best
-    export JAVA_HOME
 fi
+export JAVA_HOME
 # (for the tests: the JDK chosen, without building or starting anything)
-if [ -n "$FTCSIM_PRINT_JAVA_HOME" ]; then echo "${JAVA_HOME:-javac on PATH}"; exit 0; fi
+if [ -n "$FTCSIM_PRINT_JAVA_HOME" ]; then echo "$JAVA_HOME"; exit 0; fi
 
 sh ./gradlew -q :engine:installDist || exit 1
 exec sh engine/build/install/ftc-sim/bin/ftc-sim "$@"
