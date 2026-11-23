@@ -14,6 +14,11 @@ const KEY_CAPTURE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDo
 // Inputs you type into; the keys stay theirs. A checkbox, slider or dropdown doesn't take text.
 const TEXT_INPUTS = new Set(['text', 'search', 'email', 'password', 'url', 'tel', 'number']);
 const SLOTS = [1, 2];
+// The simulator's pages open in this browser see the same controllers. A ?robot=N page tells the
+// others which of its robot's gamepads it feeds and from which controller, so their Auto leaves
+// those to it (see assignments()).
+const CLAIMS = 'ftcsim.gamepads';
+const CLAIM_MS = 1500;   // a claim not repeated for this long is from a page that went away
 
 function kindOf(id) {
   if (/xbox|xinput|045e/i.test(id)) return 'XBOX_360';
@@ -51,10 +56,28 @@ export class InputManager {
     this.fed = {};           // 'robot:slot' -> true while this page feeds it from a controller or the keyboard
     this.states = {};
     this.listeners = [];
+    // The keyboard drives from this page once a driving key is pressed here, and until the page
+    // loses the focus: a page in another window or tab, or one just opened, leaves the gamepad to
+    // whoever drives it.
+    this.keyboardOn = false;
+    this.id = Math.random().toString(36).slice(2);
+    this.claims = new Map();  // other ?robot=N pages in this browser: id -> { robot, slots: [[slot, pad, picked]], until }
+    this.claimed = '';        // what this page last told them
+    this.claimedAt = 0;
+    try {
+      this.channel = new BroadcastChannel(CLAIMS);
+      this.channel.onmessage = (e) => this.onClaim(e.data);
+    } catch { this.channel = null; }
 
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
-    window.addEventListener('blur', () => { this.keys.clear(); this.shift = false; });
+    window.addEventListener('blur', () => this.letGo());
+    // A page out of sight (another tab, a minimized window) drives with nothing, controllers neither.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this.tick();
+      else this.letGo();
+    });
+    window.addEventListener('pagehide', () => this.channel?.postMessage({ id: this.id, gone: true }));
     window.addEventListener('gamepadconnected', () => this.emit());
     window.addEventListener('gamepaddisconnected', () => this.emit());
     setInterval(() => this.tick(), 20);
@@ -95,6 +118,14 @@ export class InputManager {
     return target.tagName === 'INPUT' && TEXT_INPUTS.has((target.type || 'text').toLowerCase());
   }
 
+  /** The page lost the focus or went out of sight: its keys let go, and it stops feeding what it no longer may. */
+  letGo() {
+    this.keys.clear();
+    this.shift = false;
+    this.keyboardOn = false;
+    this.tick();
+  }
+
   onKey(e, down) {
     if (e.key === 'Shift') this.shift = down;
     // A key let go always lets go, wherever the focus went and whatever else is held: held to drive
@@ -118,6 +149,7 @@ export class InputManager {
     if (down) {
       this.keys.add(e.code);
       this.tapped.add(e.code);   // seen down at least once before the next send, even if released already
+      this.keyboardOn = true;
     }
     if (e.code.startsWith('Arrow')) e.preventDefault();
   }
@@ -147,15 +179,50 @@ export class InputManager {
     this.emit();
   }
 
+  /** Another ?robot=N page in this browser says what it feeds (every half second while it does). */
+  onClaim(m) {
+    if (!m || m.id === this.id) return;
+    const before = JSON.stringify(this.claims.get(m.id)?.slots ?? []);
+    if (m.gone || !m.slots?.length) this.claims.delete(m.id);
+    else this.claims.set(m.id, { robot: m.robot, slots: m.slots, until: performance.now() + CLAIM_MS });
+    if (JSON.stringify(m.gone ? [] : m.slots ?? []) !== before) this.emit();
+  }
+
+  /**
+   * What other pages' claims take from this one: the gamepads ('robot:slot') its Auto leaves alone,
+   * and the controllers (indexes) Auto doesn't hand out. A page showing every robot leaves a ?robot=N
+   * page its gamepads and controllers; ?robot=N pages share the controllers in robot order, as the
+   * page showing every robot hands them out, and a controller picked by hand stays with its page.
+   */
+  othersClaims() {
+    const now = performance.now();
+    const slots = new Set(), pads = new Set();
+    for (const [id, c] of this.claims) {
+      if (c.until < now) {
+        this.claims.delete(id);
+        queueMicrotask(() => this.emit());
+        continue;
+      }
+      if (c.robot === this.locked) continue;   // another page for the same robot: both read the same
+      for (const [slot, pad, picked] of c.slots) {
+        if (this.locked === null) slots.add(key(c.robot, slot));
+        if (pad >= 0 && (this.locked === null || c.robot < this.locked || picked)) pads.add(pad);
+      }
+    }
+    return { slots, pads };
+  }
+
   /**
    * What feeds every slot right now: a Gamepad, 'keyboard', or null. Auto slots take the controllers
    * nobody picked explicitly, every robot's gamepad 1 first (in robot order), then gamepad 2s set to Auto.
    * The keyboard goes to one Auto gamepad 1 still without a controller: the robot on screen if it is one
-   * of them, unless a slot picked the keyboard explicitly.
+   * of them, unless a slot picked the keyboard explicitly. Gamepads and controllers another page of
+   * this browser feeds are left to it (othersClaims()).
    */
   assignments() {
     const pads = this.pads();
     const robots = this.activeRobots();
+    const others = this.othersClaims();
     const out = {};
     const explicitPads = new Set();
     let keyboardTaken = false;
@@ -169,9 +236,9 @@ export class InputManager {
     // Auto takes only controllers in the browser's standard layout: on others the sticks, triggers
     // and buttons sit elsewhere (a trigger resting at -1 would read as a stick held left), so they
     // drive only when picked by hand.
-    const free = pads.filter((p) => !explicitPads.has(p.index) && p.mapping === 'standard');
+    const free = pads.filter((p) => !explicitPads.has(p.index) && !others.pads.has(p.index) && p.mapping === 'standard');
     const autos = [];
-    for (const s of SLOTS) for (const r of robots) if (this.source(r, s) === 'auto') autos.push([r, s]);
+    for (const s of SLOTS) for (const r of robots) if (this.source(r, s) === 'auto' && !others.slots.has(key(r, s))) autos.push([r, s]);
     for (const r of robots) {
       for (const s of SLOTS) {
         const src = this.source(r, s);
@@ -195,6 +262,7 @@ export class InputManager {
 
   describe(robot, slot) {
     const r = this.resolve(robot, slot);
+    if (r === null && this.source(robot, slot) === 'auto' && this.othersClaims().slots.has(key(robot, slot))) return `its own page (?robot=${robot + 1})`;
     if (r === null) return 'not assigned';
     if (r === 'keyboard') return 'keyboard';
     return shortName(r.id);
@@ -221,21 +289,32 @@ export class InputManager {
     return { axes: axes.map((v) => Math.round(v * 1000) / 1000), buttons, kind, source: r === null ? null : (r === 'keyboard' ? 'keyboard' : 'pad') };
   }
 
+  /**
+   * Whether this page sends what {@code source} reads: the keyboard once a driving key was pressed
+   * here while the page has the focus, a controller while the page is in sight.
+   */
+  feeds(source) {
+    if (source === 'keyboard') return this.keyboardOn && document.hasFocus();
+    return source !== null && document.visibilityState === 'visible';
+  }
+
   tick() {
     const now = performance.now();
     const assign = this.assignments();
+    const claim = [];
     for (const robot of this.activeRobots()) {
       for (const slot of SLOTS) {
         const k = key(robot, slot);
         const source = assign[k] ?? null;
         const st = this.read(source);
         this.states[k] = st;
-        const msg = JSON.stringify({ type: 'gamepad', robot, gamepad: slot, kind: st.kind, axes: st.axes, buttons: st.buttons });
-        if (source === null) {
+        if (!this.feeds(source)) {
           // Nothing feeds this slot from here, so this page says nothing about it: another page (a
-          // driver's ?robot=N page) may be driving it. Only a slot fed until now gets one neutral
-          // state, so a controller taken away doesn't leave the robot driving.
+          // driver's ?robot=N page, the window in focus) may be driving it. Only a slot fed until
+          // now gets one neutral state, so a controller taken away or a page left doesn't leave the
+          // robot driving.
           if (this.fed[k]) {
+            const msg = JSON.stringify({ type: 'gamepad', robot, gamepad: slot, kind: st.kind, axes: [0, 0, 0, 0, 0, 0], buttons: new Array(N_BUTTONS).fill(false) });
             this.send(msg);
             this.lastSent[k] = msg;
             this.lastTime[k] = now;
@@ -244,6 +323,8 @@ export class InputManager {
           continue;
         }
         this.fed[k] = true;
+        claim.push([slot, source === 'keyboard' ? -1 : source.index, this.source(robot, slot) !== 'auto']);
+        const msg = JSON.stringify({ type: 'gamepad', robot, gamepad: slot, kind: st.kind, axes: st.axes, buttons: st.buttons });
         if (msg !== this.lastSent[k] || now - (this.lastTime[k] ?? 0) > 250) {
           this.send(msg);
           this.lastSent[k] = msg;
@@ -252,6 +333,17 @@ export class InputManager {
       }
     }
     this.tapped.clear();
+    this.announce(claim, now);
+  }
+
+  /** A ?robot=N page tells the simulator's other pages here what it feeds: when that changes, and every half second. */
+  announce(slots, now) {
+    if (!this.channel || this.locked === null) return;
+    const text = JSON.stringify(slots);
+    if (text === this.claimed && (!slots.length || now - this.claimedAt < 500)) return;
+    this.claimed = text;
+    this.claimedAt = now;
+    this.channel.postMessage({ id: this.id, robot: this.locked, slots });
   }
 
   /** The [robot, slot] the keyboard drives, or null. */
