@@ -12,4 +12,10 @@ public interface ServoControllerEx extends ServoController {
     void setServoPwmDisable(int servo);
 
     boolean isServoPwmEnabled(int servo);
+
+    /** Sends a pulse width in microseconds as it is, whatever the PWM range. */
+    void setPulseWidth(int servo, double usPulse);
+
+    /** The pulse width last sent, in microseconds (0 before any). */
+    double getPulseWidth(int servo);
 }

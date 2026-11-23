@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.ServoImplEx;
 
 import ftcsim.config.RobotConfig;
 import ftcsim.hal.HalSession;
@@ -59,6 +60,27 @@ class ServoTest {
         assertEquals(1.0, hood.getPosition());
         // The controller itself refuses what's outside [0, 1].
         assertThrows(IllegalArgumentException.class, () -> hood.getController().setServoPosition(hood.getPortNumber(), 1.2));
+    }
+
+    @Test
+    void aPulseWidthOutsideThePwmRangeIsSentAsItIs() {
+        // As LynxServoController.setPulseWidth: the microseconds go to the hub as they are (1..65535),
+        // not through the PWM range.
+        ServoImplEx hood = hardwareMap.get(ServoImplEx.class, "hood");
+        hood.setPulseWidth(2500);   // past the default range's 2400
+        assertEquals(2500, hood.getPulseWidth());
+        assertEquals(1.0, hood.getPosition(), "read back as a position, clipped to 1");
+        for (int i = 0; i < 1000; i++) rig.step(0.001);
+        double angle = rig.servos.stream().filter(s -> s.port.name.equals("hood")).findFirst().orElseThrow().angleDeg();
+        assertEquals(150, angle, 1e-6, "the 300 degree servo goes as far as it can");
+        hood.setPulseWidth(1000);
+        assertEquals(1000, hood.getPulseWidth());
+        assertEquals((1000 - 600) / 1800.0, hood.getPosition(), 1e-9);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> hood.setPulseWidth(0.5));
+        assertEquals("illegal pulse width: 0", e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> hood.setPulseWidth(70000));
+        hood.setPosition(0.5);
+        assertEquals(1500, hood.getPulseWidth(), "a position's pulse, in whole microseconds");
     }
 
     @Test

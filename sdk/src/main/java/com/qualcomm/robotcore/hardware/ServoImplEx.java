@@ -43,14 +43,11 @@ public class ServoImplEx extends ServoImpl implements PwmControl {
 
     @Override
     public void setPulseWidth(double usPulse) {
-        PwmRange r = getPwmRange();
-        controllerEx.setServoPosition(portNumber, (usPulse - r.usPulseLower) / (r.usPulseUpper - r.usPulseLower));
+        controllerEx.setPulseWidth(getPortNumber(), usPulse);
     }
 
     @Override
     public double getPulseWidth() {
-        if (!isPwmEnabled()) return 0;
-        PwmRange r = getPwmRange();
-        return r.usPulseLower + controllerEx.getServoPosition(portNumber) * (r.usPulseUpper - r.usPulseLower);
+        return controllerEx.getPulseWidth(getPortNumber());
     }
 }

@@ -19,13 +19,12 @@ public final class ServoUnit {
     }
 
     public void step(double dt) {
-        double cmd = port.position;
-        if (!port.pwmEnabled || Double.isNaN(cmd)) {
+        double pulse = port.pulseWidthUs();
+        if (pulse == 0) {   // limp: PWM off, or no pulse sent yet
             port.speedDegPerSec = 0;
             port.angleDeg = angleDeg;
             return;
         }
-        double pulse = port.pulseWidthUs();
         if (port.continuous) {
             double speed = (pulse - 1500.0) / 900.0;       // -1..1 for the default range
             if (Math.abs(speed) < 0.02) speed = 0;         // deadband around neutral
@@ -34,7 +33,9 @@ public final class ServoUnit {
             angleDeg += degPerSec * dt;
             port.speedDegPerSec = degPerSec;
         } else {
-            double target = (pulse - 1500.0) / 900.0 * (device.rangeDeg / 2.0);
+            // A pulse outside the range (setPulseWidth) takes the horn only as far as it goes.
+            double half = device.rangeDeg / 2.0;
+            double target = Math.max(-half, Math.min(half, (pulse - 1500.0) / 900.0 * half));
             double maxStep = device.speedDegPerSec * dt;
             double delta = Math.max(-maxStep, Math.min(maxStep, target - angleDeg));
             angleDeg += delta;
