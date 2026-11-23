@@ -34,4 +34,7 @@ public abstract class GamepadAccess {
 
     /** Which Driver Station slot (1 or 2) the gamepad is, for routing rumble and LED effects. */
     public abstract void setUser(Gamepad gamepad, int user);
+
+    /** Rumble and LED effects asked of {@code copy} (an OpMode's own gamepad) go to the Driver Station gamepad it copies. */
+    public abstract void sendEffectsTo(Gamepad copy, Gamepad driverStationGamepad);
 }

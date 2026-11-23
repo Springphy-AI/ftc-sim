@@ -47,6 +47,15 @@ public final class OpModeSession {
     private final RobotContext robot;
     private final boolean linear;
     private final Listener listener;
+    /** The Driver Station's gamepads, which its input updates as it comes. */
+    private final Gamepad driverStation1, driverStation2;
+    /**
+     * An iterative OpMode's own gamepads, copied from the Driver Station's before each callback (as
+     * OpMode.internalPreUserCode does), so they don't change while init_loop() or loop() runs. A
+     * LinearOpMode reads the Driver Station's directly: the SDK copies new input into its gamepads
+     * from the event loop's thread whenever it arrives, whatever the OpMode is doing. Null for those.
+     */
+    private final Gamepad own1, own2;
 
     private volatile State state = State.INIT;
     private volatile boolean startRequested = false;
@@ -75,9 +84,21 @@ public final class OpModeSession {
         this.opMode = opMode;
         this.linear = opMode instanceof LinearOpMode;
         this.listener = listener;
+        this.driverStation1 = gamepad1;
+        this.driverStation2 = gamepad2;
+        if (linear) {
+            own1 = own2 = null;
+            opMode.gamepad1 = gamepad1;
+            opMode.gamepad2 = gamepad2;
+        } else {
+            own1 = new Gamepad();
+            own2 = new Gamepad();
+            GamepadAccess.get().sendEffectsTo(own1, gamepad1);
+            GamepadAccess.get().sendEffectsTo(own2, gamepad2);
+            opMode.gamepad1 = own1;
+            opMode.gamepad2 = own2;
+        }
         opMode.hardwareMap = hardwareMap;
-        opMode.gamepad1 = gamepad1;
-        opMode.gamepad2 = gamepad2;
         opMode.telemetry = telemetry;
         ACCESS.setStopListener(opMode, new OpModeAccess.StopListener() {
             @Override
@@ -125,6 +146,12 @@ public final class OpModeSession {
     /** INIT: starts the OpMode thread, which runs init()/init_loop() or runOpMode(). */
     public synchronized void init() {
         if (thread != null) return;
+        // As OpModeInternal.internalInit: fresh edge detection, and the trigger threshold an earlier
+        // OpMode may have changed back to its default, on the OpMode's gamepads.
+        for (Gamepad gp : new Gamepad[]{opMode.gamepad1, opMode.gamepad2}) {
+            gp.resetEdgeDetection();
+            gp.setTriggerThreshold(Gamepad.DEFAULT_TRIGGER_THRESHOLD);
+        }
         stopHooks = robot != null ? robot.newOpModeStopHooks() : null;
         thread = new Thread(new Runnable() {
             @Override
@@ -141,6 +168,10 @@ public final class OpModeSession {
     /** START (the play button). */
     public void start() {
         if (stopRequested || startRequested || state == State.STOPPED) return;
+        // As OpModeInternal.internalStart: a button pressed during INIT doesn't count as pressed in
+        // the first loop after START (one still held does, at the next update).
+        opMode.gamepad1.resetEdgeDetection();
+        opMode.gamepad2.resetEdgeDetection();
         startRequested = true;
         ACCESS.markStarted(opMode);
         Object notifier = ACCESS.runningNotifier(opMode);
@@ -238,30 +269,47 @@ public final class OpModeSession {
         }
     }
 
+    /** As the SDK's OpMode.internalRunOpMode. */
     private void runIterative() throws InterruptedException {
-        opMode.time = opMode.getRuntime();
         opMode.init();
         opMode.internalPostInitLoop();
         while (!startRequested && !stopRequested) {
-            opMode.time = opMode.getRuntime();
+            preUserCode();
             opMode.init_loop();
             opMode.internalPostInitLoop();
             sleepAfterLoop();
         }
-        if (!stopRequested) {
-            opMode.time = opMode.getRuntime();
+        if (startRequested) {
+            preUserCode();
             opMode.start();
             opMode.internalPostLoop();
             while (!stopRequested) {
-                opMode.time = opMode.getRuntime();
+                preUserCode();
                 opMode.loop();
                 opMode.internalPostLoop();
                 sleepAfterLoop();
             }
         }
-        opMode.time = opMode.getRuntime();
+        preUserCode();
         opMode.stop();
         opMode.internalPostLoop();
+    }
+
+    /**
+     * As OpMode.internalPreUserCode, before init_loop(), start(), loop() and stop() (not init()):
+     * the time, and the gamepads as the Driver Station has them now. Gamepad.copy() updates the
+     * copy's edge detection, so a press seen by one loop() is aWasPressed() in that loop().
+     */
+    private void preUserCode() {
+        opMode.time = opMode.getRuntime();
+        copyGamepad(driverStation1, own1);
+        copyGamepad(driverStation2, own2);
+    }
+
+    private static void copyGamepad(Gamepad from, Gamepad to) {
+        synchronized (from) {   // one Driver Station update, not half of one
+            to.copy(from);
+        }
     }
 
     /**

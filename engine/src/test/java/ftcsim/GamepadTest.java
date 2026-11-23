@@ -112,23 +112,8 @@ class GamepadTest {
                     }
                 }
                 """);
-        Path robot = Path.of("").toAbsolutePath().resolve("robots/mecanum.json");
-        Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(),
-                new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir, false)), Files.createTempDirectory("ftcsim-test")), "test");
-        sim.setOutput(new Simulator.Output() {
-            @Override
-            public void broadcast(String json) {
-                messages.add(json);
-            }
-
-            @Override
-            public void broadcastState(String json) {
-            }
-        });
-        sim.start();
+        Simulator sim = startSim(dir);
         try {
-            long deadline = System.currentTimeMillis() + 60000;
-            while ((sim.build() == null || sim.isBuilding()) && System.currentTimeMillis() < deadline) Thread.sleep(50);
             assertEquals(2, sim.build().opModes().size(), sim.build().message());
 
             sim.handle("{\"type\":\"init\",\"opmode\":\"Low threshold\"}");
@@ -143,6 +128,96 @@ class GamepadTest {
             sim.handle("{\"type\":\"start\"}");
             assertEquals("threshold : 0.5", telemetryLine("threshold"), "INIT sets the trigger threshold back to 0.5");
             assertEquals("a pressed : false", telemetryLine("a pressed"), "START forgets what was pressed during INIT");
+            sim.handle("{\"type\":\"stop\"}");
+        } finally {
+            sim.shutdown();
+        }
+    }
+
+    /** A simulator running the TeamCode in {@code dir}, built. */
+    private Simulator startSim(Path dir) throws Exception {
+        Path robot = Path.of("").toAbsolutePath().resolve("robots/mecanum.json");
+        Simulator sim = new Simulator(FieldModel.loadBiobuzz(), robot, robot.getParent(),
+                new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir, false)), Files.createTempDirectory("ftcsim-test")), "test");
+        sim.setOutput(new Simulator.Output() {
+            @Override
+            public void broadcast(String json) {
+                messages.add(json);
+            }
+
+            @Override
+            public void broadcastState(String json) {
+            }
+        });
+        sim.start();
+        long deadline = System.currentTimeMillis() + 60000;
+        while ((sim.build() == null || sim.isBuilding()) && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        return sim;
+    }
+
+    @Test
+    void anIterativeLoopSeesTheGamepadsAsTheyWereWhenItBegan(@TempDir Path dir) throws Exception {
+        // As OpMode.internalPreUserCode: gamepad1.copy(latest data) before every loop(), so a button
+        // doesn't change in the middle of one, and the usual toggle pattern counts every press.
+        Path pkg = Files.createDirectories(dir.resolve("org/firstinspires/ftc/teamcode"));
+        Files.writeString(pkg.resolve("Toggle.java"), """
+                package org.firstinspires.ftc.teamcode;
+
+                import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+                import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+                @TeleOp(name = "Toggle")
+                public class Toggle extends OpMode {
+                    private boolean lastA, changedDuringALoop;
+                    private int presses, edges;
+
+                    @Override
+                    public void init() {
+                    }
+
+                    @Override
+                    public void start() {
+                        gamepad1.rumble(100);
+                    }
+
+                    @Override
+                    public void loop() {
+                        boolean atStart = gamepad1.a;
+                        if (gamepad1.a && !lastA) presses++;
+                        if (gamepad1.aWasPressed()) edges++;
+                        try {
+                            Thread.sleep(20);   // the rest of a slow loop
+                        } catch (InterruptedException e) {
+                            return;
+                        }
+                        if (gamepad1.a != atStart) changedDuringALoop = true;
+                        lastA = gamepad1.a;
+                        telemetry.addData("presses", presses);
+                        telemetry.addData("edges", edges);
+                        telemetry.addData("changed during a loop", changedDuringALoop);
+                    }
+                }
+                """);
+        Simulator sim = startSim(dir);
+        try {
+            assertEquals(1, sim.build().opModes().size(), sim.build().message());
+            sim.handle("{\"type\":\"init\",\"opmode\":\"Toggle\"}");
+            waitFor(sim, Simulator.DsState.INIT);
+            sim.handle("{\"type\":\"start\"}");
+            waitFor(sim, Simulator.DsState.RUNNING);
+            Thread.sleep(200);
+            for (int i = 0; i < 5; i++) {
+                sim.handle(gamepad(true));
+                Thread.sleep(100);
+                sim.handle(gamepad(false));
+                Thread.sleep(100);
+            }
+            Thread.sleep(500);
+            assertEquals("presses : 5", telemetryLine("presses"), "the toggle pattern counts every press");
+            assertEquals("edges : 5", telemetryLine("edges"));
+            assertEquals("changed during a loop : false", telemetryLine("changed during a loop"));
+            assertTrue(messages.stream().anyMatch(m -> m.contains("\"type\":\"rumble\"") && m.contains("\"gamepad\":1")),
+                    "the OpMode's gamepad1 still rumbles the Driver Station's gamepad 1");
             sim.handle("{\"type\":\"stop\"}");
         } finally {
             sim.shutdown();

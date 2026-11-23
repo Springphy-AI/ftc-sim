@@ -78,6 +78,8 @@ public class Gamepad {
 
     /** Which Driver Station slot this gamepad is (1 or 2); used to route rumble/LED effects. */
     volatile int simUser = 0;
+    /** The Driver Station gamepad this one is a copy of, whose rumble and LED it drives; null for itself. */
+    volatile Gamepad simEffectsTarget = null;
 
     // ---- edge detection --------------------------------------------------------------------
     // As FIRST's GamepadStateChanges: one monitor per button, the PlayStation names included (cross
@@ -345,14 +347,22 @@ public class Gamepad {
 
     // ---- LED & rumble ----------------------------------------------------------------------
 
+    /** The gamepad whose controller rumbles or lights up: the Driver Station's, for an OpMode's copy. */
+    private Gamepad effects() {
+        Gamepad target = simEffectsTarget;
+        return target != null ? target : this;
+    }
+
     public void setLedColor(double r, double g, double b, int durationMs) {
-        GamepadEffects.led(this, simUser, r, g, b, durationMs);
+        Gamepad t = effects();
+        GamepadEffects.led(t, t.simUser, r, g, b, durationMs);
     }
 
     public void runLedEffect(LedEffect effect) {
         if (effect != null && !effect.steps.isEmpty()) {
             LedEffect.Step s = effect.steps.get(0);
-            GamepadEffects.led(this, simUser, s.r, s.g, s.b, effect.repeating ? LED_DURATION_CONTINUOUS : s.duration);
+            Gamepad t = effects();
+            GamepadEffects.led(t, t.simUser, s.r, s.g, s.b, effect.repeating ? LED_DURATION_CONTINUOUS : s.duration);
         }
     }
 
@@ -370,7 +380,8 @@ public class Gamepad {
             total += s.duration;
         }
         nextRumbleApproxFinishTime = System.currentTimeMillis() + total;
-        GamepadEffects.rumble(this, simUser, strong, weak, durations);
+        Gamepad t = effects();
+        GamepadEffects.rumble(t, t.simUser, strong, weak, durations);
     }
 
     public void rumble(int durationMs) {
@@ -384,7 +395,8 @@ public class Gamepad {
 
     public void stopRumble() {
         nextRumbleApproxFinishTime = 0;
-        GamepadEffects.rumble(this, simUser, new double[]{0}, new double[]{0}, new int[]{0});
+        Gamepad t = effects();
+        GamepadEffects.rumble(t, t.simUser, new double[]{0}, new double[]{0}, new int[]{0});
     }
 
     public void rumbleBlips(int count) {

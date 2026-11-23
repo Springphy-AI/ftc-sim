@@ -15,4 +15,9 @@ final class GamepadAccessImpl extends GamepadAccess {
     public void setUser(Gamepad gamepad, int user) {
         gamepad.simUser = user;
     }
+
+    @Override
+    public void sendEffectsTo(Gamepad copy, Gamepad driverStationGamepad) {
+        copy.simEffectsTarget = driverStationGamepad;
+    }
 }
