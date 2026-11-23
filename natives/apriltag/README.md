@@ -35,9 +35,11 @@ differs from the robot build is outside the detector:
 
 ```sh
 sh natives/apriltag/build.sh           # all five, with Zig (downloaded into build/, checksum-checked)
-sh natives/apriltag/build.sh --local   # only this machine's platform, with gcc/g++ from PATH
+sh natives/apriltag/build.sh --local   # only this machine's platform, with gcc/g++ from PATH (macOS: Xcode's clang)
 ```
 
 Zig (clang with libc++, like the Android NDK) compiles the sources as they are. `--local` with
 gcc needs a few compiler flags, explained in `build.sh`, because gcc's C++ library differs from
-the NDK's in which headers it pulls in and, on MinGW, in how it does threads.
+the NDK's in which headers it pulls in and, on MinGW, in how it does threads. On Linux it links
+gcc's C++ runtime statically; on macOS, Apple's clang links the system's libc++. The libraries
+committed for macOS are the Zig builds; rebuild them with Zig, not `--local`.

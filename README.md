@@ -14,11 +14,13 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
 
 ## Quick start
 
-1. Install a JDK 17 or newer (Android Studio's bundled JDK works, or [Temurin](https://adoptium.net)).
-   `run-sim.bat` also finds a JDK unpacked in `%USERPROFILE%\.jdks`, and `run-sim.sh` one in
-   `~/.jdks` (on macOS, including the `Contents/Home` layout, even when macOS's placeholder
-   `javac` says "Unable to locate a Java Runtime"); `run-sim.sh` takes the newest that is 17 or
-   newer, and passes over an older `JAVA_HOME` or `javac`.
+1. Have a JDK 17 or newer. Android Studio's own JDK is enough: the launchers find it where
+   Android Studio installs it. Otherwise install one, such as [Temurin](https://adoptium.net).
+   `run-sim.bat` and `run-sim.sh` use `JAVA_HOME` if it is a JDK 17 or newer, else the JDK of the
+   `javac` on `PATH` if it is, else the newest JDK 17 or newer, by version, among those unpacked
+   in `%USERPROFILE%\.jdks` or `~/.jdks` (on macOS, the `Contents/Home` layout too) and Android
+   Studio's. They pass over an older `JAVA_HOME` or `javac`, and macOS's placeholder `javac` that
+   says "Unable to locate a Java Runtime".
 2. Start the simulator with your robot project:
 
    ```bat
@@ -30,9 +32,36 @@ simulator, deploy the same code to the robot as usual. Nothing in TeamCode chang
    the libraries the simulator uses (a few hundred MB) and builds it, quietly, which takes a few
    minutes; later starts take seconds.
 3. Your browser opens at <http://localhost:8080>. Pick an OpMode, press **INIT**, then **▶ START**.
+   If another program has port 8080 (at `127.0.0.1` or at `[::1]`), the simulator takes the next
+   free one up to 8089, and says which.
 
 To avoid typing the path every time, copy `sim.properties.example` to `sim.properties` and set
-`project=`.
+`project=`. A Windows path can be written as it is (`C:\Users\you\...`).
+
+`run-sim` builds the simulator when its code has changed (after a `git pull`, say) and starts it
+from a copy of the build in `build/run/`, so a second simulator started later never rewrites the
+files a running one is using; copies no simulator uses any more are deleted by themselves.
+
+### All options
+
+`--help` lists them too. Options on the command line win over `sim.properties`.
+
+| Option | `sim.properties` key | Sets |
+|---|---|---|
+| `-p`, `--project DIR` | `project` | your FtcRobotController project (the folder with `TeamCode`); without it, the bundled examples |
+| `-r`, `--robot FILE` | `robot` | the robot file; default `robots/mecanum.json` |
+| `-s`, `--season NAME` | `season` | the game: a season in `seasons/` (`biobuzz`, `decode`) or a season folder; default `biobuzz` |
+| `--alliance A` | `alliance` | robot 1's alliance, `red` (default) or `blue` |
+| `--port N` | `port` | the Driver Station page's port; default 8080, or the next free one up to N+9 |
+| `--no-browser` | `open_browser=false` | don't open the page in the browser |
+| `--robots N` | `robots` | how many robots (1–4); on the command line, robots after N that `sim.properties` sets up are left out |
+| `--project2 DIR` … `--project4 DIR`, `--robot2 FILE` …, `--alliance2 A` … | `project2`, `robot2`, `alliance2` … | robot 2–4's own project, robot file and alliance ([Several robots on one field](#several-robots-on-one-field)) |
+| `-h`, `--help` | | print the options and stop |
+
+A relative `--project` is where you typed the command. A relative `--robot` or `--season` is
+looked for there first, then in the simulator's folder (so `--robot robots/tank.json` works from
+anywhere). Paths in `sim.properties` are relative to the simulator's folder. A wrong option or
+value is explained in a sentence.
 
 ## Folder layout
 
@@ -157,8 +186,9 @@ alliance partner. An alliance has at most two robots.
   BIOBUZZ the red robots start 61 in from the center by the red wall, at y = −11.8 in and
   +11.8 in, facing the blue wall, and the blue robots at the matching spots by the blue wall (the
   red ones turned half a turn about the field center, as the field itself is). A robot file with
-  its own `start` for the season starts there as the first red robot; its partner starts beside
-  it, mirrored across the field's center line.
+  its own `start` for the season starts there as the first red robot; its partner starts
+  mirrored across the field's center line, facing the mirrored way (or beside it, facing the same
+  way, when the spot is on that line).
 - **Pre-loads.** Every simulated robot starts with its 4 POLLEN. A LOADING ZONE holds the pre-loads
   of its alliance's robots that aren't on the field: none when both of its robots are simulated.
 - **Telling them apart.** With more than one robot, each robot's side plates take its alliance
@@ -190,9 +220,18 @@ alliance partner. An alliance has at most two robots.
   are marked in the pickers and drive only when picked there. Two drivers at one computer should
   share one browser window: browsers may send controller input only to the window in focus.
 - **One window per driver.** `http://localhost:8080/?robot=2` opens a page that shows and drives
-  only robot 2, for example on a second screen. A page sends input only for the gamepads it has a
-  controller or the keyboard for, so other pages (an overview on a projector) don't get in the
-  way; when a page closes or crashes, the gamepads it drove are let go.
+  only robot 2, for example on a second screen. Pages don't get in each other's way:
+  - Controllers drive from pages in sight, not from a background tab or a minimized window.
+  - The keyboard drives from the page in focus once you press a driving key there, until that
+    page loses the focus. A tab just opened, or left open from an earlier run, stays quiet.
+  - A `?robot=N` page takes its controllers first: a page showing every robot leaves those
+    gamepads to it (its picker says *its own page (?robot=N)*), and `?robot=N` pages share the
+    controllers in robot order.
+  - The simulator also ignores one page's "nothing pressed" while another page holds a button or
+    stick on that gamepad, so a page still running older page code can't let go of the driver's.
+  - When a page closes or crashes, the gamepads it drove are let go.
+  - A `?robot=N` page whose robot isn't on the field (the simulator restarted with fewer) shows
+    the last robot with its controls off, and robot N again once it is back.
 - **Kept apart.** Robots running the same project still get separate copies of TeamCode, so static
   fields aren't shared. `OpMode.blackboard`, `RobotLog`'s global error, and the bus latency from
   the robot file are also per robot.
@@ -300,11 +339,15 @@ Click **</> Code** in the top bar to edit TeamCode beside the field, without ano
   line endings, and the simulator rebuilds that robot at once. While *FTC samples* is ticked in the
   Driver Station, the samples' files are listed too, read-only as on the robot.
 - **Compile errors where they are.** After a save, errors are underlined in the file and marked
-  in the margin; point at one to read javac's message.
-- **▶ Save & run** (**Ctrl+Enter**) stops that robot's OpMode, saves every changed file of the
-  project (as Android Studio's Run does), waits for the build, then INITs
+  in the margin; point at one to read javac's message. A file with many errors (one that uses a
+  library the simulator doesn't have) shows its first 20 and how many more there are. Every other
+  file that compiles is still built, however many fail.
+- **▶ Save & run** (**Ctrl+Enter**, **Cmd+Enter** on a Mac) stops that robot's OpMode, saves every
+  changed file of the project (as Android Studio's Run does), waits for the build, then INITs
   and STARTs the OpMode in the file (or, for a file without one, the OpMode in the Driver Station's
-  menu). It runs nothing while the file has compile errors.
+  menu). It runs nothing while the file has compile errors. Once the OpMode starts, the keys drive
+  the robot instead of typing into the file; click the file to type again, and **Esc** leaves it.
+  The status line says which.
 - **+ New** adds a LinearOpMode (TeleOp or Autonomous) next to the open file.
 - **Other editors.** If the file was saved elsewhere (Android Studio, VS Code) since the editor
   opened it, an unchanged copy reloads by itself; with changes of your own, saving asks whether to
@@ -325,14 +368,17 @@ Click **</> Code** in the top bar to edit TeamCode beside the field, without ano
 
 Deploying needs what Android Studio needs: the Android SDK (Android Studio installs it; the
 simulator finds it from the project's `local.properties`, `ANDROID_HOME`, or its usual folder) and
-its `adb`. Gradle runs on the JDK Android Studio builds with, its own bundled one when it is
-installed (else `JAVA_HOME`, else the simulator's); the log's first line names it. The first build of a project downloads
+its `adb`. Gradle runs on the JDK Android Studio builds with: the project's own Gradle JDK
+setting (`.gradle/config.properties`), else Android Studio's bundled JDK (JetBrains Toolbox
+installs too), else `JAVA_HOME`, else the simulator's; it takes the first that is 17 or newer and
+that the project's Gradle version can run on, and the log's first line names it and why. The first build of a project downloads
 Gradle, the Android build tools and the SDK platform it needs, as in Android Studio. With several
 robots, each one deploys its own project to the robot picked for it, one at a time. The bundled
 examples aren't a robot project and can't be deployed.
 
-The simulator only answers its own page on this computer (`localhost`): another web site open in
-your browser can't read or change your code, start a build, or watch and drive the robots.
+The simulator listens only on this computer (`127.0.0.1` and `[::1]`) and only answers its own page
+(`localhost`): another web site open in your browser can't read or change your code, start a
+build, or watch and drive the robots.
 
 ## Driving
 
@@ -340,7 +386,8 @@ your browser can't read or change your code, start a build, or watch and drive t
 **press any button**: browsers only expose a controller after a button press. *Gamepad 1 = Auto*
 uses the first controller. Rumble (`gamepad1.rumble(...)`, `rumbleBlips(...)`) plays on the
 controller in Chrome and Edge (Firefox has no controller rumble), so use Chrome or Edge on any
-operating system. The Xbox Guide button may be taken by the Windows Game Bar.
+operating system. A new rumble, or `stopRumble()`, stops the one playing, and
+`RUMBLE_DURATION_CONTINUOUS` plays until `stopRumble()`. The Xbox Guide button may be taken by the Windows Game Bar.
 
 **Keyboard** (used for gamepad 1 when no controller is present, or pick *Keyboard* for either slot):
 
@@ -401,8 +448,11 @@ start spot it drives somewhere else.
   Autonomous OpModes and then preselects the TeleOp named in `preselectTeleOp`.
 - **Errors** appear the way the Driver Station shows them, e.g.
   `User code threw an uncaught exception: IllegalArgumentException - Unable to find a hardware device with name "left_drive" and type DcMotor (at MyOpMode.init:42)`.
-- **Telemetry**, including `telemetry.log()`, `Func` items, retained items, the 250 ms transmission
-  interval and the HTML display format.
+- **Telemetry**, including `telemetry.log()` (oldest first), `Func` items, retained items, the
+  250 ms transmission interval and the HTML display format, as FIRST's `TelemetryImpl` does it:
+  numbers formatted as the Driver Station shows them (`0.3`, not `0.30000000000000004`), `Func`s
+  and actions run once per transmission (and what they throw stops the OpMode, as on the robot),
+  and an `update()` with nothing in it leaves the screen as it was.
 - **Devices**: every motor's mode, power, encoder, velocity and current; servo positions; sensor
   readings; hub LED and bulk-caching mode. **Robot log** shows `RobotLog` and `android.util.Log`.
 - **3D view**: audience, overhead, red-driver and chase cameras. *Place robot* puts the robot
@@ -478,10 +528,15 @@ Main fields (meters and degrees; robot frame +x forward, +y left, +z up):
 | `chassis` | size, mass, color |
 | `drive` | `type` (`mecanum`, `tank`, `tank4`), wheel diameter, wheelbase, track width, `motor` model, external gear ratio, motor names, `mirrored_side`, grip |
 | `imu` | name and how the Control Hub is mounted (`logo`, `usb`, same words as `RevHubOrientationOnRobot`) |
-| `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` for the 3D model |
+| `devices` | `motor` (with a `load`: `roller`, `flywheel`, `arm` with gravity and hard stops, `slide`), `servo`, `crservo`, `pinpoint` (pod offsets, pod type), `otos`, `distance`, `color`, `touch`, `digital_touch`, `analog` (`volts`, or `encoder_of` a servo or motor, read as 0–3.3 V per turn), `led`, `blinkin`, `webcam` (`model`: `Logitech C920` (default), `C270`, `C310`, `Microsoft LifeCam HD-3000`, `goBILDA USB Camera`, `Arducam`; `fps`; `latency_ms`; plus `roll_deg` for a camera mounted turned); each with a mounting position (`x_m`, `y_m`, `z_m` from the floor under the robot's center, `yaw_deg`, `pitch_deg`) and an optional `role` (`intake`, `feeder`, `launcher`, `hood`) for the game pieces and the 3D model; an intake can set `intake_direction` (`"forward"`, the default, or `"reverse"`) |
 | `io` | simulated bus latency (default 1 ms per hub command, 2.5 ms per I2C read) |
 | `start` | optional starting pose instead of the season's spot, per season: `{"biobuzz": [x, y, heading]}`; a plain `[x, y, heading]` is a BIOBUZZ spot |
 | `cad` | optional: the robot's CAD model, see below |
+
+Every name your code can look up is one device's: two devices, a device and a drive motor, or an
+alias and a device can't share a name (the wheels of one side may share their drive motor), as a
+Driver Station configuration doesn't allow it either. A mistake in a robot file is reported when
+the file is read, naming the field and the file.
 
 `mirrored_side` is the side of the drivetrain whose motors are mounted facing the other way, so
 positive power rolls those wheels backward: `"left"` (the default, as in the FTC samples),
@@ -524,7 +579,9 @@ by itself:
   robot is above them. The front is the end with the intake, or the end with parts named *front*
   rather than *back*. If it guessed wrong, set `forward` and `up` (below).
 - **The drive wheels**: parts and sub-assemblies named like *wheel*, *mecanum* or *omni* that touch
-  the floor (not a flywheel or an intake wheel), sorted by where they are.
+  the floor (not a flywheel, an intake wheel, or an odometry wheel: names with *odo*, *dead*,
+  *tracking* or *encoder*, or a wheel under 0.6 of the others' size), each taken for the corner it
+  is nearest. Extra wheels are left out, with a note.
 - **Rollers and flywheels**: round parts named like the motor or CR servo that turns them, with
   the parts on the same axis. An `intake` motor turns *Intake Roller* and its shaft, a `launcher`
   or a `flywheel` load turns the *Flywheel* and its hub. They keep the robot file's `load.inertia`.
@@ -541,7 +598,8 @@ use at most 2 GB of memory. A whole competition robot with every screw and mecan
 more (a 150 MB STEP export does). Then no triangles come out, and the 3D view says so and names
 `tools/step2cadmesh.py`. That script converts the STEP file on your computer with the full
 OpenCascade library, using as much memory as the computer has, and writes the same
-`<name>.step.cadmesh` the page would have. Set it up once, from this folder (about 1 GB):
+`<name>.step.cadmesh` the page would have, its parts colored as the page colors them. Set it up
+once, from this folder (about 1 GB):
 
 ```sh
 python3 -m venv tools/.venv
@@ -636,7 +694,8 @@ an example that runs the same OpModes as `tank.json`.
 A joint is driven by the device with the same name as the joint, or by the `device` a `links`
 entry gives for it (the entry's `name` is the joint's name). Such an entry can also set `reversed`,
 `limits` (which override the URDF's), `start`, `ratio`, `servo_center`, `torque_nm` and
-`spool_diameter_mm`. Joints that no device drives stay where the CAD has them. The drive wheels
+`spool_diameter_mm`. A joint whose URDF limit gives only `lower` or only `upper` has 0 for the
+other, as the URDF format says. Joints that no device drives stay where the CAD has them. The drive wheels
 are the links named like wheels, or on continuous joints that no device drives. Masses and
 inertias come from the URDF; `mass_kg` scales them to what your robot weighs on a scale. Mesh paths
 such as `package://robot/meshes/arm.stl` are looked up next to the URDF and in its parent folder.
@@ -678,16 +737,23 @@ the robot file's numbers and the 3D view says why.
 - **Sensors**: the Control Hub IMU (`IMU`, yaw/pitch/roll, angular velocity, mounting
   orientation), goBILDA Pinpoint (its own odometry from your offsets, resolution and directions),
   SparkFun OTOS, REV 2m distance (raycast), REV Color Sensor V3 (tape and tiles under it), REV
-  touch sensor / digital channel, and battery voltage.
+  touch sensor / digital channel, analog inputs (a set voltage, or an absolute encoder on a
+  servo or motor), and battery voltage. **Lights**: an LED on a digital channel and a REV Blinkin
+  LED driver (its pattern decoded from the pulse FIRST's driver sends) show in the device panel.
+- **Files**: `ReadWriteFile` and `AppUtil`'s folders work; the Control Hub's storage (`/sdcard`,
+  where `AppUtil.ROOT_FOLDER` is) is `build/sdcard` in the simulator's folder, shared by its
+  robots.
 - **Game pieces** (BIOBUZZ; for DECODE see [Seasons](#seasons)): the 40 yellow POLLEN (7.1 cm) and 8 red + 8 blue NECTAR (9.1 cm), staged
   as Competition Manual section 10.3.1 sets them up: 4 POLLEN in each FLOWER, 4 in each GARDEN and
   4 pre-loaded in each simulated robot; the absent robots' pre-loads sit in the middle of their
   LOADING ZONE against the wall; 3 NECTAR in each upward-facing CELL and 5 in each ALLIANCE AREA. Loose
   balls roll and bounce, slow down with air drag in flight and rolling resistance on the tiles,
-  and the robot pushes them. A robot with an `intake` role has a solid roller across its front
-  that pushes and bumps balls; spinning, it picks up a ball that touches it (reverse it to spit
-  one out), and the robot holds at most 4 (rule G407; the top bar shows *In robot*); a `feeder`
-  then sends them into the `launcher`, which throws them at about half the flywheel's surface
+  and the robot pushes them. A robot with an `intake` role (a motor or a CR servo) has a solid
+  roller across its front that pushes and bumps balls; turning at 15% of its own free speed or
+  more, whatever drives it, it picks up a ball that touches it (turning the other way, it spits
+  one out; set the device's `"intake_direction": "reverse"` when your code sets the intake to
+  `REVERSE` and takes balls in with positive power), and the robot holds at most 4 (rule G407;
+  the top bar shows *In robot*); a `feeder` then sends them into the `launcher`, which throws them at about half the flywheel's surface
   speed, at an angle set by the `hood` servo.
 - **HIVES** are solid seesaws. Each CELL has a floor, side walls and a peaked roof, is closed at
   the end next to the pivot and open at the outer end. A ball that goes in through the open end of
@@ -721,7 +787,7 @@ the robot file's numbers and the 3D view says why.
 - **Loop timing**: hardware calls take about as long as on a real Control Hub, so control-loop
   tuning carries over.
 
-**Not simulated yet**: scoring, LEDs and sounds, Limelight,
+**Not simulated yet**: scoring, sounds, Limelight,
 OctoQuad, legacy BNO055 / Modern Robotics sensors, switchable webcams, cameras driven through
 EasyOpenCV directly (`OpenCvCameraFactory`), lens distortion and motion blur in the webcam image.
 OpModes that use them are skipped at build time with the reason.
@@ -737,18 +803,25 @@ On macOS and Linux: `sh gradlew test`.
 The suite includes:
 
 - `ApiConformanceTest`: the simulator's SDK must be a subset of the official FTC SDK 12.0. It
-  downloads the official jars from Maven Central.
+  downloads the official jars from Maven Central and says what the members it checked are (those
+  declared in FIRST's jars, `equals`/`hashCode`/`toString` overrides, constructors that take the
+  simulator's internal types, and its one documented exception). `CommonSdkApiTest`: robot code
+  using `AnalogInput`, `LED`, `RevBlinkinLedDriver`, `ReadWriteFile`, `AppUtil`'s folders,
+  `JavaUtil`, `ThreadPool` and the other common SDK calls builds and runs, and its values flow.
 - `GameElementsTest`: POLLEN and NECTAR counts and staging per section 10.3.1, balls at rest,
-  pushing, intake (4-ball limit), launching, and the CELLS: NECTAR stays in the upward-facing
+  pushing, intake (4-ball limit; a slow Core Hex, a CR servo or a reversed intake takes balls in
+  too), launching, and the CELLS: NECTAR stays in the upward-facing
   CELLS, a ball shot into the open end stays, a ball dropped on the roof bounces off, and a ball
   in a downward-facing CELL rolls out, and a ball thrown at a CELL's side bounces off. The
   FLOWERS: the stacks stay put, the intake empties a FLOWER from the bottom, a full robot's roller
   knocks the bottom POLLEN out, the others roll out once it is gone, a NECTAR stops on the middle
   ring and locks POLLEN in, and the robot's body stops at the FLOWER's frame.
 - `HiveTipTest`: the HIVE calibration table from the Event Field Setup Guide (section 12.3), with
-  balls gently placed or tossed in, and a tip dumping the CELL and turning the other CELL up.
-- `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing, turning, RUN_TO_POSITION, wall
-  contact, no drift at rest. A robot whose right motors are mirrored drives forward under code
+  balls gently placed or tossed in (a row that tips must swing the HIVE all the way over, one that
+  holds must leave it on its stop), and a tip dumping the CELL and turning the other CELL up.
+- `DrivetrainPhysicsTest`, `RestDriftTest`: speed, strafing and turning (each between a lower
+  and an upper bound), RUN_TO_POSITION, wall contact, no drift at rest, and each hub's current
+  sensor reading its own motors. A robot whose right motors are mirrored drives forward under code
   that reverses its right side; `mirrored_side` takes left, right or none, and older files'
   `left_side_mirrored` still works. A 2-motor `tank4` drives each side's wheels with one motor and
   one encoder, and wheels chained to a motor share its rotor; the battery sags when motors start
@@ -769,12 +842,21 @@ The suite includes:
   (from the front of the flywheel's rim, wherever it has turned to), and a cascade slide's second
   stage follows the first, held back by its motor's rotor. Two writes of one conversion don't
   collide. Wheels listed in the robot file orient the robot as found ones do; an open part's mass
-  doesn't depend on where it is; a URDF wheel whose mesh is missing says so.
+  doesn't depend on where it is; a URDF wheel whose mesh is missing says so. Odometry pods aren't
+  taken for drive wheels, and extra wheels are never merged into one; a URDF limit given on one
+  side only stops at 0 on the other; after a Reset the hood moves from its start; a STEP robot
+  whose wheels aren't found weighs what its robot file says. `CadMeshTest`: a webcam's own
+  robot's panels near its lens are left out, and simplifying a mesh keeps every distinct triangle.
+  `WebcamSceneTest`: a webcam mounted low inside the frame sees past it, and a tag is its size
+  whatever length its directions are given in.
+- `RobotFileTest`: a robot file's mistakes (a missing motor model, a bad IMU mounting or start,
+  two devices with one name, an intake direction) are reported naming the field and the file.
 - `SeasonsTest`: every season pack in `seasons/` loads and plays (its robot starts clear of the
   structures, its game pieces stay on the field). On DECODE: the ARTIFACTS are staged per section
   10.3.1, the GOAL AprilTags sit where FIRST's DECODE tag library puts them, ARTIFACTS dropped into
   a GOAL roll down the RAMP and wait at the GATE, a robot pushes the GATE open and the RAMP empties,
-  the human player fills the LOADING ZONE, the OBELISK shows the MOTIF, and FIRST's
+  the human player fills the LOADING ZONE, the OBELISK shows the MOTIF (its three tags are
+  counted), an alliance partner started from a robot file's spot faces the mirrored way, and FIRST's
   `AprilTagProcessor` with the DECODE library locates the camera from tag 24 within 3 cm (it
   prints the error).
 - `MultiRobotTest`: two robots on one field. Each has its own TeamCode class loader, starting
@@ -782,9 +864,10 @@ The suite includes:
   leaves the other alone, and never happens under a running OpMode; alliance partners start side
   by side and an alliance takes at most two robots; *INIT all* / *START all* / *STOP all* run both
   robots' Autonomous together.
-- `VisionLinkageTest`: every class, method and field that FIRST's Vision and RobotCore classes
-  refer to exists in the simulator, so a missing stand-in can't surface as a `NoSuchMethodError`
-  in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
+- `VisionLinkageTest`: every class, method and field that FIRST's Vision, RobotCore and Hardware
+  classes refer to exists in the simulator as they use it (a field of the type they read, static
+  where they use it statically, not private), so a stand-in can't surface as a
+  `NoSuchMethodError`, `NoSuchFieldError` or `IllegalAccessError` in your OpMode. `AndroidMatrixTest` checks the `android.opengl.Matrix` stand-in they compute with.
 - `AprilTagVisionTest`: FIRST's `AprilTagProcessor` on the simulated webcam finds the HIVE's tags,
   the positions it solves match where the camera and tags really are within 2 mm (the test prints
   each error, and fails beyond 5 mm) and their orientations within 2 degrees (it fails beyond 3), and the
@@ -795,29 +878,48 @@ The suite includes:
   RUN_USING_ENCODER, setting the mode a motor has does nothing, a new power enables a disabled
   motor, a NaN command is 0, and each OpMode finds the configured motor type and PIDF;
   `getBulkData()` refreshes the bulk cache. A servo reads 0 before its first position and refuses
-  NaN. The OTOS reports in any unit, the IMU keeps its `resetYaw()` zero into the next OpMode, and
-  out of range the 2m distance sensor reads 8190 mm and the color sensor 6 in. A trigger counts as
-  pressed from 0.5, INIT resets the threshold and START forgets presses made during INIT.
-  Telemetry clears when data is added after `update()`, not at `update()`.
+  NaN; `setPulseWidth` sends the pulse as it is, outside the PWM range too, and a target tolerance
+  the hub can't take is refused. The OTOS reports in any unit, the IMU keeps its `resetYaw()` zero
+  into the next OpMode, and out of range the 2m distance sensor reads 8190 mm and the color sensor
+  6 in; the device panel is told each odometry pose's units. A trigger counts as pressed from 0.5,
+  INIT resets the threshold and START forgets presses made during INIT (a button still held counts
+  at its next update); each PlayStation button name has its own pressed/released edge; an
+  iterative OpMode's gamepads don't change while its `loop()` runs. Telemetry clears when data is
+  added after `update()`, not at `update()`; it formats numbers and lays out items as FIRST's
+  does, runs `Func`s and actions once per transmission, never holds up the field, and passes on
+  what they throw. `ImuTest`: the IMU gives the angles FIRST's own orientation math gives, for
+  every axis order and hub mounting.
 - `OpModeLifecycleTest`, `PhysicsLoopTest`: a thread an earlier OpMode left can't stop the next
-  one; an OpMode that ignores STOP is ended at its next hardware call and lets go of the gamepads;
-  an iterative loop takes its own time plus a millisecond. A failure on the physics thread is
-  logged once and the field carries on; a slow OpMode constructor doesn't stop the field (STOP
-  cancels its INIT, and Reset is refused meanwhile); the device panel is told what has no value.
-- `WebServerTest`, `CodeEditorTest`, `DeployTest`, `LauncherTest`: the page's server answers only
-  requests addressed to this computer, and its WebSocket only the simulator's own page; OpModes
-  stop when the last page closes or crashes, and a page that leaves lets go of its gamepads. The
+  one; an OpMode that ignores STOP is ended at its next hardware call and lets go of the gamepads,
+  and the next OpMode gets fresh static fields, as after the robot app restarts; an iterative loop
+  takes its own time plus a millisecond; a LinearOpMode's `time` follows its runtime; telemetry
+  exists while the OpMode is constructed. A failure on the physics thread is logged once and the
+  field carries on; a slow OpMode constructor doesn't stop the field (STOP cancels its INIT, and
+  Reset is refused meanwhile); the device panel is told what has no value; the physics loop
+  pauses about a millisecond between passes (on Windows too).
+- `WebServerTest`, `CodeEditorTest`, `DeployTest`, `LauncherTest`, `TeamCodeCompilerTest`,
+  `OptionsTest`: the page's server answers only requests addressed to this computer, and its
+  WebSocket only the simulator's own page; it passes over a port another program has at
+  localhost, IPv4 or IPv6; OpModes stop when the last page closes or crashes, a page that leaves
+  lets go of its gamepads, and one page's "nothing pressed" doesn't undo a gamepad another page
+  holds. The
   code editor saves keeping line endings, refuses stale writes, writes outside the project and
   through links to nothing, won't open a file that isn't UTF-8, and shows compile errors where
   they are; the sources are read while an editor writes temporary files; a team's copy of a
-  sample is the team's OpMode. Deploy finds the project and the robots, builds, installs and
-  restarts the Robot Controller app (with stand-ins for Gradle and adb), and says why a build
-  failed. `run-sim.sh` picks a JDK 17 or newer by its version, and a relative `--project` is where
-  it was typed. `VisionPortalBehaviorTest`: camera states, controls and live view follow FIRST's
+  sample is the team's OpMode; every file that compiles is built however many others fail, and
+  with a file's first 20 errors shown. Deploy finds the project and the robots, builds, installs
+  and restarts the Robot Controller app (with stand-ins for Gradle and adb), runs Gradle on the
+  project's own Gradle JDK or one its Gradle version can run on, and says why a build failed.
+  `run-sim.sh` and `run-sim.bat` pick a JDK 17 or newer by its version (Android Studio's too) and
+  start the simulator from a copy no later build rewrites; a relative `--project` is where it was
+  typed, and a relative `--robot` or `--season` there if it is there. `sim.properties` is read as
+  written, backslashes included, and a wrong option is explained; `--robots` on the command line
+  is how many robots there are; `--help` lists every option. `VisionPortalBehaviorTest`: camera states, controls and live view follow FIRST's
   portal, and the webcam sits and looks where its mount says.
 - `SampleOpModesTest`, `ExampleOpModesTest`: the official samples and the examples run end to
-  end. For example, `RobotAutoDriveByGyro_Linear` returns to within about 10 cm of its start, the
-  Pinpoint auto to within 1.5 in (about 0.5 in in practice), BIOBUZZ Parking ends in the red
+  end (every sample file with an OpMode gives one). For example, `RobotAutoDriveByGyro_Linear`
+  returns to within about 10 cm of its start, the Pinpoint auto drives its 20 in square and
+  returns to within 1.5 in (about 0.5 in in practice), BIOBUZZ Parking ends in the red
   LOADING ZONE, and from the near end, the middle and the far end of its documented shooting
   range the BIOBUZZ TeleOp's first 2 shots land in the red HIVE's CELL and the 3rd tips the HIVE.
 
@@ -833,7 +935,7 @@ Station page loads.
 
 | Path | Contents |
 |---|---|
-| `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision, RobotCore math), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
+| `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision; RobotCore math, `AnalogInput`, `LED`, `JavaUtil` and the IMU's orientation helper; Hardware's `RevBlinkinLedDriver` and `RevHubOrientationOnRobot`), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
 | `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64, Linux x64 with glibc 2.38 or newer such as Ubuntu 24.04, and macOS on Apple silicon and Intel), with the script that builds it. Elsewhere (Linux on ARM, older Linux) the simulator runs without AprilTag detection |
 | `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files and deploy (`ftcsim.deploy`), web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
 | `examples/teamcode/` | Example OpModes for the default robot |
