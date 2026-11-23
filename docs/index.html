@@ -65,6 +65,7 @@
       { "@type": "Person", "name": "Na Li", "affiliation": { "@type": "Organization", "name": "Springphy AI", "url": "https://springphy.ai" } }
     ],
     "datePublished": "2026-11-19",
+    "dateModified": "2026-11-23",
     "url": "https://springphy-ai.github.io/ftc-sim/",
     "image": "https://springphy-ai.github.io/ftc-sim/static/images/social-preview.jpg",
     "keywords": ["FIRST Tech Challenge", "robot simulation", "ODE4j", "AprilTag"],
@@ -169,7 +170,7 @@
               Teams drive the simulated robots with their own robot code, compiled unmodified, and with real gamepads.
               They can edit that code in the same page, beside the field, and deploy it from there to the physical robot
               through their project's own Android build. We describe the models, a test suite that runs on Windows, Linux
-              and macOS, and a planned comparison with a physical robot and field. The code is open source under the MIT
+              and macOS and checks the SDK's stand-ins against FIRST's code, and a planned comparison with a physical robot and field. The code is open source under the MIT
               license.
             </p>
           </div>
@@ -183,10 +184,10 @@
     <div class="container is-max-desktop">
       <div class="columns is-multiline is-centered has-text-centered">
         <div class="column fact"><p class="fact-num">1&nbsp;ms</p><p class="fact-text">physics step in ODE4j, paced to the wall clock</p></div>
-        <div class="column fact"><p class="fact-num">1,083</p><p class="fact-text">public members of 115 SDK 12.0 classes, all found in FIRST's jars</p></div>
+        <div class="column fact"><p class="fact-num">1,118</p><p class="fact-text">public and protected members of 115 SDK 12.0 classes, all found in FIRST's jars</p></div>
         <div class="column fact"><p class="fact-num">41</p><p class="fact-text">of FIRST's sample files, bundled with the simulator, compile unmodified</p></div>
         <div class="column fact"><p class="fact-num">≤&nbsp;2&nbsp;mm</p><p class="fact-text">AprilTag position error on rendered, noise-free frames</p></div>
-        <div class="column fact"><p class="fact-num">97</p><p class="fact-text">tests, run on Windows, Linux and macOS (vision tests skip on macOS)</p></div>
+        <div class="column fact"><p class="fact-num">162</p><p class="fact-text">tests, run on Windows, Linux and macOS</p></div>
       </div>
       <p class="has-text-centered fact-note">The SDK, sample and AprilTag numbers come from the simulator's own tests; the 1&nbsp;ms step is a setting. None has been compared with a physical robot yet; Section 10 of the report plans that comparison.</p>
     </div>
