@@ -401,8 +401,11 @@ public final class RobotRig {
         batteryVolts += (target - batteryVolts) * Math.min(1, dt / 0.03);
         batteryVolts = Math.max(7.0, batteryVolts);
         for (SimHub h : hubs) {
+            // What each hub's current sensor reads: its own motors (servos and sensors draw little).
+            double hubAmps = 0;
+            for (MotorUnit u : motors.values()) if (u.port.hub == h) hubAmps += u.batteryAmps();
             h.inputVoltage = batteryVolts;
-            h.totalCurrentAmps = current;
+            h.totalCurrentAmps = Math.max(0, hubAmps);
         }
     }
 

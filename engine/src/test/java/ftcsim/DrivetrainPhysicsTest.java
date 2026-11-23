@@ -10,15 +10,21 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import ftcsim.cad.ModelBuilder;
 import ftcsim.config.MotorModels;
 import ftcsim.config.RobotConfig;
+import ftcsim.hal.HalSession;
 import ftcsim.hal.Latency;
 import ftcsim.hal.MotorPort;
 import ftcsim.physics.FieldModel;
 import ftcsim.physics.Mechanism;
+import ftcsim.physics.MotorUnit;
 import ftcsim.physics.PhysicsWorld;
 import ftcsim.physics.RobotBody;
 import ftcsim.sim.RobotRig;
@@ -196,6 +202,23 @@ class DrivetrainPhysicsTest {
         }
         // One port per motor: the intake moves up to the Control Hub's free ports.
         assertTrue(two.motors.get("intake").port.hub == port(two, "left_drive").hub, "intake on the Control Hub");
+    }
+
+    @Test
+    void eachHubReportsTheCurrentOfItsOwnMotors() throws Exception {
+        RobotRig rig = mecanum();   // drive motors on the Control Hub, intake and launcher on Expansion Hub 2
+        HardwareMap map = rig.createHardwareMap(new HalSession());
+        LynxModule control = map.get(LynxModule.class, "Control Hub"), expansion = map.get(LynxModule.class, "Expansion Hub 2");
+        assertTrue(port(rig, "launcher").hub != port(rig, "front_left_drive").hub, "the launcher is on the Expansion Hub");
+        port(rig, "launcher").power = 1;
+        run(rig, 0.05);   // spinning up: several amps
+        double total = 0;
+        for (MotorUnit u : rig.motors.values()) total += u.batteryAmps();
+        double c = control.getCurrent(CurrentUnit.AMPS), e = expansion.getCurrent(CurrentUnit.AMPS);
+        System.out.printf("hub currents: Control Hub %.3f A, Expansion Hub %.3f A, robot %.3f A%n", c, e, total);
+        assertTrue(e > 1, "the Expansion Hub feeds the launcher: " + e + " A");
+        assertEquals(0, c, 0.05, "the Control Hub's motors are off");
+        assertEquals(total, c + e, 1e-9, "the hubs' currents add up to the robot's");
     }
 
     @Test
