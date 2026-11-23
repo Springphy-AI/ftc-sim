@@ -258,6 +258,11 @@ public final class RobotConfig {
         try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             c = GSON.fromJson(r, RobotConfig.class);
             if (c == null) throw new IOException("empty robot file " + file);
+        } catch (com.google.gson.JsonParseException e) {
+            // Not JSON, or a field of the wrong kind ("chassis": 5): Gson says where.
+            String m = String.valueOf(e.getMessage()).replaceFirst("^[\\w.$]+(Exception|Error): ", "");
+            int link = m.indexOf("\nSee ");
+            throw new IllegalArgumentException("not a robot file: " + (link >= 0 ? m.substring(0, link) : m), e);
         }
         c.source = file;
         c.validate();
@@ -287,26 +292,115 @@ public final class RobotConfig {
         return GSON;
     }
 
+    /**
+     * Everything the simulator later reads from the file, checked now: a mistake is reported when
+     * the file is read, naming the field, not as a NullPointerException where it is used.
+     */
     private void validate() {
+        if (chassis == null) throw new IllegalArgumentException("chassis must be an object, not null");
+        if (drive == null) throw new IllegalArgumentException("drive must be an object, not null");
+        if (drive.motors == null) throw new IllegalArgumentException("drive.motors must be an object, not null");
+        if (imu == null) throw new IllegalArgumentException("imu must be an object such as {\"name\": \"imu\", \"logo\": \"UP\", \"usb\": \"FORWARD\"}, not null");
+        if (devices == null) throw new IllegalArgumentException("devices must be a list, not null");
+        if (io == null) throw new IllegalArgumentException("io must be an object, not null");
         if (chassis.widthM <= 0 || chassis.lengthM <= 0) throw new IllegalArgumentException("chassis size must be positive");
         if (!(drive.wheelDiameterMm > 0)) throw new IllegalArgumentException("drive.wheel_diameter_mm must be positive");
         if (cad == null && drive.trackWidthM / 2 > chassis.widthM / 2) throw new IllegalArgumentException("wheels must fit inside the chassis width");
         if (cad != null && (cad.file == null || cad.file.isBlank())) throw new IllegalArgumentException("cad needs a file (.step, .stp or .urdf)");
-        for (Device d : devices) {
-            if (d.type == null || d.name == null) throw new IllegalArgumentException("every device needs a type and a name");
+        for (int i = 0; i < devices.size(); i++) {
+            Device d = devices.get(i);
+            if (d == null || d.type == null || d.name == null) {
+                throw new IllegalArgumentException("devices[" + i + "]: every device needs a type and a name");
+            }
+            if (d.aliases == null) throw new IllegalArgumentException("device " + d.name + ": aliases must be a list of names, not null");
             if ("motor".equals(d.type) && d.load == null) throw new IllegalArgumentException("device " + d.name + ": load must be an object");
         }
         if (!java.util.Set.of("left", "right", "none").contains(drive.mirroredSide())) {
             throw new IllegalArgumentException("drive.mirrored_side must be \"left\", \"right\" or \"none\", not \""
                     + drive.mirroredSide + "\"");
         }
+        for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : drive.motors.entrySet()) {
+            com.google.gson.JsonElement v = e.getValue();
+            if (!v.isJsonPrimitive() || !v.getAsJsonPrimitive().isString()) {
+                throw new IllegalArgumentException("drive.motors." + e.getKey() + " must be the motor's name, not " + v);
+            }
+        }
         validateDriveMotors();
         validateUniqueNames();
-        MotorModels.get(drive.motor);
+        validateImu();
+        validateStart();
+        motorModel("drive.motor", drive.motor);
         for (Device d : devices) {
-            if ("motor".equals(d.type)) MotorModels.get(d.motor);
-            if ("webcam".equals(d.type)) ftcsim.vision.WebcamModels.get(d.model);
+            if ("motor".equals(d.type)) motorModel("device " + d.name + ": motor", d.motor);
+            if ("webcam".equals(d.type)) {
+                try {
+                    ftcsim.vision.WebcamModels.get(d.model);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("device " + d.name + ": model: " + e.getMessage(), e);
+                }
+            }
         }
+    }
+
+    /** A motor model from {@link MotorModels}; {@code field} names where it is given. */
+    private static void motorModel(String field, String model) {
+        if (model == null || model.isBlank()) {
+            throw new IllegalArgumentException(field + " is missing: name the motor model, one of " + MotorModels.names());
+        }
+        try {
+            MotorModels.get(model);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(field + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** The IMU's name, and a way to mount a hub: as RevHubOrientationOnRobot, which RobotRig builds from it. */
+    private void validateImu() {
+        if (imu.name == null || imu.name.isBlank()) throw new IllegalArgumentException("imu.name is missing");
+        com.qualcomm.hardware.rev.RevHubOrientationOnRobot.LogoFacingDirection logo =
+                facing("imu.logo", imu.logo, com.qualcomm.hardware.rev.RevHubOrientationOnRobot.LogoFacingDirection.class);
+        com.qualcomm.hardware.rev.RevHubOrientationOnRobot.UsbFacingDirection usb =
+                facing("imu.usb", imu.usb, com.qualcomm.hardware.rev.RevHubOrientationOnRobot.UsbFacingDirection.class);
+        try {
+            new com.qualcomm.hardware.rev.RevHubOrientationOnRobot(logo, usb);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("imu: logo " + imu.logo + " and usb " + imu.usb
+                    + ": the logo and the USB ports can't face the same or opposite directions", e);
+        }
+    }
+
+    private static <E extends Enum<E>> E facing(String field, String value, Class<E> type) {
+        java.util.List<String> names = java.util.Arrays.stream(type.getEnumConstants()).map(Enum::name).toList();
+        String v = value == null ? null : value.trim().toUpperCase(java.util.Locale.ROOT);
+        if (v == null || !names.contains(v)) {
+            throw new IllegalArgumentException(field + " must be one of " + String.join(", ", names) + ", not "
+                    + (value == null ? "null" : "\"" + value + "\""));
+        }
+        return Enum.valueOf(type, v);
+    }
+
+    /** {@link #start}: {@code [x, y, heading]}, or season ids to those. */
+    private void validateStart() {
+        if (start == null || start.isJsonNull()) return;
+        if (start.isJsonArray()) {
+            spot("start", start);
+        } else if (start.isJsonObject()) {
+            for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : start.getAsJsonObject().entrySet()) {
+                if (!e.getValue().isJsonNull()) spot("start." + e.getKey(), e.getValue());
+            }
+        } else {
+            throw new IllegalArgumentException("start must be {\"<season>\": [x, y, heading], ...} or a BIOBUZZ spot [x, y, heading], not " + start);
+        }
+    }
+
+    private static void spot(String field, com.google.gson.JsonElement e) {
+        boolean ok = e.isJsonArray() && e.getAsJsonArray().size() >= 2 && e.getAsJsonArray().size() <= 3;
+        if (ok) {
+            for (com.google.gson.JsonElement n : e.getAsJsonArray()) {
+                ok &= n.isJsonPrimitive() && n.getAsJsonPrimitive().isNumber() && Double.isFinite(n.getAsDouble());
+            }
+        }
+        if (!ok) throw new IllegalArgumentException(field + " must be [x, y] or [x, y, heading] (meters, degrees), not " + e);
     }
 
     /** Which motor key drives which side, for each drive type. */

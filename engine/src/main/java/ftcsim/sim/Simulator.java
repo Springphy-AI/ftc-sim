@@ -122,8 +122,14 @@ public final class Simulator {
             if (station > 2) {
                 throw new IllegalArgumentException("Robot " + (i + 1) + ": the " + alliance + " alliance already has two robots");
             }
-            SimRobot r = new SimRobot(this, i, alliance, station, s.robotFile(), RobotConfig.load(s.robotFile()),
-                    s.compiler(), s.projectLabel());
+            SimRobot r;
+            try {
+                r = new SimRobot(this, i, alliance, station, s.robotFile(), RobotConfig.load(s.robotFile()),
+                        s.compiler(), s.projectLabel());
+            } catch (IOException | IllegalArgumentException e) {
+                // What Main prints when it can't start: it must say which file is wrong.
+                throw new IllegalArgumentException("Robot file " + s.robotFile() + ": " + e.getMessage(), e);
+            }
             robots.add(r);
             rigs.add(r.rig());
             alliances.add(alliance);

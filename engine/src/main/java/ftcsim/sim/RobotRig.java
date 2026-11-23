@@ -188,8 +188,8 @@ public final class RobotRig {
         }
 
         RevHubOrientationOnRobot mount = new RevHubOrientationOnRobot(
-                RevHubOrientationOnRobot.LogoFacingDirection.valueOf(config.imu.logo.toUpperCase()),
-                RevHubOrientationOnRobot.UsbFacingDirection.valueOf(config.imu.usb.toUpperCase()));
+                RevHubOrientationOnRobot.LogoFacingDirection.valueOf(config.imu.logo.trim().toUpperCase(java.util.Locale.ROOT)),
+                RevHubOrientationOnRobot.UsbFacingDirection.valueOf(config.imu.usb.trim().toUpperCase(java.util.Locale.ROOT)));
         Quaternion q = mount.imuCoordinateSystemOrientationFromPerspectiveOfRobot();
         imu = new ImuBackend(Rotations.fromQuaternion(q.w, q.x, q.y, q.z));
 

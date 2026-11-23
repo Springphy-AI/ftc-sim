@@ -6,11 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import ftcsim.config.RobotConfig;
+import ftcsim.physics.FieldModel;
+import ftcsim.runner.TeamCodeCompiler;
+import ftcsim.sim.Simulator;
 
 /** A robot file that can't describe a robot is refused when it is read, with a message naming what is wrong. */
 class RobotFileTest {
@@ -48,6 +52,61 @@ class RobotFileTest {
         assertTrue(m.contains("\"feeder\" is used twice") && m.contains("aliases of hood"), m);
         m = refused(mecanumWith(dir, HOOD, HOOD + " \"aliases\": [\"imu\"],"));
         assertTrue(m.contains("\"imu\" is used twice"), m);
+    }
+
+    private static final String INTAKE_MOTOR = "\"motor\": \"goBILDA 5203 1150rpm\", \"role\": \"intake\"";
+
+    @Test
+    void aMotorWithoutAModelIsRefusedListingTheModels(@TempDir Path dir) throws Exception {
+        for (String motor : new String[]{"\"motor\": null, \"role\": \"intake\"", "\"role\": \"intake\""}) {
+            String m = refused(mecanumWith(dir, INTAKE_MOTOR, motor));
+            assertTrue(m.contains("device intake: motor is missing") && m.contains("goBILDA 5203 312rpm"), m);
+        }
+        String m = refused(mecanumWith(dir, "\"motor\": \"goBILDA 5203 312rpm\",", "\"motor\": null,"));
+        assertTrue(m.contains("drive.motor is missing"), m);
+        m = refused(mecanumWith(dir, INTAKE_MOTOR, "\"motor\": \"goBILDA 1150\", \"role\": \"intake\""));
+        assertTrue(m.contains("device intake: motor: Unknown motor model \"goBILDA 1150\"") && m.contains("REV Core Hex"), m);
+    }
+
+    @Test
+    void aStartThatIsNotASpotIsRefused(@TempDir Path dir) throws Exception {
+        String io = "\"io\": { \"command_ms\": 1.0, \"i2c_ms\": 2.5 }";
+        String m = refused(mecanumWith(dir, io, io + ", \"start\": {\"biobuzz\": [0.5]}"));
+        assertTrue(m.contains("start.biobuzz must be [x, y] or [x, y, heading]"), m);
+        m = refused(mecanumWith(dir, io, io + ", \"start\": [0.5, \"left\", 90]"));
+        assertTrue(m.contains("start must be [x, y] or [x, y, heading]"), m);
+        m = refused(mecanumWith(dir, io, io + ", \"start\": \"red 1\""));
+        assertTrue(m.contains("start must be {"), m);
+        assertEquals(90, RobotConfig.load(mecanumWith(dir, io, io + ", \"start\": {\"decode\": [0.5, 1, 90]}")).startFor("decode")[2]);
+    }
+
+    @Test
+    void anImuThatCannotBeMountedIsRefused(@TempDir Path dir) throws Exception {
+        String imu = "\"imu\": { \"name\": \"imu\", \"logo\": \"UP\", \"usb\": \"FORWARD\" }";
+        String m = refused(mecanumWith(dir, imu, "\"imu\": { \"name\": \"imu\", \"logo\": \"TOP\", \"usb\": \"FORWARD\" }"));
+        assertTrue(m.contains("imu.logo must be one of UP, DOWN, FORWARD, BACKWARD, LEFT, RIGHT, not \"TOP\""), m);
+        m = refused(mecanumWith(dir, imu, "\"imu\": { \"name\": \"imu\", \"logo\": \"UP\", \"usb\": \"DOWN\" }"));
+        assertTrue(m.contains("imu: logo UP and usb DOWN"), m);
+        m = refused(mecanumWith(dir, imu, "\"imu\": null"));
+        assertTrue(m.contains("imu must be an object"), m);
+        assertEquals("left", RobotConfig.load(mecanumWith(dir, imu, "\"imu\": { \"name\": \"imu\", \"logo\": \"left\", \"usb\": \"up\" }")).imu.logo);
+    }
+
+    @Test
+    void aFileThatIsNotARobotFileIsRefused(@TempDir Path dir) throws Exception {
+        String m = refused(mecanumWith(dir, "\"chassis\": {", "\"chassis\": 5, \"x\": {"));
+        assertTrue(m.startsWith("not a robot file: ") && m.contains("$.chassis"), m);
+        m = refused(mecanumWith(dir, "\"devices\": [", "\"devices\": [null, "));
+        assertTrue(m.contains("devices[0]"), m);
+    }
+
+    @Test
+    void theSimulatorSaysWhichRobotFileIsWrong(@TempDir Path dir) throws Exception {
+        Path file = mecanumWith(dir, INTAKE_MOTOR, "\"role\": \"intake\"");
+        TeamCodeCompiler compiler = new TeamCodeCompiler(List.of(new TeamCodeCompiler.SourceRoot(dir, false)), dir.resolve("build"));
+        String m = assertThrows(IllegalArgumentException.class, () -> new Simulator(FieldModel.loadBiobuzz(), dir,
+                List.of(new Simulator.RobotSpec(file, compiler, "test", null)))).getMessage();
+        assertTrue(m.startsWith("Robot file " + file + ": device intake: motor is missing"), m);
     }
 
     @Test
