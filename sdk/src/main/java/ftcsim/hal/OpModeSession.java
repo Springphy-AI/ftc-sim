@@ -153,6 +153,7 @@ public final class OpModeSession {
             gp.setTriggerThreshold(Gamepad.DEFAULT_TRIGGER_THRESHOLD);
         }
         stopHooks = robot != null ? robot.newOpModeStopHooks() : null;
+        opMode.resetRuntime();   // as OpModeManagerImpl, before the OpMode's thread starts
         thread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -163,6 +164,42 @@ public final class OpModeSession {
         }, "OpMode " + name);
         thread.setDaemon(true);
         thread.start();
+        if (linear) {
+            Thread eventLoop = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    if (robot != null) robot.enter();
+                    CURRENT.set(OpModeSession.this);
+                    runEventLoop();
+                }
+            }, "OpMode " + name + " event loop");
+            eventLoop.setDaemon(true);
+            eventLoop.start();
+        }
+    }
+
+    /** How often the Robot Controller's event loop runs (EventLoopRunnable sleeps 5 ms between iterations). */
+    static final long EVENT_LOOP_MS = 5;
+
+    /**
+     * What the Robot Controller's event loop does for a LinearOpMode on each iteration while it is in
+     * INIT or running (LinearOpMode.internalOnEventLoopIteration): sets {@code time} to getRuntime()
+     * and wakes whatever waits on the OpMode's running notifier. An iterative OpMode's time is set
+     * before each of its callbacks instead.
+     */
+    private void runEventLoop() {
+        Object notifier = ACCESS.runningNotifier(opMode);
+        try {
+            while (state != State.STOPPED && !abandoned) {
+                opMode.time = opMode.getRuntime();
+                synchronized (notifier) {
+                    notifier.notifyAll();
+                }
+                Thread.sleep(EVENT_LOOP_MS);
+            }
+        } catch (InterruptedException e) {
+            // the simulator is shutting down
+        }
     }
 
     /** START (the play button). */
@@ -240,7 +277,6 @@ public final class OpModeSession {
 
     private void runOpModeThread() {
         try {
-            opMode.resetRuntime();
             opMode.internalPreInit();
             try {
                 if (linear) {

@@ -292,6 +292,42 @@ class OpModeLifecycleTest {
     }
 
     @Test
+    void aLinearOpModesTimeFollowsItsRuntime() throws Exception {
+        // As LinearOpMode.internalOnEventLoopIteration: the Robot Controller's event loop sets time to
+        // getRuntime() about every 5 ms while the OpMode runs.
+        write("Timer", """
+                @TeleOp(name = "Timer")
+                public class Timer extends LinearOpMode {
+                    @Override
+                    public void runOpMode() {
+                        waitForStart();
+                        sleep(300);
+                        double t = time;
+                        telemetry.addData("time", t);
+                        telemetry.addData("behind runtime by", getRuntime() - t);
+                        telemetry.update();
+                        while (opModeIsActive()) idle();
+                    }
+                }
+                """);
+        start();
+        sim.handle("{\"type\":\"init\",\"opmode\":\"Timer\"}");
+        waitFor(Simulator.DsState.INIT);
+        sim.handle("{\"type\":\"start\"}");
+        waitFor(Simulator.DsState.RUNNING);
+        long deadline = System.currentTimeMillis() + 5000;
+        String line;
+        while ((line = lastTelemetry("behind runtime by")) == null && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        assertTrue(line != null, "the OpMode reports its time");
+        String timeLine = lastTelemetry("time");
+        double time = Double.parseDouble(timeLine.substring(timeLine.indexOf(':') + 1).trim());
+        double behind = Double.parseDouble(line.substring(line.indexOf(':') + 1).trim());
+        assertTrue(time > 0.29, "time after sleep(300), less up to one event loop iteration: " + time);
+        assertTrue(behind >= 0 && behind < 0.1, "time is at most an event loop iteration behind getRuntime(): " + behind);
+        sim.handle("{\"type\":\"stop\"}");
+    }
+
+    @Test
     void theRunningOpModeCanStillStopItself() throws Exception {
         write("StopsItself", """
                 @TeleOp(name = "Stops itself")
