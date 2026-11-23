@@ -290,19 +290,22 @@ class GameElementsTest {
         Setup s = setup("mecanum.json");   // full: 4 pre-loaded, so the intake can't take any
         BiobuzzGame game = BiobuzzGame.of(s.elements);
         Flower f = game.flower("flower_red");
-        List<Ball> stack = s.elements.balls().stream().filter(b -> "flower_red".equals(game.flowerOf(b))).toList();
-        long out = 0;
-        for (int bump = 0; bump < 3 && out == 0; bump++) {   // a firm bump, slightly off center
+        Ball bottom = s.elements.balls().stream().filter(b -> "flower_red".equals(game.flowerOf(b)))
+                .min((a, b) -> Double.compare(a.position().get2(), b.position().get2())).orElseThrow();
+        for (int bump = 0; bump < 3 && game.flowerOf(bottom) != null; bump++) {   // a firm bump, slightly off center
             driveIntoFlower(s, f, 0.6, 2.5, 0.02);
-            out = stack.stream().filter(b -> game.flowerOf(b) == null).count();
         }
-        assertTrue(out >= 1, "a bump pushed the bottom POLLEN out");
-        for (Ball b : stack) {
-            if (game.flowerOf(b) == null) assertEquals(b.radius, b.position().get2(), 0.005, "knocked out onto the tiles");
-        }
+        assertEquals(null, game.flowerOf(bottom), "a bump pushed the bottom POLLEN out");
         // The robot's body stopped at the FLOWER's frame; only the low roller reached in.
         double front = Math.hypot(s.rig.body.position().get0() - f.x(), s.rig.body.position().get1() - f.y()) - 0.2286;
         assertTrue(front > f.innerRadius(), "chassis front " + front + " m from the FLOWER's axis");
+        // Once the robot stops pushing, the POLLEN lies on the tiles. Right after the bump the roller
+        // can still be holding it on the lower ring's rim, 1 cm up and just outside the tube. (How the
+        // stack falls differs from run to run: ODE shuffles its constraints with one random number
+        // generator for the whole JVM, so it depends on what was simulated before.)
+        for (var m : s.rig.motors.values()) m.port.power = 0;
+        s.run(1.5);
+        assertEquals(bottom.radius, bottom.position().get2(), 0.005, "knocked out onto the tiles");
     }
 
     @Test
