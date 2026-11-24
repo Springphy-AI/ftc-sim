@@ -1,0 +1,28 @@
+From c16bba617ecf5d86f923b852d418b120801b2bb2 Mon Sep 17 00:00:00 2001
+From: Jean-Bernard Berteaux <jean-bernard.berteaux@hexagon.com>
+Date: Mon, 24 Jun 2024 14:18:55 +0200
+Subject: [PATCH] workerpool: Properly wait for initialization of worker
+ threads
+
+---
+ common/workerpool.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/common/workerpool.c b/common/workerpool.c
+index aa903272..6b73541c 100644
+--- a/common/workerpool.c
++++ b/common/workerpool.c
+@@ -117,6 +117,13 @@ workerpool_t *workerpool_create(int nthreads)
+                 return NULL;
+             }
+         }
++
++        // Wait for the worker threads to be ready
++        pthread_mutex_lock(&wp->mutex);
++        while (wp->end_count < wp->nthreads) {
++            pthread_cond_wait(&wp->endcond, &wp->mutex);
++        }
++        pthread_mutex_unlock(&wp->mutex);
+     }
+ 
+     return wp;

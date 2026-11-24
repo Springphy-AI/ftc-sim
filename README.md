@@ -936,7 +936,7 @@ Station page loads.
 | Path | Contents |
 |---|---|
 | `sdk/` | The FTC SDK 12.0 API on a PC: FIRST's own classes where they are plain Java (Vision; RobotCore math, `AnalogInput`, `LED`, `JavaUtil` and the IMU's orientation helper; Hardware's `RevBlinkinLedDriver` and `RevHubOrientationOnRobot`), stand-ins with the same packages and signatures for the rest; simulator internals are in `ftcsim.hal` |
-| `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64, Linux x64 with glibc 2.38 or newer such as Ubuntu 24.04, and macOS on Apple silicon and Intel), with the script that builds it. Elsewhere (Linux on ARM, older Linux) the simulator runs without AprilTag detection |
+| `natives/apriltag/` | FIRST's AprilTag detector compiled for PCs (Windows x64, Linux x64 and ARM64 with glibc 2.17 or newer, macOS on Apple silicon and Intel), with a fix to its thread pool, and the script that builds it. Elsewhere the simulator runs without AprilTag detection |
 | `engine/` | Physics, robot model, OpMode runner, TeamCode compiler, code editor files and deploy (`ftcsim.deploy`), web server, browser UI (`src/main/resources/web`; the editor is CodeMirror 6, fetched from npm at build time) |
 | `examples/teamcode/` | Example OpModes for the default robot |
 | `examples/samples/` | The official FTC sample OpModes that run in the simulator (unmodified) |

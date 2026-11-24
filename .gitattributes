@@ -1,6 +1,8 @@
 *.bat text eol=crlf
 *.sh text eol=lf
 gradlew text eol=lf
+# Patches apply byte for byte (natives/apriltag/patches).
+*.patch text eol=lf
 
 # CAD models stay byte-exact: a converted STEP mesh (.cadmesh) records its STEP file's SHA-256.
 *.step -text

@@ -1,0 +1,107 @@
+Subject: [PATCH] workerpool: wait for the work to finish, not for wakeups
+
+Upstream's fix (0001, 0002) still counts a run as done when end_count reaches
+nthreads, and an idle worker adds 1 to end_count each time it wakes. POSIX
+lets pthread_cond_wait return without a broadcast, so one idle worker woken
+twice could end the run while others were still running tasks; workerpool_run
+then cleared the task array while a worker still held a pointer into it.
+
+Here a run is done when every task has been taken and no worker is running
+one (busy == 0), a worker copies its task under the lock, a wakeup without a
+run only waits again, and end_count only counts the workers that have
+started (workerpool_create waits for them, as in 0002). sched_yield() goes,
+as upstream later removed it (d686c00b).
+
+Checked with a stress test that wakes the workers all the time (20,000 runs
+of 1 to 200 tasks, three threads): the pinned code failed an assertion or
+miscounted, 0001 and 0002 miscounted and once hung, this counts every run
+right; ThreadSanitizer finds no race in it.
+---
+--- a/common/workerpool.c
++++ b/common/workerpool.c
+@@ -55,7 +55,8 @@
+     bool start_predicate;       // predicate that prevents spurious wakeups on startcond
+     pthread_cond_t endcond;     // used to signal completion of all work
+ 
+-    int end_count; // how many threads are done?
++    int end_count; // how many threads have started (workerpool_create waits for all of them)
++    int busy;      // how many threads are running a task now
+ };
+ 
+ struct task
+@@ -68,29 +69,36 @@
+ {
+     workerpool_t *wp = (workerpool_t*) p;
+ 
+-    while (1) {
+-        struct task *task;
++    pthread_mutex_lock(&wp->mutex);
++    wp->end_count++;   // started
++    pthread_cond_broadcast(&wp->endcond);
+ 
+-        pthread_mutex_lock(&wp->mutex);
+-        while (wp->taskspos == zarray_size(wp->tasks) || !wp->start_predicate) {
+-            wp->end_count++;
+-            pthread_cond_broadcast(&wp->endcond);
++    while (1) {
++        // A wakeup without a run (pthread_cond_wait may return by itself) only waits again: it
++        // takes no task and counts nothing.
++        while (wp->taskspos == zarray_size(wp->tasks) || !wp->start_predicate)
+             pthread_cond_wait(&wp->startcond, &wp->mutex);
+-        }
+ 
+-        zarray_get_volatile(wp->tasks, wp->taskspos, &task);
++        // A copy, taken under the lock: the task array may be cleared and grow again once the
++        // run is over.
++        struct task task;
++        zarray_get(wp->tasks, wp->taskspos, &task);
+         wp->taskspos++;
+-        pthread_mutex_unlock(&wp->mutex);
+-        sched_yield();
+ 
+         // we've been asked to exit.
+-        if (task->f == NULL)
++        if (task.f == NULL) {
++            pthread_mutex_unlock(&wp->mutex);
+             return NULL;
++        }
+ 
+-        task->f(task->p);
++        wp->busy++;
++        pthread_mutex_unlock(&wp->mutex);
++        task.f(task.p);
++        pthread_mutex_lock(&wp->mutex);
++        wp->busy--;
++        if (wp->busy == 0 && wp->taskspos == zarray_size(wp->tasks))
++            pthread_cond_broadcast(&wp->endcond);
+     }
+-
+-    return NULL;
+ }
+ 
+ workerpool_t *workerpool_create(int nthreads)
+@@ -193,21 +201,18 @@
+ {
+     if (wp->nthreads > 1) {
+         pthread_mutex_lock(&wp->mutex);
+-        wp->end_count = 0;
+         wp->start_predicate = true;
+         pthread_cond_broadcast(&wp->startcond);
+ 
+-        while (wp->end_count < wp->nthreads) {
+-//            printf("caught %d\n", wp->end_count);
++        // Done when every task has been taken and none is still running.
++        while (wp->taskspos < zarray_size(wp->tasks) || wp->busy > 0)
+             pthread_cond_wait(&wp->endcond, &wp->mutex);
+-        }
+ 
+         wp->taskspos = 0;
+         wp->start_predicate = false;
++        zarray_clear(wp->tasks);
+         pthread_mutex_unlock(&wp->mutex);
+ 
+-        zarray_clear(wp->tasks);
+-
+     } else {
+         workerpool_run_single(wp);
+     }

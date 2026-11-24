@@ -4,12 +4,16 @@
 # FIRST's FTC SDK 12.0 finds AprilTags with org.openftc:apriltag:2.1.0, which is C/C++ code
 # (OpenFTC EOCV-AprilTag-Plugin v2.1.0 + the AprilRobotics apriltag commit that release pins)
 # compiled for the Control Hub's ARM processor. This script compiles the same source files, with
-# the same compiler settings, for the PCs the simulator runs on. Two things differ from the robot
-# build, both outside the detector itself:
+# the same compiler settings, for the PCs the simulator runs on. Three things differ from the robot
+# build, none in what the detector finds:
 #   - <android/log.h> is replaced by shim/android/log.h, so the JNI glue's debug lines are dropped;
-#   - on Windows, AprilTag's own common/pthreads_cross.c supplies the threads Android has built in.
+#   - on Windows, AprilTag's own common/pthreads_cross.c supplies the threads Android has built in;
+#   - patches/ applies upstream AprilTag's 2024 fix for a race in the detector's thread pool
+#     (aa5951aa, c16bba61), which the pinned commit predates: a worker thread woken without cause
+#     (POSIX allows it, macOS does it) could take a task while the next frame's tasks were being
+#     added, and call through freed memory. It crashed the JVM on macOS CI.
 #
-# Needs curl, tar, and unzip (Windows host) or xz (Linux/macOS host), plus a JDK for jni.h.
+# Needs curl, tar, patch, and unzip (Windows host) or xz (Linux/macOS host), plus a JDK for jni.h.
 #
 #   sh natives/apriltag/build.sh           all five platforms. Downloads Zig (a self-contained
 #                                          C/C++ cross compiler) into build/; nothing is installed.
@@ -111,6 +115,10 @@ fetch() { # github-repo commit dir
 }
 fetch OpenFTC/EOCV-AprilTag-Plugin "$PLUGIN_COMMIT" plugin
 fetch AprilRobotics/apriltag "$APRILTAG_COMMIT" apriltag
+if [ ! -f apriltag/.patched ]; then
+    for p in "$here"/patches/*.patch; do patch -s -p1 -d apriltag < "$p"; done
+    touch apriltag/.patched
+fi
 
 # The file list comes from the plugin's own CMakeLists.txt, so it is exactly the robot's.
 # Its paths are relative to plugin/apriltag/, where apriltag/ is the AprilRobotics submodule.
